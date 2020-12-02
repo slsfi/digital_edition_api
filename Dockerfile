@@ -9,6 +9,9 @@ RUN useradd -ms /bin/bash uwsgi
 RUN mkdir /app
 RUN chown -R uwsgi /app
 
+# Add system-wide gitconfig file
+ADD git_config /etc/gitconfig
+
 # drop into uwsgi user to copy over API files, should ensure proper permissions for these files
 USER uwsgi
 WORKDIR /app
