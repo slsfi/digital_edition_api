@@ -21,7 +21,7 @@ setup(
         'ruamel.yaml==0.18.3',
         'requests==2.31.0',
         'sqlalchemy==2.0.22',
-        'Pillow==10.1.0',
+        'Pillow==10.2.0',
         'werkzeug==3.0.1',
         'uwsgi==2.0.23'
     ]
