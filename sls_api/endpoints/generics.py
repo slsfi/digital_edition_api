@@ -14,6 +14,7 @@ from ruamel.yaml import YAML
 from sqlalchemy import create_engine, MetaData, Table
 from sqlalchemy.sql import select, text
 import time
+from typing import Any, Tuple, Optional
 from werkzeug.security import safe_join
 
 ALLOWED_EXTENSIONS_FOR_FACSIMILE_UPLOAD = ["tif", "tiff", "png", "jpg", "jpeg"]
@@ -540,3 +541,58 @@ def get_allowed_cors_origins(project: str) -> list:
     if not project_config:
         return []
     return project_config.get("allowed_cors_origins", [])
+
+
+def validate_project_name(name: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validates the project name according to specified constraints.
+
+    The project name must meet the following criteria:
+    - Length no less than 3 and no more than 32 characters.
+    - Contains only lowercase letters (a-z), digits (0-9) and underscores (_).
+
+    Parameters:
+    - name (str): The project name to validate.
+
+    Returns:
+    - Tuple[bool, Optional[str]]: A tuple where the first element is a
+      boolean indicating if the validation passed (`True`) or failed
+      (`False`), and the second element is an error message string if
+      validation failed, or `None` if validation passed.
+    """
+    # Check length constraint
+    if len(name) < 3 or len(name) > 32:
+        return False, "Project name must be no less than 3 and no more than 32 characters long."
+
+    # Check allowed characters (lowercase letters a-z, digits 0-9 and underscores _)
+    if not re.fullmatch(r'[a-z0-9_]+', name):
+        return False, "Project name can only contain lowercase letters a-z and digits 0-9."
+
+    return True, None
+
+
+def validate_int(
+        value: Any,
+        min_value: Optional[int] = None,
+        max_value: Optional[int] = None
+) -> bool:
+    """
+    Validates that 'value' is an integer and optionally within specified
+    bounds.
+
+    Parameters:
+    - value (Any): The value to validate.
+    - min_value (Optional[int]): Minimum allowed value (inclusive).
+    - max_value (Optional[int]): Maximum allowed value (inclusive).
+
+    Returns:
+    - A boolean indicating if the validation passed (`True`) or failed
+      (`False`).
+    """
+    if (
+        not isinstance(value, int)
+        or (min_value is not None and value < min_value)
+        or (max_value is not None and value > max_value)
+    ):
+        return False
+    return True

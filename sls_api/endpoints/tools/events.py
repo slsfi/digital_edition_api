@@ -515,21 +515,28 @@ def edit_translation(project, translation_id):
 @project_permission_required
 def list_translations(project, translation_id):
     """
-    List all translations for a given translation_id with optional filters.
+    List all (non-deleted) translations for a given translation_id
+    with optional filters.
 
-    Parameters:
+    URL Path Parameters:
+
     - project (str): project name.
-    - translation_id (str): The id of the translation object in the `translation` table. Must be a valid integer.
-    - Optional POST data parameters in JSON format:
-        - table_name (str): Filter translations by a specific table name.
-        - field_name (str): Filter translations by a specific field name.
-        - language (str): Filter translations by a specific language.
-        - translation_text_id (int): Filter translations by a specific id in the `translation_text` table.
+    - translation_id (str): The id of the translation object in the
+      `translation` table. Must be a valid integer.
+
+    POST Data Parameters in JSON Format (optional):
+    - table_name (str): Filter translations by a specific table name.
+    - field_name (str): Filter translations by a specific field name.
+    - language (str): Filter translations by a specific language.
+    - translation_text_id (int): Filter translations by a specific id
+      in the `translation_text` table.
 
     Returns:
+
         JSON: A list of translation records or an error message.
 
     Example Request:
+
         POST /projectname/translations/1/list/
         Body:
         {
@@ -540,6 +547,7 @@ def list_translations(project, translation_id):
         }
 
     Example Response:
+
         [
             {
                 "translation_text_id": 123,
@@ -553,9 +561,10 @@ def list_translations(project, translation_id):
         ]
 
     Status Codes:
-        200 - OK: Returns the list of translations.
-        400 - Bad Request: Invalid or missing translation_id.
-        500 - Internal Server Error: Query or execution failed.
+
+    - 200 - OK: Returns the list of translations.
+    - 400 - Bad Request: Invalid or missing translation_id.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
     # Convert translation_id to integer
     translation_id = int_or_none(translation_id)
