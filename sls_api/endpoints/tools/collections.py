@@ -1,9 +1,9 @@
 from flask import Blueprint, jsonify, request
-from sqlalchemy import select, text
+from sqlalchemy import select, text, and_, or_, not_
 from datetime import datetime
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
-     project_permission_required
+from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, \
+    int_or_none, project_permission_required, validate_int
 
 
 collection_tools = Blueprint("collection_tools", __name__)
@@ -13,164 +13,482 @@ collection_tools = Blueprint("collection_tools", __name__)
 @project_permission_required
 def create_facsimile_collection(project):
     """
-    Create a new publication_facsimile_collection
+    Create a new facsimile collection.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    title: collection type
-    description: collection description
-    folderPath: path to facsimiles for this collection
+    - project (str): The name of the project (must be a valid project
+      name, but the created facsimile collection is not associated with it).
 
-    POST data MAY also contain:
-    numberOfPages: total number of pages in this collection
-    startPageNumber: number for starting page of this collection
-    pageComment: Commentary on page numbering
-    externalURL: Externally viewable URL for this facsimile collection
+    POST Data Parameters in JSON Format:
+
+    - title (str, required): The title of the facsimile collection.
+      Cannot be empty.
+    - description (str): A description of the facsimile collection.
+      Recommended.
+    - number_of_pages (int): The total number of pages in the facsimile
+      collection. Must be a non-negative integer.
+    - start_page_number (int): The starting page number of the facsimile
+      collection. Must be a non-negative integer. Generally, this should
+      be set to 0, which is also the default if 'external_url' is empty.
+    - folder_path (str): File system path to the folder containing
+      the facsimile files. Generally not used.
+    - page_comment (str): Comments or notes related to the pages in the
+      facsimile collection.
+    - external_url (str): External URL where the image files of the
+      facsimile collection are located.
+
+    Returns:
+
+        JSON: A success message with the inserted row or an error message.
+
+    Example Request:
+
+        POST /projectname/facsimile_collection/new/
+        Body:
+        {
+            "title": "New Facsimile Collection",
+            "description": "Some details about the collection.",
+            "number_of_pages": 100
+        }
+
+    Example Response (Success):
+
+        {
+            "msg": "Facsimile collection with ID 123 created successfully.",
+            "row": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "deleted": 0,
+                "title": "New Facsimile Collection",
+                "number_of_pages": 100,
+                "start_page_number": 0,
+                "description": "Some details about the collection.",
+                "folder_path": null,
+                "page_comment": null,
+                "external_url": null
+            }
+        }
+
+    Example Response (Error):
+
+        {
+            "msg": "Field 'title' must be provided and cannot be empty."
+        }
+
+    Status Codes:
+
+    - 201 - Created: The facsimile collection was inserted successfully.
+    - 400 - Bad Request: Invalid project name, field values, or no data
+            provided.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return jsonify({"msg": "Invalid project name."}), 400
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
         return jsonify({"msg": "No data provided."}), 400
-    collections = get_table("publication_facsimile_collection")
-    connection = db_engine.connect()
 
-    new_collection = {
-        "title": request_data.get("title", None),
-        "description": request_data.get("description", None),
-        "folder_path": request_data.get("folderPath", None),
-        "external_url": request_data.get("externalUrl", None),
-        "number_of_pages": request_data.get("numberOfPages", None),
-        "start_page_number": request_data.get("startPageNumber", None)
-    }
-    insert = collections.insert().values(**new_collection)
-    try:
-        with connection.begin():
-            result = connection.execute(insert)
-            new_row = select(collections).where(collections.c.id == result.inserted_primary_key[0])
+    # Verify that the required 'title' field was provided
+    if "title" not in request_data or not request_data["title"]:
+        return jsonify({"msg": "Field 'title' must be provided and cannot be empty."}), 400
 
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
+    # List of fields to check in request_data
+    fields = ["title",
+              "number_of_pages",
+              "start_page_number",
+              "description",
+              "folder_path",
+              "page_comment",
+              "external_url"]
+
+    # Start building the dictionary of inserted values
+    values = {}
+
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None:
+                values[field] = None
             else:
-                new_row = {}
-            result = {
-                "msg": "Created new publication_facsimile_collection with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
+                if field in ["number_of_pages", "start_page_number"]:
+                    if not validate_int(request_data[field], 0):
+                        return jsonify({"msg": f"Field '{field}' must be a non-negative integer."}), 400
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    # Set default value for "start_page_number" if not set and
+    # "external_url" not set
+    if (
+        ("external_url" not in values or values["external_url"] is None)
+        and ("start_page_number" not in values or values["start_page_number"] is None)
+    ):
+        values["start_page_number"] = 0
+
+    try:
+        with db_engine.connect() as connection:
+            with connection.begin():
+                facs_coll_table = get_table("publication_facsimile_collection")
+                stmt = (
+                    facs_coll_table.insert()
+                    .values(**values)
+                    .returning(*facs_coll_table.c)  # Return the inserted row
+                )
+                result = connection.execute(stmt)
+                inserted_row = result.fetchone()  # Fetch the inserted row
+
+                if inserted_row is None:
+                    # No row was returned; handle accordingly
+                    return jsonify({
+                        "msg": "Insertion failed: no row returned.",
+                        "reason": "The insert statement did not return any data."
+                    }), 500
+
+                # Convert the inserted_row to a dictionary for JSON serialization
+                inserted_row_dict = inserted_row._asdict()
+
+                return jsonify({
+                    "msg": f"Facsimile collection with ID {inserted_row['id']} created successfully.",
+                    "row": inserted_row_dict
+                }), 201
+
     except Exception as e:
-        result = {
-            "msg": "Failed to create new publication_facsimile_collection",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+        return jsonify({"msg": "Failed to create new facsimile collection.",
+                        "reason": str(e)}), 500
 
 
 @collection_tools.route("/<project>/facsimile_collection/<facsimile_collection_id>/edit/", methods=["POST"])
 @project_permission_required
 def edit_facsimile_collection(project, facsimile_collection_id):
     """
-    Edit a facsimile_collection object in the database
+    Edit a facsimile collection.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
+
+    - project (str): The name of the project (must be a valid project name).
+    - facsimile_collection_id (int): The ID of the facsimile collection to
+      be edited. Must be a positive integer.
+
+    POST Data Parameters in JSON Format (at least one required):
+
+    - title (str): The title of the facsimile collection. If
+      provided, it cannot be empty.
+    - description (str): A description of the facsimile collection.
+    - number_of_pages (int): The total number of pages in the
+      facsimile collection. Must be a non-negative integer.
+    - start_page_number (int): The starting page number of the
+      facsimile collection. Must be a non-negative integer.
+    - folder_path (str): File system path to the folder containing
+      the facsimile files. Generally not used.
+    - page_comment (str): Comments or notes related to the pages in
+      the facsimile collection.
+    - external_url (str): External URL where the image files of the
+      facsimile collection are located.
+    - deleted (int): Marks the facsimile collection as deleted if set
+      to 1. Must be either 0 or 1.
+
+    Returns:
+
+        JSON: A success message with the updated row or an error message.
+
+    Example Request:
+
+        POST /projectname/facsimile_collection/123/edit/
+        Body:
+        {
+            "title": "Updated Facsimile Collection",
+            "description": "Updated description of the collection.",
+            "number_of_pages": 150
+        }
+
+    Example Response (Success):
+
+        {
+            "msg": "Updated facsimile collection with ID 123 successfully.",
+            "row": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "deleted": 0,
+                "title": "Updated Facsimile Collection",
+                "number_of_pages": 150,
+                "start_page_number": 0,
+                "description": "Updated description of the collection.",
+                "folder_path": null,
+                "page_comment": null,
+                "external_url": null
+            }
+        }
+
+    Example Response (Error):
+
+        {
+            "msg": "Invalid facsimile_collection_id, must be a positive integer."
+        }
+
+    Status Codes:
+
+    - 200 - OK: The facsimile collection was updated successfully.
+    - 400 - Bad Request: Invalid project name, field values, or no data
+            provided.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return jsonify({"msg": "Invalid project name."}), 400
+
+    # Convert facsimile_collection_id to integer and verify
+    facsimile_collection_id = int_or_none(facsimile_collection_id)
+    if not facsimile_collection_id or facsimile_collection_id < 1:
+        return jsonify({"msg": "Invalid facsimile_collection_id, must be a positive integer."}), 400
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
         return jsonify({"msg": "No data provided."}), 400
 
-    facsimile_collections = get_table("publication_facsimile_collection")
+    # Verify that the 'title' field is not empty if provided
+    if "title" in request_data and not request_data["title"]:
+        return jsonify({"msg": "Field 'title' cannot be empty."}), 400
 
-    connection = db_engine.connect()
-    with connection.begin():
-        facsimile_collections_query = select(facsimile_collections.c.id).where(facsimile_collections.c.id == int_or_none(facsimile_collection_id))
-        facsimile_collections_row = connection.execute(facsimile_collections_query).fetchone()
-    if facsimile_collections_row is None:
-        return jsonify({"msg": "No facsimile collection with an ID of {} exists.".format(facsimile_collection_id)}), 404
+    # List of fields to check in request_data
+    fields = ["title",
+              "number_of_pages",
+              "start_page_number",
+              "description",
+              "folder_path",
+              "page_comment",
+              "external_url",
+              "deleted"]
 
-    title = request_data.get("title", None)
-    number_of_pages = request_data.get("number_of_pages", 0)
-    start_page_number = request_data.get("start_page_number", 0)
-    description = request_data.get("description", None)
-    folder_path = request_data.get("folder_path", None)
-    page_comment = request_data.get("page_comment", None)
-    external_url = request_data.get("external_url", None)
-
+    # Start building the dictionary of inserted values
     values = {}
-    if title is not None:
-        values["title"] = title
-    if number_of_pages is not None:
-        values["number_of_pages"] = number_of_pages
-    if start_page_number is not None:
-        values["start_page_number"] = start_page_number
-    if description is not None:
-        values["description"] = description
-    if folder_path is not None:
-        values["folder_path"] = folder_path
-    if page_comment is not None:
-        values["page_comment"] = page_comment
-    if external_url is not None:
-        values["external_url"] = external_url
 
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None and field != "deleted":
+                values[field] = None
+            else:
+                if field in ["number_of_pages", "start_page_number"]:
+                    if not validate_int(request_data[field], 0):
+                        return jsonify({"msg": f"Field '{field}' must be a non-negative integer."}), 400
+                elif field == "deleted":
+                    if not validate_int(request_data[field], 0, 1):
+                        return jsonify({"msg": f"Field '{field}' must be an integer with value 0 or 1."}), 400
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    if not values:
+        return jsonify({"msg": "No valid fields provided to update."}), 400
+
+    # Add date_modified
     values["date_modified"] = datetime.now()
 
-    if len(values) > 0:
-        try:
+    try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                update = facsimile_collections.update().where(facsimile_collections.c.id == int(facsimile_collection_id)).values(**values)
-                connection.execute(update)
+                facs_coll_table = get_table("publication_facsimile_collection")
+                stmt = (
+                    facs_coll_table.update()
+                    .where(facs_coll_table.c.id == facsimile_collection_id)
+                    .values(**values)
+                    .returning(*facs_coll_table.c)  # Return the updated row
+                )
+                result = connection.execute(stmt)
+                updated_row = result.fetchone()  # Fetch the updated row
+
+                if updated_row is None:
+                    # No row was returned: invalid facsimile_collection_id
+                    return jsonify({"msg": "Update failed: invalid facsimile_collection_id."}), 400
+
+                # Convert the inserted row to a dict for JSON serialization
+                updated_row_dict = updated_row._asdict()
+
                 return jsonify({
-                    "msg": "Updated facsimile_collection {} with values {}".format(int(facsimile_collection_id), str(values)),
-                    "facsimile_collection_id": int(facsimile_collection_id)
+                    "msg": f"Updated facsimile collection with ID {facsimile_collection_id} successfully.",
+                    "row": updated_row_dict
                 })
-        except Exception as e:
-            result = {
-                "msg": "Failed to update facsimile_collections.",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    else:
-        connection.close()
-        return jsonify("No valid update values given."), 400
+
+    except Exception as e:
+        return jsonify({"msg": f"Failed to update facsimile collection with ID {facsimile_collection_id}.",
+                        "reason": str(e)}), 500
 
 
 @collection_tools.route("/<project>/facsimile_collection/list/")
 @project_permission_required
 def list_facsimile_collections(project):
     """
-    List all publication_collection objects for a given project
+    List all facsimile collections linked to the specified project and
+    all orphan facsimile collections (i.e. not linked to any project).
+
+    URL Path Parameters:
+
+    - project (str): The name of the project to retrieve facsimile
+      collections for (must be a valid project name).
+
+    Returns:
+
+        JSON: A list with facsimile collection objects, an empty list
+        or an error message.
+
+    Example Request:
+
+        GET /projectname/facsimile_collection/list/
+
+    Example Response (Success):
+
+        [
+            {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "deleted": 0,
+                "title": "Facsimile Collection",
+                "number_of_pages": 150,
+                "start_page_number": 0,
+                "description": "Description of the collection.",
+                "folder_path": null,
+                "page_comment": null,
+                "external_url": null
+            },
+            ...
+        ]
+
+    Example Response (Error):
+
+        {
+            "msg": "Invalid project name."
+        }
+
+    Status Codes:
+
+    - 200 - OK: The facsimile collections are retrieved successfully.
+    - 400 - Bad Request: Invalid project name.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
     project_id = get_project_id_from_name(project)
-    connection = db_engine.connect()
-    statement = """ select * from publication_facsimile_collection where deleted != 1 AND (
-                    id in
-                    (
-                        select publication_facsimile_collection_id from publication_facsimile where publication_id in (
-                            select id from publication where publication_collection_id in (
-                                select id from publication_collection where project_id = :project_id and deleted != 1
-                            )
-                        )
-                    ) or
-                    id not in
-                    (
-                        select publication_facsimile_collection_id from publication_facsimile where publication_id in (
-                            select id from publication where publication_collection_id in (
-                                select id from publication_collection where deleted != 1
-                            )
-                        )
+    if not project_id:
+        return jsonify({"msg": "Invalid project name."}), 400
+
+    publication_facsimile_collection = get_table("publication_facsimile_collection")
+    publication_facsimile = get_table("publication_facsimile")
+    publication = get_table("publication")
+    publication_collection = get_table("publication_collection")
+
+    # The endpoint has been refactored to use SQLAlchemy's Core methods
+    # to build the query statement. The original raw SQL query is below
+    # for reference.
+    # The query does the following:
+    # Select all publication_collection objects that are linked to the
+    # project through publication_facsimile -> publication ->
+    # publication_collection
+    # AND all publication_collection objects that are orphans, i.e. they
+    # are not linked to any publication_collection
+    """
+    SELECT *
+    FROM publication_facsimile_collection
+    WHERE deleted != 1 AND (
+        id IN (
+            SELECT publication_facsimile_collection_id
+            FROM publication_facsimile
+            WHERE publication_id IN (
+                SELECT id
+                FROM publication
+                WHERE publication_collection_id IN (
+                    SELECT id
+                    FROM publication_collection
+                    WHERE project_id = :project_id AND deleted != 1
+                )
+            )
+        )
+        OR id NOT IN (
+            SELECT publication_facsimile_collection_id
+            FROM publication_facsimile
+            WHERE publication_id IN (
+                SELECT id
+                FROM publication
+                WHERE publication_collection_id IN (
+                    SELECT id
+                    FROM publication_collection
+                    WHERE deleted != 1
+                )
+            )
+        )
+    )
+    """
+
+    try:
+        with db_engine.connect() as connection:
+            # Subquery to get publication_collection IDs for the project
+            pub_coll_subq = select(publication_collection.c.id).where(
+                and_(
+                    publication_collection.c.project_id == project_id,
+                    publication_collection.c.deleted < 1
+                )
+            )
+
+            # Subquery to get publication IDs linked to the
+            # publication_collections
+            publication_subq = select(publication.c.id).where(
+                publication.c.publication_collection_id.in_(pub_coll_subq)
+            )
+
+            # Subquery to get publication_facsimile_collection_ids linked
+            # to the publications
+            facsimile_coll_linked_subq = select(publication_facsimile.c.publication_facsimile_collection_id).where(
+                publication_facsimile.c.publication_id.in_(publication_subq)
+            )
+
+            # Subquery to get all publication_collection IDs where deleted < 1
+            all_pub_coll_subq = select(publication_collection.c.id).where(
+                publication_collection.c.deleted < 1
+            )
+
+            # Subquery to get publication IDs linked to all
+            # publication_collections
+            all_publication_subq = select(publication.c.id).where(
+                publication.c.publication_collection_id.in_(all_pub_coll_subq)
+            )
+
+            # Subquery to get all publication_facsimile_collection_ids
+            # linked to any publication_collection
+            facsimile_coll_all_linked_subq = select(publication_facsimile.c.publication_facsimile_collection_id).where(
+                publication_facsimile.c.publication_id.in_(all_publication_subq)
+            )
+
+            # Main query
+            stmt = select(publication_facsimile_collection).where(
+                and_(
+                    publication_facsimile_collection.c.deleted < 1,
+                    or_(
+                        publication_facsimile_collection.c.id.in_(facsimile_coll_linked_subq),
+                        not_(publication_facsimile_collection.c.id.in_(facsimile_coll_all_linked_subq))
                     )
-                )"""
-    statement = text(statement).bindparams(project_id=project_id)
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
+                )
+            )
+            rows = connection.execute(stmt).fetchall()
+            result = [row._asdict() for row in rows]
+            return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"msg": "Error trying to retrieve facsimile collections.",
+                        "reason": str(e)}), 500
 
 
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/link/", methods=["POST"])
@@ -371,24 +689,77 @@ def delete_facsimile_collection_link(project, f_pub_id):
 @project_permission_required
 def list_publication_collections(project):
     """
-    List all publication_collection objects for a given project
+    List all (non-deleted) publication collections for a given project.
+
+    URL Path Parameter:
+
+    - project (str, required): The name of the project to retrieve
+      publication collections for.
+
+    Returns:
+
+        JSON: A list of all publication collection objects associated
+        with the given project, an empty list if there are none,
+        or an error message.
+
+    Example Request:
+
+        GET /<project>/publication_collection/list/
+
+    Example Response (Success):
+
+        [
+            {
+                "id": 1,
+                "name": "Collection Title",
+                "published": 1,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "date_published_externally": null,
+                "deleted": 0,
+                "legacy_id": null,
+                "project_id": 101,
+                "publication_collection_title_id": 55,
+                "publication_collection_introduction_id": 75,
+                "name_translation_id": null,
+                "collection_title_filename": "title_file.xml",
+                "collection_intro_filename": "intro_file.xml",
+                "collection_title_published": 1,
+                "collection_intro_published": 1
+            },
+            ...
+        ]
+
+    Example Response (Error):
+
+        {
+            "msg": "No such project exists."
+        }
+
+    Status Codes:
+
+    - 200 - OK: The request was successful, and the publication collections
+            are returned.
+    - 400 - Bad Request: The project does not exist.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
     project_id = get_project_id_from_name(project)
-    connection = db_engine.connect()
-    # collections = get_table("publication_collection")
+    if not project_id:
+        return jsonify({"msg": "No such project exists."}), 400
+
     statement = """
         SELECT
             pc.id,
-            pc.name AS title,
+            pc.name,
             pc.published,
             pc.date_created,
             pc.date_modified,
             pc.date_published_externally,
+            pc.deleted,
             pc.legacy_id,
             pc.project_id,
             pc.publication_collection_title_id,
             pc.publication_collection_introduction_id,
-            pc.name,
             pc.name_translation_id,
             pct.original_filename AS collection_title_filename,
             pci.original_filename AS collection_intro_filename,
@@ -404,20 +775,22 @@ def list_publication_collections(project):
             ON pci.id = pc.publication_collection_introduction_id
         WHERE
             pc.project_id = :project_id
-            AND pc.published >= 1
+            AND pc.deleted < 1
         ORDER BY
             pc.id
     """
 
-    statement = text(statement).bindparams(project_id=int_or_none(project_id))
-    # statement = select(collections).where(collections.c.project_id == int_or_none(project_id))
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
+    try:
+        with db_engine.connect() as connection:
+            rows = connection.execute(
+                text(statement),
+                {"project_id": project_id}
+            ).fetchall()
+            result = [row._asdict() for row in rows]
+            return jsonify(result)
+    except Exception as e:
+        return jsonify({"msg": "Failed to retrieve project publication collections.",
+                        "reason": str(e)}), 500
 
 
 @collection_tools.route("/<project>/publication_collection/new/", methods=["POST"])
@@ -426,17 +799,24 @@ def new_publication_collection(project):
     """
     Create a new publication collection in the specified project.
 
-    Parameters:
+    URL Path Parameters:
+
     - project (str): The name of the project.
 
-    POST data parameters in JSON format:
-    - published (int, required): The publication status of the collection. Must be an integer with values 0, 1 or 2. Recommended initial value is 1.
-    - name (str): The name/title of the publication collection.
+    POST Data Parameters in JSON Format:
+
+    - name (str, required): The name/title of the publication collection.
+      Cannot be empty.
+    - published (int): The publication status of the collection. Must be an
+      integer with value 0, 1 or 2. Default value is 1.
 
     Returns:
-        JSON: A success message with the id of the inserted publication collection, or an error message.
+
+        JSON: A success message and the inserted publication collection
+        row, or an error message.
 
     Example Request:
+
         POST /projectname/publication_collection/new/
         Body:
         {
@@ -445,20 +825,29 @@ def new_publication_collection(project):
         }
 
     Example Response (Success):
+
         {
-            "msg": "Publication collection inserted successfully.",
-            "id": 456
+            "msg": "Publication collection created successfully.",
+            "row": {
+                "id": 789,
+                "name": "My New Collection",
+                "published": 1,
+                ...
+            }
         }
 
     Example Response (Error):
+
         {
             "msg": "Field 'published' must be an integer with value 0, 1 or 2."
         }
 
     Status Codes:
-        201 - Created: The publication collection was inserted successfully.
-        400 - Bad Request: Invalid project name, invalid field values, or no valid fields provided for insertion.
-        500 - Internal Server Error: Database query or execution failed.
+
+    - 201 - Created: The publication collection was inserted successfully.
+    - 400 - Bad Request: Invalid project name, invalid field values, or no
+            valid fields provided for insertion.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
     # Verify that project is valid
     project_id = get_project_id_from_name(project)
@@ -470,14 +859,12 @@ def new_publication_collection(project):
     if not request_data:
         return jsonify({"msg": "No data provided."}), 400
 
-    # Verify that the required 'published' field was provided
-    if "published" not in request_data:
-        return jsonify({"msg": "'published' field is required."}), 400
+    # Verify that the required 'name' field was provided
+    if "name" not in request_data or not request_data["name"]:
+        return jsonify({"msg": "'name' field is required and must be non-empty."}), 400
 
-    # Start building the INSERT query
-    query = "INSERT INTO publication_collection ("
+    # Start building values dictionary for the insert
     values = {}
-    field_names = []
 
     # List of fields to check in request_data
     fields = ["name", "published"]
@@ -487,38 +874,51 @@ def new_publication_collection(project):
         if field in request_data:
             # Validate integer field values and ensure all other fields are strings
             if field == "published":
-                if not isinstance(request_data[field], int) or request_data[field] < 0 or request_data[field] > 2:
-                    return jsonify({"msg": f"Field '{field}' must be an integer with value 0, 1 or 2."}), 400
+                if not validate_int(request_data["published"], 0, 2):
+                    return jsonify({"msg": "Field 'published' must be an integer with value 0, 1 or 2."}), 400
             else:
                 # Convert remaining fields to string
                 request_data[field] = str(request_data[field])
 
             # Add the field to the field_names list for the query construction
-            field_names.append(field)
             values[field] = request_data[field]
 
-    if not field_names:
-        return jsonify({"msg": "No valid fields provided for insertion."}), 400
+    # Set published to default value 1 if not in provided values
+    if "published" not in values:
+        values["published"] = 1
 
-    # Add project_id to values to be inserted
-    field_names.append("project_id")
+    # Add project_id to insert values
     values["project_id"] = project_id
 
-    # Complete the query construction
-    query += ", ".join(field_names) + ") VALUES (:" + ", :".join(field_names) + ")"
+    publication_collection = get_table("publication_collection")
 
     try:
         with db_engine.connect() as connection:
             with connection.begin():
                 # Execute the insert statement
-                statement = text(query).bindparams(**values)
+                statement = (
+                    publication_collection.insert()
+                    .values(**values)
+                    .returning(*publication_collection.c)  # Return the inserted row
+                )
                 result = connection.execute(statement)
+                inserted_row = result.fetchone()  # Fetch the inserted row
+
+                if inserted_row is None:
+                    # No row was returned; handle accordingly
+                    return jsonify({
+                        "msg": "Insertion failed: no row returned.",
+                        "reason": "The insert statement did not return any data."
+                    }), 500
+
+                # Convert the inserted_row to a dictionary for JSON serialization
+                inserted_row_dict = inserted_row._asdict()
 
                 return jsonify({"msg": "Publication collection inserted successfully.",
-                                "id": result.inserted_primary_key[0]}), 201
+                                "row": inserted_row_dict}), 201
 
     except Exception as e:
-        return jsonify({"msg": "Failed to insert new publication collection.",
+        return jsonify({"msg": "Failed to create new publication collection.",
                         "reason": str(e)}), 500
 
 
@@ -527,120 +927,300 @@ def new_publication_collection(project):
 @project_permission_required
 def list_publications(project, collection_id, order_by="id"):
     """
-    List all publications in a given collection
+    List all (non-deleted) publications within a specific publication
+    collection for a given project.
+
+    URL Path Parameters:
+
+    - project (str, required): The name of the project for which to
+      retrieve publications.
+    - collection_id (int, required): The id of the publication collection
+      to retrieve publications from.
+    - order_by (str, optional): The column by which to order the publications.
+      For example "id", "name", "original_filename" or "date_modified".
+      Defaults to "id".
+
+    Returns:
+
+        JSON: A list of publication objects in the specified collection, an
+        empty list if there are no publications, or an error message.
+
+    Example Request:
+
+        GET /projectname/publication_collection/123/publications/
+        GET /projectname/publication_collection/123/publications/name/
+
+    Example Response (Success):
+
+        [
+            {
+                "id": 1,
+                "publication_collection_id": 123,
+                "publication_comment_id": 5487,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "date_published_externally": null,
+                "deleted": 0,
+                "published": 1,
+                "legacy_id": null,
+                "published_by": null,
+                "original_filename": "/path/to/file.xml",
+                "name": "Publication Title",
+                "genre": "non-fiction",
+                "publication_group_id": null,
+                "original_publication_date": "1854",
+                "zts_id": null,
+                "language": "en"
+            },
+            ...
+        ]
+
+    Example Response (Error):
+
+        {
+            "msg": "Invalid collection_id, does not exist."
+        }
+
+    Status Codes:
+
+    - 200 - OK: The request was successful, and the publications are returned.
+    - 400 - Bad Request: The project name or collection_id is invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
     project_id = get_project_id_from_name(project)
-    connection = db_engine.connect()
-    collections = get_table("publication_collection")
-    publications = get_table("publication")
-    statement = select(collections).where(collections.c.id == int_or_none(collection_id)).order_by(str(order_by))
-    rows = connection.execute(statement).fetchall()
-    if len(rows) != 1:
-        return jsonify(
-            {
-                "msg": "Could not find collection in database."
-            }
-        ), 404
-    elif rows[0].project_id != int_or_none(project_id):
-        return jsonify(
-            {
-                "msg": "Found collection not part of project {!r} with ID {}.".format(project, project_id)
-            }
-        ), 400
-    statement = select(publications).where(publications.c.publication_collection_id == int_or_none(collection_id)).order_by(str(order_by))
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
+    if not project_id:
+        return jsonify({"msg": "Invalid project name."}), 400
+
+    # Convert collection_id to integer and verify
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return jsonify({"msg": "Invalid collection_id, must be an integer."}), 400
+
+    collection_table = get_table("publication_collection")
+    publication_table = get_table("publication")
+
+    if order_by not in publication_table.c:
+        return jsonify({"msg": "Invalid order_by field."}), 400
+
+    try:
+        with db_engine.connect() as connection:
+            with connection.begin():
+                # Check for publication_collection existence
+                select_coll_stmt = (
+                    select(collection_table.c.project_id)
+                    .where(collection_table.c.id == collection_id)
+                    .where(collection_table.c.deleted < 1)
+                )
+                result = connection.execute(select_coll_stmt).first()
+
+                if not result:
+                    return jsonify({"msg": "Invalid collection_id, does not exist."}), 400
+
+                # Check that the publication collection belongs to the provided project
+                if project_id != result[0]:
+                    return jsonify({"msg": f"The publication collection with id '{collection_id}' does not belong to project '{project}'."}), 400
+
+                # Proceed to selecting the publications
+                select_pub_stmt = (
+                    select(publication_table)
+                    .where(publication_table.c.publication_collection_id == collection_id)
+                    .where(publication_table.c.deleted < 1)
+                    .order_by(publication_table.c[order_by])
+                )
+                rows = connection.execute(select_pub_stmt).fetchall()
+                result = [row._asdict() for row in rows]
+                return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"msg": "Failed to retrieve publications.",
+                        "reason": str(e)}), 500
 
 
 @collection_tools.route("/<project>/publication_collection/<collection_id>/publications/new/", methods=["POST"])
 @project_permission_required
 def new_publication(project, collection_id):
     """
-    Create a new publication object as part of the given publication_collection
+    Create a new publication as part of the specified publication collection.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain the following:
-    name: publication name
+    - project (str): The name of the project.
+    - collection_id (int): The id of the publication collection to which
+      the new publication will be added.
 
-    POST data MAY also contain the following:
-    publicationComment_id: ID for related publicationComment object
-    datePublishedExternally: date of external publication for publication
-    published: publish status for publication
-    legacyId: legacy ID for publication
-    publishedBy: person responsible for publishing the publication
-    originalFilename: filepath to publication XML file
-    genre: Genre for this publication
-    publicationGroup_id: ID for related publicationGroup, used to group publications for easy publishing of large numbers of publications
-    originalPublicationDate: Date of original publication for physical equivalent
-    language: language code (ISO 639-1) of the primary language of the publication text
+    POST Data Parameters in JSON Format:
+
+    - name (str, required): The name/title of the publication. Cannot be empty.
+    - publication_comment_id (int, optional): id of the associated
+      publication comment. Must be a positive integer, and the comment must
+      exist in the 'publication_comment' table.
+    - published (int, optional): The publication status. Must be an integer
+      with value 0, 1 or 2. Defaults to 1.
+    - legacy_id (str, optional): Legacy id for the publication.
+    - original_filename (str, optional): File path to the publication XML file.
+    - genre (str, optional): The genre of the publication.
+    - original_publication_date (str, optional): Date when the publication
+      was originally published.
+    - language (str, optional): Language code (ISO 639-1) of the main
+      language of the publication.
+
+    Returns:
+
+        JSON: A success message with the inserted row or an error message.
+
+    Example Request:
+
+        POST /projectname/publication_collection/123/publications/new/
+        Body:
+        {
+            "name": "New Publication",
+            "published": 1
+        }
+
+    Example Response (Success):
+
+        {
+            "msg": "Publication created successfully.",
+            "row": {
+                "id": 789,
+                "name": "New Publication",
+                "published": 1,
+                ...
+            }
+        }
+
+    Example Response (Error):
+
+        {
+            "msg": "Field 'published' must be an integer with value 0, 1 or 2."
+        }
+
+    Status Codes:
+
+    - 201 - Created: The publication was inserted successfully.
+    - 400 - Bad Request: Invalid project name, collection id, field values,
+            or no data provided.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return jsonify({"msg": "Invalid project name."}), 400
+
+    # Convert collection_id to integer and verify
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return jsonify({"msg": "Invalid collection_id, must be an integer."}), 400
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
         return jsonify({"msg": "No data provided."}), 400
 
-    project_id = get_project_id_from_name(project)
+    # Verify that the required 'name' field was provided
+    if "name" not in request_data or not request_data["name"]:
+        return jsonify({"msg": "Invalid publication name, cannot be empty."}), 400
 
-    connection = db_engine.connect()
-    collections = get_table("publication_collection")
-    publications = get_table("publication")
+    # List of fields to check in request_data
+    fields = [
+        "publication_comment_id",
+        "published",
+        "legacy_id",
+        "original_filename",
+        "name",
+        "genre",
+        "original_publication_date",
+        "language"
+    ]
 
-    with connection.begin():
-        statement = select(collections.c.project_id).where(collections.c.id == int_or_none(collection_id))
-        result = connection.execute(statement).fetchall()
-    if len(result) != 1:
-        return jsonify(
-            {
-                "msg": "publication_collection not found."
-            }
-        ), 404
+    # Start building the dictionary of inserted values
+    values = {}
 
-    if result[0].project_id != project_id:
-        return jsonify(
-            {
-                "msg": "publication_collection {} does not belong to project {!r}".format(collection_id, project)
-            }
-        ), 400
-
-    publication = {
-        "name": request_data.get("name", None),
-        "publication_comment_id": request_data.get("publicationComment_id", None),
-        "date_published_externally": request_data.get("datePublishedExternally", None),
-        "published": request_data.get("published", None),
-        "legacy_id": request_data.get("legacyId", None),
-        "published_by": request_data.get("publishedBy", None),
-        "original_filename": request_data.get("originalFileName", None),
-        "genre": request_data.get("genre", None),
-        "publication_group_id": request_data.get("publicationGroup_id", None),
-        "original_publication_date": request_data.get("originalPublicationDate", None),
-        "publication_collection_id": int_or_none(collection_id),
-        "language": request_data.get("language", None)
-    }
-    try:
-        with connection.begin():
-            insert = publications.insert().values(**publication)
-            result = connection.execute(insert)
-            new_row = select(publications).where(publications.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None:
+                # Skip None values, they will be set to NULL by the database anyway
+                continue
             else:
-                new_row = {}
-            result = {
-                "msg": "Created new publication with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
+                if field == "publication_comment_id":
+                    if not validate_int(request_data[field], 1):
+                        return jsonify({"msg": f"Field '{field}' must be a positive integer."}), 400
+                elif field == "published":
+                    if not validate_int(request_data[field], 0, 2):
+                        return jsonify({"msg": f"Field '{field}' must be an integer with value 0, 1 or 2."}), 400
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+            # Add the field to the insert values
+            values[field] = request_data[field]
+
+    # Set published to default value 1 if not in provided values
+    if "published" not in values:
+        values["published"] = 1
+
+    values["publication_collection_id"] = collection_id
+
+    collection_table = get_table("publication_collection")
+    publication_table = get_table("publication")
+
+    try:
+        with db_engine.connect() as connection:
+            with connection.begin():
+                # Check for publication_collection existence
+                select_stmt = (
+                    select(collection_table.c.project_id)
+                    .where(collection_table.c.id == collection_id)
+                )
+                result = connection.execute(select_stmt).first()
+
+                if not result:
+                    return jsonify({"msg": "Invalid collection_id, does not exist."}), 400
+
+                # Check that the publication collection belongs to the provided project
+                if project_id != result[0]:
+                    return jsonify({"msg": f"The publication collection with id '{collection_id}' does not belong to project '{project}'."}), 400
+
+                # If a publication_comment_id was provided, check that it
+                # exists and is not deleted
+                if "publication_comment_id" in values:
+                    comment_table = get_table("publication_comment")
+                    select_com_stmt = (
+                        select(comment_table.c.id)
+                        .where(comment_table.c.id == values["publication_comment_id"])
+                        .where(comment_table.c.deleted < 1)
+                    )
+                    result = connection.execute(select_com_stmt).first()
+
+                    if not result:
+                        return jsonify({"msg": "Invalid publication_comment_id, does not exist."}), 400
+
+                # Proceed to insert the new publication with provided values
+                insert_stmt = (
+                    publication_table.insert()
+                    .values(**values)
+                    .returning(*publication_table.c)  # Return the inserted row
+                )
+                result = connection.execute(insert_stmt)
+                inserted_row = result.fetchone()  # Fetch the inserted row
+
+                if inserted_row is None:
+                    # No row was returned; handle accordingly
+                    return jsonify({
+                        "msg": "Insertion failed: no row returned.",
+                        "reason": "The insert statement did not return any data."
+                    }), 500
+
+                # Convert the inserted_row to a dictionary for JSON serialization
+                inserted_row_dict = inserted_row._asdict()
+
+                return jsonify({
+                    "msg": "Publication created successfully.",
+                    "row": inserted_row_dict
+                }), 201
+
     except Exception as e:
-        result = {
-            "msg": "Failed to create new publication",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+        return jsonify({"msg": "Failed to create new publication.",
+                        "reason": str(e)}), 500
