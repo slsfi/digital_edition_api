@@ -1,13 +1,16 @@
+import logging
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from sqlalchemy import cast, select, text, Text
+from sqlalchemy import asc, cast, desc, select, text, Text
 from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
     project_permission_required, select_all_from_table, create_translation, create_translation_text, \
-    get_translation_text_id
+    get_translation_text_id, validate_int, create_error_response, create_success_response
+
 
 event_tools = Blueprint("event_tools", __name__)
+logger = logging.getLogger("sls_api.tools.events")
 
 
 @event_tools.route("/<project>/locations/new/", methods=["POST"])
@@ -163,152 +166,533 @@ def edit_location(project, location_id):
         return jsonify("No valid update values given."), 400
 
 
+@event_tools.route("/<project>/subjects/list/")
+@event_tools.route("/<project>/subjects/list/<order_by>/<direction>/")
+@project_permission_required
+def list_project_subjects(project, order_by="last_name", direction="asc"):
+    """
+    List all (non-deleted) subjects (persons) for a specified project,
+    with optional sorting by subject table columns.
+
+    URL Path Parameters:
+
+    - project (str, required): The name of the project for which to
+      retrieve subjects.
+    - order_by (str, optional): The column by which to order the subjects.
+      For example "last_name" or "first_name". Defaults to "last_name"
+      (which applies secondary ordering by the "full_name" column).
+    - direction (str, optional): The sort direction, valid values are `asc`
+      (ascending, default) and `desc` (descending).
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": array of objects or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an array of subject objects; `null` on error.
+
+    Example Request:
+
+        GET /projectname/subjects/list/
+        GET /projectname/subjects/list/last_name/asc/
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Retrieved # person records.",
+            "data": [
+                {
+                    "id": 1,
+                    "date_created": "2023-05-12T12:34:56",
+                    "date_modified": "2023-06-01T08:22:11",
+                    "deleted": 0,
+                    "type": "Historical person",
+                    "first_name": "John",
+                    "last_name": "Doe",
+                    "place_of_birth": "Fantasytown",
+                    "occupation": "Doctor",
+                    "preposition": "von",
+                    "full_name": "John von Doe",
+                    "description": "a brief description about the person.",
+                    "legacy_id": "pe1",
+                    "date_born": "1870",
+                    "date_deceased": "1915",
+                    "project_id": 123,
+                    "source": "Encyclopaedia Britannica",
+                    "alias": "JD",
+                    "previous_last_name": "Crow",
+                    "translation_id": 4287
+                },
+                ...
+            ]
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'project' does not exist.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The request was successful, and the subjects are returned.
+    - 400 - Bad Request: The project name, order_by field, or sort direction
+            is invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    subject_table = get_table("subject")
+
+    # Verify order_by and direction
+    if order_by not in subject_table.c:
+        return create_error_response("Validation error: 'order_by' must be a valid column in the subject table.")
+
+    if direction not in ["asc", "desc"]:
+        return create_error_response("Validation error: 'direction' must be either 'asc' or 'desc'.")
+
+    try:
+        with db_engine.connect() as connection:
+            stmt = (
+                select(subject_table)
+                .where(subject_table.c.deleted < 1)
+                .where(subject_table.c.project_id == project_id)
+            )
+
+            # Build the order_by clause based on multiple columns
+            # if ordering by last_name
+            order_columns = []
+
+            if direction == "asc":
+                order_columns.append(
+                    asc(subject_table.c[order_by])
+                )
+                if order_by == "last_name":
+                    order_columns.append(
+                        asc(subject_table.c.full_name)
+                    )
+            else:
+                order_columns.append(
+                    desc(subject_table.c[order_by])
+                )
+                if order_by == "last_name":
+                    order_columns.append(
+                        desc(subject_table.c.full_name)
+                    )
+
+            # Apply multiple order_by clauses
+            stmt = stmt.order_by(*order_columns)
+            rows = connection.execute(stmt).fetchall()
+
+            return create_success_response(
+                message=f"Retrieved {len(rows)} person records.",
+                data=[row._asdict() for row in rows]
+            )
+
+    except Exception as e:
+        logger.exception(f"Exception retrieving project subjects: {str(e)}")
+        return create_error_response("Unexpected error: failed to retrieve person records in project.", 500)
+
+
 @event_tools.route("/<project>/subjects/new/", methods=["POST"])
 @project_permission_required
 def add_new_subject(project):
     """
-    Add a new subject object to the database
+    Add a new subject (person) object to the specified project.
 
-    POST data MUST be in JSON format
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    type: subject type
-    description: subject description
+    - project (str, required): The name of the project to which the new person will
+      be added.
 
-    POST data CAN also contain:
-    first_name: Subject first or given name
-    last_name Subject surname
-    preposition: preposition for subject
-    full_name: Subject full name
-    legacy_id: Legacy id for subject
-    date_born: Subject date of birth
-    date_deceased: Subject date of death
+    POST Data Parameters in JSON Format:
+
+    - type (str): The type of person.
+    - first_name (str): The first name of the person.
+    - last_name (str): The last name of the person.
+    - place_of_birth (str): The place where the person was born.
+    - occupation (str): The person's occupation.
+    - preposition (str): Prepositional or nobiliary particle used in the
+      surname of the person.
+    - full_name (str): The full name of the person.
+    - description (str): A brief description of the person.
+    - legacy_id (str): An identifier from a legacy system.
+    - date_born (str, optional): The birth date or year of the person
+      (max length 30 characters), in YYYY-MM-DD or YYYY format.
+    - date_deceased (str, optional): The date of death of the person
+      (max length 30 characters), in YYYY-MM-DD or YYYY format.
+    - source (str): The source of the information.
+    - alias (str, optional): An alias for the person.
+    - previous_last_name (str, optional): The person's previous last name.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the inserted subject
+      data; `null` on error.
+
+    Example Request:
+
+        POST /projectname/subjects/new/
+        {
+            "type": "Historical person",
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "place_of_birth": "Fantasytown",
+            "occupation": "Scientist",
+            "preposition": "van",
+            "full_name": "Jane van Doe",
+            "description": "A brief description about the person.",
+            "legacy_id": "pe2",
+            "date_born": "1850",
+            "date_deceased": "1920",
+            "source": "Historical Archive",
+            "alias": "JD",
+            "previous_last_name": "Smith"
+        }
+
+    Example Success Response (HTTP 201):
+
+        {
+            "success": true,
+            "message": "Person record created.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "deleted": 0,
+                "type": "Historical person",
+                "first_name": "Jane",
+                "last_name": "Doe",
+                "place_of_birth": "Fantasytown",
+                "occupation": "Scientist",
+                "preposition": "van",
+                "full_name": "Jane van Doe",
+                "description": "A brief description about the person.",
+                "legacy_id": "pe2",
+                "date_born": "1850",
+                "date_deceased": "1920",
+                "project_id": 123,
+                "source": "Historical Archive",
+                "alias": "JD",
+                "previous_last_name": "Smith",
+                "translation_id": 4288
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'date_born' must be 30 or less characters in length.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 201 - Created: The subject was created successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    subjects = get_table("subject")
-    connection = db_engine.connect()
+        return create_error_response("No data provided.")
 
-    new_subject = {
-        "type": request_data.get("type", None),
-        "description": request_data.get("description", None),
-        "project_id": get_project_id_from_name(project),
-        "first_name": request_data.get("first_name", None),
-        "last_name": request_data.get("last_name", None),
-        "preposition": request_data.get("preposition", None),
-        "full_name": request_data.get("full_name", None),
-        "legacy_id": request_data.get("legacy_id", None),
-        "date_born": request_data.get("date_born", None),
-        "date_deceased": request_data.get("date_deceased", None)
-    }
+    # Verify that "date_born" and "date_deceased" fields are within length limits.
+    date_born = request_data.get("date_born")
+    if date_born is not None and len(str(date_born)) > 30:
+        return create_error_response("Validation error: 'date_born' must be 30 or less characters in length.")
+
+    date_deceased = request_data.get("date_deceased")
+    if date_deceased is not None and len(str(date_deceased)) > 30:
+        return create_error_response("Validation error: 'date_deceased' must be 30 or less characters in length.")
+
+    # List of fields to check in request_data
+    fields = ["type",
+              "first_name",
+              "last_name",
+              "place_of_birth",
+              "occupation",
+              "preposition",
+              "full_name",
+              "description",
+              "legacy_id",
+              "date_born",
+              "date_deceased",
+              "source",
+              "alias",
+              "previous_last_name"]
+
+    # Start building the dictionary of inserted values
+    values = {}
+
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None:
+                values[field] = None
+            else:
+                # Ensure remaining fields are strings
+                request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    values["project_id"] = project_id
+
     try:
-        with connection.begin():
-            insert = subjects.insert().values(**new_subject)
-            result = connection.execute(insert)
-            new_row = select(subjects).where(subjects.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new subject with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
+        with db_engine.connect() as connection:
+            with connection.begin():
+                subject_table = get_table("subject")
+                stmt = (
+                    subject_table.insert()
+                    .values(**values)
+                    .returning(*subject_table.c)  # Return the inserted row
+                )
+                inserted_row = connection.execute(stmt).first()
+
+                if inserted_row is None:
+                    return create_error_response("Insertion failed: no row returned.", 500)
+
+                return create_success_response(
+                    message="Person record created.",
+                    data=inserted_row._asdict(),
+                    status_code=201
+                )
+
     except Exception as e:
-        result = {
-            "msg": "Failed to create new subject.",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+        logger.exception(f"Exception creating new subject: {str(e)}")
+        return create_error_response("Unexpected error: failed to create new person record.", 500)
 
 
 @event_tools.route("/<project>/subjects/<subject_id>/edit/", methods=["POST"])
 @project_permission_required
 def edit_subject(project, subject_id):
     """
-    Edit a subject object in the database
+    Edit an existing subject (person) object in the specified project by
+    updating its fields.
 
-    POST data MUST be in JSON format
+    URL Path Parameters:
 
-    POST data CAN contain:
-    type: subject type
-    description: subject description
-    first_name: Subject first or given name
-    last_name: Subject surname
-    preposition: preposition for subject
-    full_name: Subject full name
-    legacy_id: Legacy id for subject
-    date_born: Subject date of birth
-    date_deceased: Subject date of death
+    - project (str, required): The name of the project containing the subject
+      to be edited.
+    - subject_id (int, required): The unique identifier of the subject to be
+      updated.
+
+    POST Data Parameters in JSON Format (at least one required):
+
+    - deleted (int): Indicates if the subject is deleted (0 for no,
+      1 for yes).
+    - type (str): The type of person.
+    - first_name (str): The first name of the person.
+    - last_name (str): The last name of the person.
+    - place_of_birth (str): The place where the person was born.
+    - occupation (str): The person's occupation.
+    - preposition (str): Prepositional or nobiliary particle used in the
+      surname of the person.
+    - full_name (str): The full name of the person.
+    - description (str): A brief description of the person.
+    - legacy_id (str): An identifier from a legacy system.
+    - date_born (str, optional): The birth date or year of the person
+      (max length 30 characters), in YYYY-MM-DD or YYYY format.
+    - date_deceased (str, optional): The date of death of the person
+      (max length 30 characters), in YYYY-MM-DD or YYYY format.
+    - source (str): The source of the information.
+    - alias (str, optional): An alias for the person.
+    - previous_last_name (str, optional): The person's previous last name.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the updated subject data;
+      `null` on error.
+
+    Example Request:
+
+        POST /projectname/subjects/123/edit/
+        {
+            "type": "Historical person",
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "place_of_birth": "Fantasytown",
+            "occupation": "Scientist",
+            "preposition": "van",
+            "full_name": "Jane van Doe",
+            "description": "An updated description about the person.",
+            "legacy_id": "pe2",
+            "date_born": "1850",
+            "date_deceased": "1920",
+            "source": "Historical Archive",
+            "alias": "JD",
+            "previous_last_name": "Smith",
+            "deleted": 0
+        }
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Person record updated.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2024-01-01T09:00:00",
+                "deleted": 0,
+                "type": "Historical person",
+                "first_name": "Jane",
+                "last_name": "Doe",
+                "place_of_birth": "Fantasytown",
+                "occupation": "Scientist",
+                "preposition": "van",
+                "full_name": "Jane van Doe",
+                "description": "An updated description about the person.",
+                "legacy_id": "pe2",
+                "date_born": "1850",
+                "date_deceased": "1920",
+                "project_id": 123,
+                "source": "Historical Archive",
+                "alias": "JD",
+                "previous_last_name": "Smith",
+                "translation_id": 4288
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'subject_id' must be a positive integer.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The subject was updated successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Convert subject_id to integer and verify
+    subject_id = int_or_none(subject_id)
+    if not subject_id or subject_id < 1:
+        return create_error_response("Validation error: 'subject_id' must be a positive integer.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
+        return create_error_response("No data provided.")
 
-    subjects = get_table("subject")
+    # List of fields to check in request_data
+    fields = ["deleted",
+              "type",
+              "first_name",
+              "last_name",
+              "place_of_birth",
+              "occupation",
+              "preposition",
+              "full_name",
+              "description",
+              "legacy_id",
+              "date_born",
+              "date_deceased",
+              "source",
+              "alias",
+              "previous_last_name"]
 
-    connection = db_engine.connect()
-    with connection.begin():
-        subject_query = select(subjects.c.id).where(subjects.c.id == int_or_none(subject_id))
-        subject_row = connection.execute(subject_query).fetchone()
-    if subject_row is None:
-        return jsonify({"msg": "No subject with an ID of {} exists.".format(subject_id)}), 404
-
-    subject_type = request_data.get("type", None)
-    description = request_data.get("description", None)
-    first_name = request_data.get("first_name", None)
-    last_name = request_data.get("last_name", None)
-    preposition = request_data.get("preposition", None)
-    full_name = request_data.get("full_name", None)
-    legacy_id = request_data.get("legacy_id", None)
-    date_born = request_data.get("date_born", None)
-    date_deceased = request_data.get("date_deceased", None)
-
+    # Start building the dictionary of inserted values
     values = {}
-    if subject_type is not None:
-        values["type"] = subject_type
-    if description is not None:
-        values["description"] = description
-    if first_name is not None:
-        values["first_name"] = first_name
-    if last_name is not None:
-        values["last_name"] = last_name
-    if preposition is not None:
-        values["preposition"] = preposition
-    if full_name is not None:
-        values["full_name"] = full_name
-    if legacy_id is not None:
-        values["legacy_id"] = legacy_id
-    if date_born is not None:
-        values["date_born"] = date_born
-    if date_deceased is not None:
-        values["date_deceased"] = date_deceased
 
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None and field != "deleted":
+                values[field] = None
+            else:
+                if field == "deleted":
+                    if not validate_int(request_data[field], 0, 1):
+                        return create_error_response(f"Validation error: '{field}' must be either 0 or 1.")
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    if not values:
+        return create_error_response("Validation error: no valid fields provided to update.")
+
+    # Add date_modified
     values["date_modified"] = datetime.now()
 
-    if len(values) > 0:
-        try:
+    try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                update = subjects.update().where(subjects.c.id == int(subject_id)).values(**values)
-                connection.execute(update)
-                return jsonify({
-                    "msg": "Updated subject {} with values {}".format(int(subject_id), str(values)),
-                    "subject_id": int(subject_id)
-                })
-        except Exception as e:
-            result = {
-                "msg": "Failed to update subject.",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    else:
-        connection.close()
-        return jsonify("No valid update values given."), 400
+                subject_table = get_table("subject")
+                stmt = (
+                    subject_table.update()
+                    .where(subject_table.c.id == subject_id)
+                    .where(subject_table.c.project_id == project_id)
+                    .values(**values)
+                    .returning(*subject_table.c)  # Return the updated row
+                )
+                updated_row = connection.execute(stmt).first()
+
+                if updated_row is None:
+                    # No row was returned: invalid subject_id or project name
+                    return create_error_response("Update failed: no person record with the provided 'subject_id' found in project.")
+
+                return create_success_response(
+                    message="Person record updated.",
+                    data=updated_row._asdict()
+                )
+
+    except Exception as e:
+        logger.exception(f"Exception updating subject: {str(e)}")
+        return create_error_response("Unexpected error: failed to update person record.", 500)
 
 
 @event_tools.route("/<project>/translation/new/", methods=["POST"])
@@ -319,85 +703,206 @@ def add_new_translation(project):
     translations, or add a translation in a new language to a record
     that has previous translations.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    - table_name: str, name of the table containing the record to be translated.
-    - field_name: str, name of the field to be translated (if applicable).
-    - text: str, the translated text.
-    - language: str, the language code for the translation (ISO 639-1).
+    - project (str, required): The name of the project the translation
+      belongs to (must be a valid project name).
 
-    POST data CAN contain:
-    - translation_id: int, the id of an existing translation record in the `translation` table.
-      Required if you intend to add a translation in a new language to an entry that
-      already has one or more translations.
-    - parent_id: int, the id of the record in the table_name table.
-    - parent_translation_field: str, the name of the field holding the translation_id
-      (defaults to 'translation_id').
-    - neutral_text: str, the base text before translation.
+    POST Data Parameters in JSON Format:
+
+    - table_name (str, required): name of the table containing the record
+      to be translated.
+    - field_name (str, required): name of the field to be translated (if
+      applicable).
+    - text (str, required): the translated text.
+    - language (str, required): the language code for the translation
+      (ISO 639-1).
+    - translation_id (int): the ID of an existing translation record in
+      the `translation` table. Required if you intend to add a translation
+      in a new language to an entry that already has one or more
+      translations.
+    - parent_id (int): the ID of the record in the `table_name` table.
+    - parent_translation_field (str): the name of the field holding the
+      translation_id (defaults to 'translation_id').
+    - neutral_text (str): the base text before translation.
 
     Returns:
-    - 201: Created new translation.
-    - 400: Invalid input.
-    - 500: Internal server error.
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the inserted translation
+      text data; `null` on error.
+
+    Example Request:
+
+        POST /projectname/translation/new/
+        Body:
+        {
+            "table_name": "subject",
+            "field_name": "description",
+            "text": "a description of the person",
+            "language": "en",
+            "parent_id": 958,
+            "neutral_text": "en beskrivning av personen"
+        }
+
+    Example Success Response (HTTP 201):
+
+        {
+            "success": true,
+            "message": "Translation created.",
+            "data": {
+                "id": 123,
+                "translation_id": 7387,
+                "language": "en",
+                "text": "a description of the person",
+                "field_name": "description",
+                "table_name": "subject",
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": null,
+                "deleted": 0
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'text' and 'language' required.",
+            "data": null
+        }
+
+    Return Codes:
+
+    - 201 - Created: Successfully created new translation.
+    - 400 - Bad Request: Invalid input.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    translation_text = get_table("translation_text")
-    connection = db_engine.connect()
-    result = None
-    translation_id = request_data.get("translation_id", None)
-    # create a new translation if not supplied
-    if translation_id is None:
-        if "table_name" not in request_data:
-            return jsonify({"msg": "No table_name in POST data, required when no translation_id"}), 400
-        if "parent_id" not in request_data:
-            return jsonify({"msg": "No parent_id in POST data, required when no translation_id"}), 400
-        translation_id = create_translation(request_data.get("neutral_text", None))
-        # need to add the new id to the location, subject ... table
-        # update table_name set translation_id = translation_id where id = ?
-        # if the field name is something else than translation_id it must be given
-        # in "parent_translation_field" in the request data (in some tables the
-        # field name is name_translation_id)
-        target_table = get_table(request_data.get("table_name", None))
-        values = {}
-        if translation_id is not None:
-            translation_id_field_name = request_data.get("parent_translation_field", "translation_id")
-            values[translation_id_field_name] = translation_id
-        with connection.begin():
-            update = target_table.update().where(target_table.c.id == int(request_data.get("parent_id", None))).values(**values)
-            connection.execute(update)
+        return create_error_response("No data provided.")
 
-    new_translation = {
-        "table_name": request_data.get("table_name", None),
-        "field_name": request_data.get("field_name", None),
-        "text": request_data.get("text", None),
-        "language": request_data.get("language", None),
-        "translation_id": translation_id
-    }
+    # List required and optional fields in POST data
+    required_fields = ["text", "language"]
+
+    # Check that required fields are in the request data,
+    # and that their values are non-empty
+    if any(field not in request_data or not request_data[field] for field in required_fields):
+        return create_error_response("Validation error: 'text' and 'language' required.")
+
+    table_name = request_data.get("table_name")
+    translation_id = request_data.get("translation_id")
+
     try:
-        with connection.begin():
-            insert = translation_text.insert().values(**new_translation)
-            result = connection.execute(insert)
-            new_row = select(translation_text).where(translation_text.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new translation with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
+        with db_engine.connect() as connection:
+            with connection.begin():
+                # Create a new translation base object if not provided
+                if translation_id is None:
+                    if table_name is None:
+                        return create_error_response("Validation error: 'table_name' required when no 'translation_id' provided.")
+                    table_name = str(table_name)
+
+                    parent_id = int_or_none(request_data.get("parent_id"))
+                    if not validate_int(parent_id, 1):
+                        return create_error_response("Validation error: 'parent_id' must be a positive integer.")
+
+                    # Create a new translation base object
+                    translation_id = create_translation(
+                        request_data.get("neutral_text"),
+                        connection
+                    )
+
+                    if translation_id is None:
+                        return create_error_response("Unexpected error: failed to create new translation.", 500)
+
+                    # Add the translation_id to the record in the parent table.
+                    # If the field name for translation_id is something else than
+                    # 'translation_id' it must be given in the
+                    # "parent_translation_field" in the request data
+                    # (in some tables the field name is 'name_translation_id').
+                    target_table = get_table(table_name)
+                    upd_values = {
+                        str(request_data.get("parent_translation_field", "translation_id")): translation_id,
+                        "date_modified": datetime.now()
+                    }
+                    upd_stmt = (
+                        target_table.update()
+                        .where(target_table.c.id == parent_id)
+                        .values(**upd_values)
+                        .returning(*target_table.c)
+                    )
+                    upd_result = connection.execute(upd_stmt).first()
+
+                    # Check if the update in the parent table was successful,
+                    # if not, clean up ...
+                    if upd_result is None:
+                        translation_table = get_table("translation")
+                        upd_values = {
+                            "deleted": 1,
+                            "date_modified": datetime.now()
+                        }
+                        upd_stmt2 = (
+                            translation_table.update()
+                            .where(translation_table.c.id == translation_id)
+                            .values(**upd_values)
+                            .returning(*translation_table.c)
+                        )
+                        upd_result2 = connection.execute(upd_stmt2).first()
+
+                        upd_error_message = "Update failed: could not link translation to record with 'parent_id' in 'table_name'."
+                        if upd_result2 is None:
+                            upd_error_message += f" Also failed to mark a created base translation object with ID {translation_id} in the table `translation` as deleted. Please contact support."
+                        return create_error_response(upd_error_message, 500)
+
+                # The translation_id has been provided in the POST data.
+                # Validate translation_id
+                if not validate_int(translation_id, 1):
+                    return create_error_response("Validation error: 'translation_id' must be a positive integer.")
+
+                ins_values = {
+                    "table_name": table_name,
+                    "field_name": request_data.get("field_name"),
+                    "text": request_data.get("text"),
+                    "language": request_data.get("language"),
+                    "translation_id": translation_id
+                }
+
+                translation_text = get_table("translation_text")
+
+                ins_stmt = (
+                    translation_text.insert()
+                    .values(**ins_values)
+                    .returning(*translation_text.c)  # Return the inserted row
+                )
+                inserted_row = connection.execute(ins_stmt).first()
+
+                if inserted_row is None:
+                    return create_error_response("Insertion failed: no row returned.", 500)
+
+                return create_success_response(
+                    message="Translation created.",
+                    data=inserted_row._asdict(),
+                    status_code=201
+                )
+
     except Exception as e:
-        result = {
-            "msg": "Failed to create new translation.",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
-        return result
+        logger.exception(f"Exception creating new translation: {str(e)}")
+        return create_error_response("Unexpected error: failed to create new translation.", 500)
 
 
 @event_tools.route("/<project>/translations/<translation_id>/edit/", methods=["POST"])
@@ -406,161 +911,287 @@ def edit_translation(project, translation_id):
     """
     Edit a translation object in the database.
 
-    POST data must be in JSON format.
+    URL Path Parameters:
 
-    POST data can include the following fields:
-    - translation_text_id: int, id of the translation object in the `translation_text` table
-    - table_name: str, name of the table being translated.
-    - field_name: str, name of the field being translated.
-    - text: str, the translation text.
-    - language: str, language code of the translation (ISO 639-1).
-    - deleted: int, flag to mark as deleted (0 or 1).
+    - project (str, required): The name of the project.
+    - translation_id (int, required): The unique identifier of the
+      translation object to be updated.
 
-    If translation_text_id is omitted, an attempt to find the translation object
-    which is to be updated is made based on translation_id, table_name, field_name
-    and language. If that fails, a new tranlation object will be created.
+    POST Data Parameters in JSON Format (at least one required):
 
-    Response:
-    - 201: New translation created.
-    - 200: Existing translation updated.
-    - 400: Invalid input.
-    - 500: Server error.
+    - translation_text_id (int, recommended): ID of the translation text
+      object in the `translation_text` table.
+    - table_name (str): Name of the table being translated.
+    - field_name (str): Name of the field being translated.
+    - text (str): The translation text.
+    - language (str): Language code of the translation (ISO 639-1).
+    - deleted (int): Soft delete flag. Must be an integer with value 0 or 1.
+
+    If translation_text_id is omitted, an attempt to find the translation
+    object which is to be updated is made based on translation_id,
+    table_name, field_name and language. If that fails, a new translation
+    object will be created.
+
+    In practice, it's always recommended to provide translation_text_id in
+    requests to this endpoint. To create a new translation, the
+    add_new_translation() endpoint should be used.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the updated translation
+      text data; `null` on error.
+
+    Example Request:
+
+        POST /projectname/translations/123/edit/
+        Body:
+        {
+            "translation_text_id": 456,
+            "text": "an edited translated text"
+        }
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Translation text updated.",
+            "data": {
+                "id": 456,
+                "translation_id": 123,
+                "language": "en",
+                "text": "an edited translated text",
+                "field_name": "description",
+                "table_name": "subject",
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-10-22T14:17:02",
+                "deleted": 0
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'translation_text_id' must be a positive integer.",
+            "data": null
+        }
+
+    Response Codes:
+
+    - 201 - Created: Successfully created new translation text.
+    - 200 - OK: Existing translation text updated.
+    - 400 - Bad Request: Invalid input.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Convert translation_id to integer and verify
+    translation_id = int_or_none(translation_id)
+    if translation_id is None or translation_id < 1:
+        return create_error_response("Validation error: 'translation_id' must be a positive integer.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
+        return create_error_response("No data provided.")
 
-    translation_text = get_table("translation_text")
+    # List of fields to check in request_data
+    fields = ["translation_text_id",
+              "table_name",
+              "field_name",
+              "text",
+              "language",
+              "deleted"]
 
-    translation_text_id = request_data.get("translation_text_id", None)
+    values = {}
+
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if field == "translation_text_id":
+                continue
+            elif request_data[field] is None and field != "deleted":
+                values[field] = None
+            else:
+                if field == "deleted":
+                    if not validate_int(request_data[field], 0, 1):
+                        return create_error_response(f"Validation error: '{field}' must be either 0 or 1.")
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    if not values:
+        return create_error_response("Validation error: no valid fields provided to update.")
+
+    translation_text_id = request_data.get("translation_text_id")
     if translation_text_id is None:
-        # Attempt to get the id of the record in translation_text based on translation id,
-        # table name, field name and language in the data
+        # Attempt to get the id of the record in translation_text based on
+        # translation id, table name, field name and language in the data
         translation_text_id = get_translation_text_id(translation_id,
-                                                      request_data.get("table_name", None),
-                                                      request_data.get("field_name", None),
-                                                      request_data.get("language", None))
+                                                      values.get("table_name"),
+                                                      values.get("field_name"),
+                                                      values.get("language"))
 
-    connection = db_engine.connect()
-
-    # if translation_text_id is None we should add a new row to the translation_text table
-    if translation_text_id is None:
-        new_translation = {
-            "table_name": request_data.get("table_name", None),
-            "field_name": request_data.get("field_name", None),
-            "text": request_data.get("text", None),
-            "language": request_data.get("language", None),
-            "translation_id": translation_id
-        }
-        try:
+    try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                insert = translation_text.insert().values(**new_translation)
-                result = connection.execute(insert)
-                new_row = select(translation_text).where(translation_text.c.id == result.inserted_primary_key[0])
-                new_row = connection.execute(new_row).fetchone()
-                if new_row is not None:
-                    new_row = new_row._asdict()
-                result = {
-                    "msg": "Created new translation_text with ID {}".format(result.inserted_primary_key[0]),
-                    "row": new_row
-                }
-                return jsonify(result), 201
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new translation_text.",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    # if translation_text_id is not None, we should update the data
-    else:
-        edited_translation = {}
-        # Update only fields that are provided in the POST data
-        if "table_name" in request_data:
-            edited_translation["table_name"] = request_data.get("table_name", None)
-        if "field_name" in request_data:
-            edited_translation["field_name"] = request_data.get("field_name", None)
-        if "text" in request_data:
-            edited_translation["text"] = request_data.get("text", None)
-        if "language" in request_data:
-            edited_translation["language"] = request_data.get("language", None)
-        if "deleted" in request_data:
-            edited_translation["deleted"] = request_data.get("deleted", 0)
-        edited_translation["date_modified"] = datetime.now()
+                translation_text = get_table("translation_text")
+                if translation_text_id is None:
+                    # Add new row to the translation_text table
+                    values["deleted"] = 0
+                    values["translation_id"] = translation_id
 
-        if len(edited_translation) > 1:
-            try:
-                with connection.begin():
-                    update = translation_text.update().where(translation_text.c.id == int(translation_text_id)).values(**edited_translation)
-                    connection.execute(update)
-                    return jsonify({
-                        "msg": "Updated translation_text {} with values {}".format(int(translation_text_id), str(edited_translation)),
-                        "location_id": int(translation_text_id)
-                    })
-            except Exception as e:
-                result = {
-                    "msg": "Failed to update translation_text.",
-                    "reason": str(e)
-                }
-                return jsonify(result), 500
-            finally:
-                connection.close()
-        else:
-            connection.close()
-            return jsonify("No valid update values given."), 400
+                    try:
+                        ins_stmt = (
+                            translation_text.insert()
+                            .values(**values)
+                            .returning(*translation_text.c)  # Return the inserted row
+                        )
+                        inserted_row = connection.execute(ins_stmt).first()
+
+                        if inserted_row is None:
+                            return create_error_response("Insertion failed: no row returned.", 500)
+
+                        return create_success_response(
+                            message="Translation text created.",
+                            data=inserted_row._asdict(),
+                            status_code=201
+                        )
+
+                    except Exception as e:
+                        logger.exception(f"Exception creating new translation text: {str(e)}")
+                        return create_error_response("Unexpected error: failed to create new translation text.", 500)
+
+                else:
+                    # Update data of existing translation
+
+                    # Validate translation_text_id
+                    translation_text_id = int_or_none(translation_text_id)
+                    if translation_text_id is None or validate_int(translation_text_id, 1):
+                        return create_error_response("Validation error: 'translation_text_id' must be a positive integer.")
+
+                    # Add date_modified
+                    values["date_modified"] = datetime.now()
+
+                    upd_stmt = (
+                        translation_text.update()
+                        .where(translation_text.c.id == translation_text_id)
+                        .values(**values)
+                        .returning(*translation_text.c)  # Return the updated row
+                    )
+                    updated_row = connection.execute(upd_stmt).first()
+
+                    if updated_row is None:
+                        return create_error_response("Update failed: no translation text with the provided 'translation_text_id' found.")
+
+                    return create_success_response(
+                        message="Translation text updated.",
+                        data=updated_row._asdict()
+                    )
+
+    except Exception as e:
+        logger.exception(f"Exception updating translation text: {str(e)}")
+        return create_error_response("Unexpected error: failed to update translation text.", 500)
 
 
 @event_tools.route("/<project>/translations/<translation_id>/list/", methods=["POST"])
 @project_permission_required
 def list_translations(project, translation_id):
     """
-    List all translations for a given translation_id with optional filters.
+    List all (non-deleted) translations for a given translation_id
+    with optional filters.
 
-    Parameters:
+    URL Path Parameters:
+
     - project (str): project name.
-    - translation_id (str): The id of the translation object in the `translation` table. Must be a valid integer.
-    - Optional POST data parameters in JSON format:
-        - table_name (str): Filter translations by a specific table name.
-        - field_name (str): Filter translations by a specific field name.
-        - language (str): Filter translations by a specific language.
-        - translation_text_id (int): Filter translations by a specific id in the `translation_text` table.
+    - translation_id (str): The id of the translation object in the
+      `translation` table. Must be a valid integer.
+
+    POST Data Parameters in JSON Format (optional):
+
+    - table_name (str): Filter translations by a specific table name.
+    - field_name (str): Filter translations by a specific field name.
+    - language (str): Filter translations by a specific language.
+    - translation_text_id (int): Filter translations by a specific id
+      in the `translation_text` table.
 
     Returns:
-        JSON: A list of translation records or an error message.
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": array of objects or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an array of translation text objects; `null` on
+      error.
 
     Example Request:
+
         POST /projectname/translations/1/list/
         Body:
         {
-            "table_name": "subject",
-            "field_name": "description",
-            "language": "en",
-            "translation_text_id": 123
+            "language": "en"
         }
 
-    Example Response:
-        [
-            {
-                "translation_text_id": 123,
-                "translation_id": 1,
-                "language": "en",
-                "text": "Some description in English",
-                "field_name": "description",
-                "table_name": "subject"
-            },
-            ...
-        ]
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Retrieved # translation texts.",
+            "data": [
+                {
+                    "translation_text_id": 123,
+                    "translation_id": 1,
+                    "language": "en",
+                    "text": "Some description in English",
+                    "field_name": "description",
+                    "table_name": "subject"
+                },
+                ...
+            ]
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'translation_id' must be a positive integer.",
+            "data": null
+        }
 
     Status Codes:
-        200 - OK: Returns the list of translations.
-        400 - Bad Request: Invalid or missing translation_id.
-        500 - Internal Server Error: Query or execution failed.
+
+    - 200 - OK: Successfully retrieved the list of translation texts.
+    - 400 - Bad Request: Invalid or missing translation_id.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
     # Convert translation_id to integer
     translation_id = int_or_none(translation_id)
-    if not translation_id:
-        return jsonify({"msg": "Invalid translation_id parameter."}), 400
+    if translation_id is None or translation_id < 1:
+        return create_error_response("Validation error: 'translation_id' must be a positive integer.")
 
     # Get optional filters from the request JSON body
     filters = request.get_json(silent=True) or {}
@@ -622,20 +1253,14 @@ def list_translations(project, translation_id):
                 statement = text(query).bindparams(**query_params)
                 rows = connection.execute(statement).fetchall()
 
-                # Convert rows to dictionary format
-                result = []
-                for row in rows:
-                    if row is not None:
-                        result.append(row._asdict())
-                return jsonify(result)
+                return create_success_response(
+                    message=f"Retrieved {len(rows)} translation texts.",
+                    data=[row._asdict() for row in rows]
+                )
 
     except Exception as e:
-        # Handle errors and return error response
-        result = {
-            "msg": "Failed to retrieve translations.",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
+        logger.exception(f"Exception retrieving translations: {str(e)}")
+        return create_error_response("Unexpected error: failed to retrieve translations.", 500)
 
 
 @event_tools.route("/<project>/tags/new/", methods=["POST"])

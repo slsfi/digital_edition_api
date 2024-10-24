@@ -1,6 +1,6 @@
 import calendar
 from collections import OrderedDict
-from flask import jsonify
+from flask import jsonify, Response
 from flask_jwt_extended import get_jwt_identity, verify_jwt_in_request
 from functools import wraps
 import glob
@@ -11,9 +11,10 @@ from lxml import etree
 import os
 import re
 from ruamel.yaml import YAML
-from sqlalchemy import create_engine, MetaData, Table
+from sqlalchemy import create_engine, Connection, MetaData, Table
 from sqlalchemy.sql import select, text
 import time
+from typing import Any, Dict, List, Optional, Tuple
 from werkzeug.security import safe_join
 
 ALLOWED_EXTENSIONS_FOR_FACSIMILE_UPLOAD = ["tif", "tiff", "png", "jpg", "jpeg"]
@@ -429,22 +430,124 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
     return content
 
 
-# Create a stub for a translation
-def create_translation(neutral):
-    connection = db_engine.connect()
-    with connection.begin():
-        stmt = """ INSERT INTO translation (neutral_text) VALUES(:neutral) RETURNING id """
-        statement = text(stmt).bindparams(neutral=neutral, )
-        result = connection.execute(statement)
-        row = result.fetchone()
-    connection.close()
-    if row is not None:
-        return row.id
-    else:
+def update_publication_related_table(
+        connection: Connection,
+        text_type: str,
+        id: int,
+        values: Dict[str, Any],
+        return_all_columns: bool = False
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    Helper function to update rows in the appropriate publication-related
+    table based on the provided text type.
+
+    This function updates records in one of the publication-related
+    tables ('publication', 'publication_comment', 'publication_manuscript',
+    'publication_version', 'publication_collection_introduction', or
+    'publication_collection_title') based on the specified `text_type`. It
+    dynamically constructs the update statement depending on the table and
+    the ID column relevant to that table.
+
+    Args:
+        connection (Connection): An active database connection through
+            SQLAlchemy.
+        text_type (str): The type of text to update. Must be one of
+            'publication', 'comment', 'manuscript', 'version',
+            'collection_introduction', or 'collection_title'.
+        id (int): The ID of the row to update. Refers to either the
+            `id` column (for 'publication', 'comment',
+            'collection_introduction' and 'collection_title') or the
+            `publication_id` column (for 'manuscript' and 'version').
+        values (Dict[str, Any]): A dictionary of column names and their
+            new values to update.
+        return_all_columns (bool): When set to `True`, the function
+            returns all columns of updated rows, otherwise just the `id`
+            column of updated rows. Defaults to `False`.
+
+    Returns:
+        A list of dictionaries with the updated rows. Returns None if no
+        update is performed or an error occurs.
+
+    Logs:
+        Exception: Any exceptions encountered during the update operation
+        are logged. The function returns None if an exception occurs.
+    """
+    try:
+        if text_type not in ["publication",
+                             "comment",
+                             "manuscript",
+                             "version",
+                             "collection_introduction",
+                             "collection_title"]:
+            return None
+
+        target_table = (get_table(f"publication_{text_type}")
+                        if text_type != "publication"
+                        else get_table("publication"))
+
+        id_column = (target_table.c.publication_id
+                     if text_type in ["manuscript", "version"]
+                     else target_table.c.id)
+
+        return_data = (target_table.c
+                       if return_all_columns
+                       else (target_table.c.id,))
+
+        stmt = (
+            target_table.update()
+            .where(id_column == id)
+            .values(**values)
+            .returning(*return_data)
+        )
+        updated_rows = connection.execute(stmt).fetchall()
+
+        return [row._asdict() for row in updated_rows]
+
+    except Exception:
         return None
 
 
-# Create a stub for a translation
+def create_translation(neutral, connection=None):
+    """
+    Inserts a new translation record with the provided neutral text and
+    returns the generated ID.
+
+    If a connection is provided, it uses the existing connection. If no
+    connection is provided, a new connection is created for the operation,
+    and it will be closed automatically once the insertion is completed.
+
+    Args:
+        neutral (str): The neutral text to be inserted into the 'translation' table.
+        connection (optional, sqlalchemy.engine.Connection): An existing database connection. If None, a new connection will be created.
+
+    Returns:
+        int/None: The ID of the newly created translation record, or None if no ID is returned.
+    """
+    # If no connection is provided, create a new one
+    if connection is None:
+        connection = db_engine.connect()
+        new_connection = True
+    else:
+        new_connection = False
+
+    try:
+        # Use the provided or newly created connection
+        stmt = """ INSERT INTO translation (neutral_text) VALUES(:neutral) RETURNING id """
+        statement = text(stmt).bindparams(neutral=neutral)
+        result = connection.execute(statement)
+        row = result.fetchone()
+
+        # Return the translation ID if available
+        return row.id if row else None
+    except Exception:
+        return None
+    finally:
+        # Close the connection only if it was created inside this function
+        if new_connection:
+            connection.close()
+
+
+# Create a stub for a translation text
 def create_translation_text(translation_id, table_name):
     connection = db_engine.connect()
     if translation_id is not None:
@@ -459,11 +562,31 @@ def create_translation_text(translation_id, table_name):
 def get_translation_text_id(translation_id, table_name, field_name, language):
     connection = db_engine.connect()
     if translation_id is not None:
-        stmt = """ SELECT id FROM translation_text WHERE
-                            (translation_id = :t_id AND (language is NULL OR language = 'not set') AND table_name = :table_name AND field_name = :field_name AND deleted = 0)
-                            OR (translation_id = :t_id AND language = :language AND table_name = :table_name AND field_name = :field_name AND language != 'not set' AND deleted = 0)
-                    LIMIT 1
-                """
+        stmt = """
+            SELECT id
+            FROM translation_text
+            WHERE
+                (
+                    translation_id = :t_id
+                    AND (
+                        language IS NULL
+                        OR language = 'not set'
+                    )
+                    AND table_name = :table_name
+                    AND field_name = :field_name
+                    AND deleted = 0
+                )
+                OR
+                (
+                    translation_id = :t_id
+                    AND language = :language
+                    AND table_name = :table_name
+                    AND field_name = :field_name
+                    AND language != 'not set'
+                    AND deleted = 0
+                )
+            LIMIT 1
+        """
         statement = text(stmt).bindparams(t_id=translation_id, table_name=table_name, field_name=field_name, language=language)
         result = connection.execute(statement)
         row = result.fetchone()
@@ -540,3 +663,126 @@ def get_allowed_cors_origins(project: str) -> list:
     if not project_config:
         return []
     return project_config.get("allowed_cors_origins", [])
+
+
+def validate_project_name(name: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validates the project name according to specified constraints.
+
+    The project name must meet the following criteria:
+    - Length no less than 3 and no more than 32 characters.
+    - Contains only lowercase letters (a-z), digits (0-9) and underscores (_).
+
+    Parameters:
+    - name (str): The project name to validate.
+
+    Returns:
+    - Tuple[bool, Optional[str]]: A tuple where the first element is a
+      boolean indicating if the validation passed (`True`) or failed
+      (`False`), and the second element is an error message string if
+      validation failed, or `None` if validation passed.
+    """
+    # Check length constraint
+    if len(name) < 3 or len(name) > 32:
+        return False, "'name' must be minimum 3 and maximum 32 characters in length."
+
+    # Check allowed characters (lowercase letters a-z, digits 0-9 and underscores _)
+    if not re.fullmatch(r'[a-z0-9_]+', name):
+        return False, "'name' can only contain lowercase letters a-z and digits 0-9."
+
+    return True, None
+
+
+def validate_int(
+        value: Any,
+        min_value: Optional[int] = None,
+        max_value: Optional[int] = None
+) -> bool:
+    """
+    Validates that 'value' is an integer and optionally within specified
+    bounds.
+
+    Parameters:
+    - value (Any): The value to validate.
+    - min_value (Optional[int]): Minimum allowed value (inclusive).
+    - max_value (Optional[int]): Maximum allowed value (inclusive).
+
+    Returns:
+    - A boolean indicating if the validation passed (`True`) or failed
+      (`False`).
+    """
+    if (
+        not isinstance(value, int)
+        or (min_value is not None and value < min_value)
+        or (max_value is not None and value > max_value)
+    ):
+        return False
+    return True
+
+
+def create_success_response(
+    message: str,
+    data: Optional[Any] = None,
+    status_code: int = 200
+) -> Tuple[Response, int]:
+    """
+    Create a standardized JSON success response.
+
+    Args:
+
+        message (str): A message describing the success.
+        data (Any, optional): The data to include in the response. Defaults to None.
+        status_code (int, optional): The HTTP status code for the response. Defaults to 200.
+
+    Returns:
+
+        A tuple containing the Flask Response object with JSON data and the HTTP status code.
+    """
+    return jsonify({
+        "success": True,
+        "message": message,
+        "data": data
+    }), status_code
+
+
+def create_error_response(
+    message: str,
+    status_code: int = 400
+) -> Tuple[Response, int]:
+    """
+    Create a standardized JSON error response.
+
+    Args:
+
+        message (str): A message describing the error.
+        status_code (int, optional): The HTTP status code for the response. Defaults to 400.
+
+    Returns:
+
+        A tuple containing the Flask Response object with JSON data and the HTTP status code.
+    """
+    return jsonify({
+        "success": False,
+        "message": message,
+        "data": None
+    }), status_code
+
+
+def handle_deleted_flag(values: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Adjusts the 'published' flag in the provided values dictionary if the
+    'deleted' flag is set to a truthy value (like 1). This ensures that
+    if a record is marked as deleted, it cannot remain published.
+
+    Args:
+        values (Dict[str, Any]): A dictionary containing the fields to
+            update for a record. If the dictionary contains a 'deleted'
+            key with a truthy value, the value of the 'published' key
+            will be set to 0.
+
+    Returns:
+        The updated dictionary.
+    """
+    if values.get("deleted"):
+        values["published"] = 0
+    return values
