@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # build-essential is needed to build some libraries (mainly uwsgi and the various database support ones)
 # git is needed to pull/push file changes
