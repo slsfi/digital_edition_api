@@ -34,6 +34,10 @@ parland:
     # Max size in MB of XML files to be parsed. Currently only used in the
     # `get_metadata_from_xml_file` endpoint in `endpoints/tools/files.py`.
     xml_max_file_size: 5
+    # Boolean indicating if Saxon's XSLT 3.0 processor should be used for
+    # transformations. Defaults to False, in which case lxml's XSLT 1.0
+    # processor is used instead.
+    use_saxon_xslt: False
 
 topelius:
     # First, settings about how the publication tools should communicate towards git
@@ -59,6 +63,10 @@ topelius:
     # Max size in MB of XML files to be parsed. Currently only used in the
     # `get_metadata_from_xml_file` endpoint in `endpoints/tools/files.py`.
     xml_max_file_size: 5
+    # Boolean indicating if Saxon's XSLT 3.0 processor should be used for
+    # transformations. Defaults to False, in which case lxml's XSLT 1.0
+    # processor is used instead.
+    use_saxon_xslt: False
 
 # XML-to-HTML is somewhat computationally expensive, so HTML reading texts are cached for up to this amount of time
 cache_lifetime_seconds: 7200  # 2 hours
