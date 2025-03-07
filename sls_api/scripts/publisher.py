@@ -556,7 +556,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                                 p.genre as genre, \
                                 p.publication_group_id as publication_group_id, \
                                 p.publication_comment_id as publication_comment_id, \
-                                p.name as name \
+                                p.name as name, \
                                 pm.name as m_name, \
                                 pm.language as language \
                                 FROM publication_manuscript pm \
