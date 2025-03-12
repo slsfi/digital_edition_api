@@ -472,12 +472,17 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
     if os.path.exists(xml_file_path) and content is None:
         logger.info("Getting contents from file and transforming...")
         try:
+            use_saxon_xslt = project_config.get("use_saxon_xslt", False)
             content = transform_xml(
                     xsl_file_path,
                     xml_file_path,
                     params=parameters,
-                    use_saxon=project_config.get("use_saxon_xslt", False)
-            ).replace('\n', '').replace('\r', '')
+                    use_saxon=use_saxon_xslt
+            )
+            if not use_saxon_xslt:
+                # The legacy XSLT stylesheets don't control newline characters
+                # in the output, so we need to manually strip them
+                content = content.replace('\n', '').replace('\r', '')
             try:
                 with io.open(cache_file_path, mode="w", encoding="UTF-8") as cache_file:
                     cache_file.write(content)
