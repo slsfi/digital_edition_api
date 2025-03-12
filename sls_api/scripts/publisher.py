@@ -628,31 +628,43 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                 # original_filename should be relative to the project root
                 est_source_file_path = os.path.join(file_root, row["original_filename"])
 
-                # default to template comment file if no entry in publication_comment pointing to a comments file for this publication
-                comment_file = comment_filenames.get(publication_id, COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
-
-                if comment_file is None:
-                    logger.info("Comment file not set for publication {}, using template instead.".format(publication_id))
-                    comment_file = COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT
+                # Get comment filename if a comment is linked to the publication
+                # in the database. Default to template comment file if no entry
+                # in publication_comment pointing to a comments file for this
+                # publication. If no comment linked to the publication, set
+                # comment file to None, so we can skip the generation of a
+                # comment web file.
+                if row["publication_comment_id"]:
+                    comment_file = comment_filenames.get(publication_id, COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+                else:
+                    comment_file = None
 
                 # Add the comment filename to the row dict so it can be passed
                 # to called functions
                 row["com_original_filename"] = comment_file
 
-                com_source_file_path = os.path.join(file_root, comment_file)
-
                 if os.path.isdir(est_source_file_path):
                     logger.warning("Source file {} for publication {} is a directory!".format(est_source_file_path, publication_id))
-                    continue
-                if os.path.isdir(com_source_file_path):
-                    logger.warning("Source file {} for publication {} comment is a directory!".format(com_source_file_path, publication_id))
                     continue
                 if not os.path.exists(est_source_file_path):
                     logger.warning("Source file {} for publication {} does not exist!".format(est_source_file_path, publication_id))
                     continue
-                if not os.path.exists(com_source_file_path):
-                    logger.warning("Source file {} for publication {} does not exist!".format(com_source_file_path, publication_id))
-                    continue
+
+                # Check comment file existence only if a comment is linked to the
+                # publication in the database. If no comment linked to the
+                # publication, set comment source file path to empty string, so
+                # we can skip the generation of a comment web file.
+                if comment_file:
+                    com_source_file_path = os.path.join(file_root, comment_file)
+
+                    if os.path.isdir(com_source_file_path):
+                        logger.warning("Source file {} for publication {} comment is a directory!".format(com_source_file_path, publication_id))
+                        continue
+                    if not os.path.exists(com_source_file_path):
+                        logger.warning("Source file {} for publication {} does not exist!".format(com_source_file_path, publication_id))
+                        continue
+                else:
+                    com_source_file_path = ""
 
                 if force_publish:
                     # during force_publish, just generate
@@ -692,7 +704,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         # only add files to change set if they actually changed
                         if md5sums[0] == "SKIP" or md5sums[0] != calculate_checksum(est_target_file_path):
                             changes.add(est_target_file_path)
-                        if md5sums[1] == "SKIP" or md5sums[1] != calculate_checksum(com_target_file_path):
+                        if md5sums[1] == "SKIP" or com_source_file_path and md5sums[1] != calculate_checksum(com_target_file_path):
                             changes.add(com_target_file_path)
                 else:
                     # otherwise, check if this publication's files need to be re-generated
@@ -741,7 +753,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                             # only add files to change set if they actually changed
                             if md5sums[0] == "SKIP" or md5sums[0] != calculate_checksum(est_target_file_path):
                                 changes.add(est_target_file_path)
-                            if md5sums[1] == "SKIP" or md5sums[1] != calculate_checksum(com_target_file_path):
+                            if md5sums[1] == "SKIP" or com_source_file_path and md5sums[1] != calculate_checksum(com_target_file_path):
                                 changes.add(com_target_file_path)
                     else:
                         if est_target_mtime >= est_source_mtime and com_target_mtime >= com_source_mtime:
@@ -785,7 +797,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                                 # only add files to change set if they actually changed
                                 if md5sums[0] == "SKIP" or md5sums[0] != calculate_checksum(est_target_file_path):
                                     changes.add(est_target_file_path)
-                                if md5sums[1] == "SKIP" or md5sums[1] != calculate_checksum(com_target_file_path):
+                                if md5sums[1] == "SKIP" or com_source_file_path and md5sums[1] != calculate_checksum(com_target_file_path):
                                     changes.add(com_target_file_path)
 
                 # Process all variants belonging to this publication
