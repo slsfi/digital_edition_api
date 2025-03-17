@@ -9,6 +9,7 @@ import hashlib
 import io
 import logging
 from lxml import etree
+from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 import os
 import re
 from ruamel.yaml import YAML
@@ -18,6 +19,8 @@ from sqlalchemy.sql import select, text
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from werkzeug.security import safe_join
+
+from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
 
 ALLOWED_EXTENSIONS_FOR_FACSIMILE_UPLOAD = ["tif", "tiff", "png", "jpg", "jpeg"]
 
@@ -60,6 +63,14 @@ with io.open(os.path.join(config_dir, "digital_editions.yml"), encoding="UTF-8")
 
     # reflect all tables from database so we know what they look like
     metadata.reflect(bind=db_engine)
+
+# Initialise a Saxon processor and Saxon XSLT 3.0 processor so they can
+# be used for all Saxon XSLT 3.0 transformations and don't need to be
+# initialised separately for each transformation.
+# Documentation for SaxonC's Python API:
+# https://www.saxonica.com/saxon-c/doc12/html/saxonc.html
+saxon_proc: PySaxonProcessor = PySaxonProcessor(license=False)
+saxon_xslt_proc: PyXslt30Processor = saxon_proc.new_xslt30_processor()
 
 
 def allowed_facsimile(filename):
@@ -353,40 +364,66 @@ class FileResolver(etree.Resolver):
         return self.resolve_filename(system_url, context)
 
 
-def transform_xml(xsl_file_path, xml_file_path, replace_namespace=False, params=None):
+def transform_xml(
+        xsl_file_path: str,
+        xml_file_path: str,
+        params: Optional[Dict[str, Any]] = None,
+        use_saxon: bool = False
+) -> str:
+    """
+    Transform an XML document using an XSLT stylesheet with optional parameters.
+    The transformation can be performed either using the lxml XSLT 1.0
+    processor (default) or the Saxon XSLT 3.0 processor.
+
+    Parameters:
+        xsl_file_path (str): File path to an XSLT stylesheet.
+        xml_file_path (str): File path to the XML document which is to be
+            transformed.
+        params (dict or OrderedDict, optional): A dictionary with parameters
+            for the XSLT stylesheet. Defaults to None.
+        use_saxon (bool, optional): Whether to use the Saxon processor (instead
+            of the lxml processor) or not. Defaults to False.
+
+    Returns:
+        String representation of the result document.
+    """
     logger.debug("Transforming {} using {}".format(xml_file_path, xsl_file_path))
     if params is not None:
         logger.debug("Parameters are {}".format(params))
+        if not isinstance(params, dict) and not isinstance(params, OrderedDict):
+            raise Exception("Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {}".format(type(params)))
     if not os.path.exists(xsl_file_path):
         return "XSL file {!r} not found!".format(xsl_file_path)
     if not os.path.exists(xml_file_path):
         return "XML file {!r} not found!".format(xml_file_path)
 
-    with io.open(xml_file_path, mode="rb") as xml_file:
-        xml_contents = xml_file.read()
-        if replace_namespace:
-            xml_contents = xml_contents.replace(b'xmlns="http://www.sls.fi/tei"',
-                                                b'xmlns="http://www.tei-c.org/ns/1.0"')
-
-        xml_root = etree.fromstring(xml_contents)
-
-    xsl_parser = etree.XMLParser()
-    xsl_parser.resolvers.add(FileResolver())
-    with io.open(xsl_file_path, encoding="UTF-8") as xsl_file:
-        xslt_root = etree.parse(xsl_file, parser=xsl_parser)
-        xsl_transform = etree.XSLT(xslt_root)
-
-    if params is None:
-        result = xsl_transform(xml_root)
-    elif isinstance(params, dict) or isinstance(params, OrderedDict):
-        result = xsl_transform(xml_root, **params)
+    if use_saxon:
+        # Use the Saxon XSLT 3.0 processor.
+        xslt_exec: PyXsltExecutable = saxon_xslt_proc.compile_stylesheet(
+                stylesheet_file=xsl_file_path,
+                encoding="utf-8"
+        )
+        xml_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc, xml_file_path)
+        return xml_doc.transform_to_string(xslt_exec, params, format_output=False)
     else:
-        raise Exception(
-            "Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {}".format(
-                type(params)))
-    if len(xsl_transform.error_log) > 0:
-        logging.debug(xsl_transform.error_log)
-    return str(result)
+        # Use the lxml XSLT 1.0 processor.
+        with io.open(xml_file_path, mode="rb") as xml_file:
+            xml_contents = xml_file.read()
+            xml_root = etree.fromstring(xml_contents)
+
+        xsl_parser = etree.XMLParser()
+        xsl_parser.resolvers.add(FileResolver())
+        with io.open(xsl_file_path, encoding="UTF-8") as xsl_file:
+            xslt_root = etree.parse(xsl_file, parser=xsl_parser)
+            xsl_transform = etree.XSLT(xslt_root)
+
+        if params is None:
+            result = xsl_transform(xml_root)
+        else:
+            result = xsl_transform(xml_root, **params)
+        if len(xsl_transform.error_log) > 0:
+            logging.debug(xsl_transform.error_log)
+        return str(result)
 
 
 def get_content(project, folder, xml_filename, xsl_filename, parameters):
@@ -435,7 +472,17 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
     if os.path.exists(xml_file_path) and content is None:
         logger.info("Getting contents from file and transforming...")
         try:
-            content = transform_xml(xsl_file_path, xml_file_path, params=parameters).replace('\n', '').replace('\r', '')
+            use_saxon_xslt = project_config.get("use_saxon_xslt", False)
+            content = transform_xml(
+                    xsl_file_path,
+                    xml_file_path,
+                    params=parameters,
+                    use_saxon=use_saxon_xslt
+            )
+            if not use_saxon_xslt:
+                # The legacy XSLT stylesheets don't control newline characters
+                # in the output, so we need to manually strip them
+                content = content.replace('\n', '').replace('\r', '')
             try:
                 with io.open(cache_file_path, mode="w", encoding="UTF-8") as cache_file:
                     cache_file.write(content)
@@ -443,8 +490,8 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
                 logger.exception("Could not create cachefile")
                 content = "Successfully fetched content but could not generate cache for it."
         except Exception as e:
-            logger.exception("Error when parsing XML file")
-            content = "Error parsing document"
+            logger.exception("Error when parsing/transforming XML file")
+            content = "Error parsing/transforming document"
             content += str(e)
     elif content is None:
         content = "File not found"
@@ -638,10 +685,15 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
         logger.info("Getting contents from file ...")
         if xsl_file_path is not None:
             try:
-                content = transform_xml(xsl_file_path, xml_file_path, params=parameters)
+                content = transform_xml(
+                        xsl_file_path,
+                        xml_file_path,
+                        params=parameters,
+                        use_saxon=project_config.get("use_saxon_xslt", False)
+                )
             except Exception as e:
-                logger.exception("Error when parsing XML file")
-                content = "Error parsing document"
+                logger.exception("Error when parsing/transforming XML file")
+                content = "Error parsing/transforming document"
                 content += str(e)
         else:
             try:

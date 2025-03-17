@@ -12,6 +12,9 @@ class SaxonXMLDocument:
     This class provides methods to load, parse, and manipulate XML documents,
     with support for configurable namespaces and XPath evaluations.
 
+    Documentation for SaxonC's Python API:
+    https://www.saxonica.com/saxon-c/doc12/html/saxonc.html
+
     Attributes:
     - xml_doc_tree (PyXdmNode): Parsed XML tree representation.
     - xml_doc_str (str): String representation of the loaded XML document.
@@ -21,8 +24,14 @@ class SaxonXMLDocument:
 
     Methods:
     - load_xml_file(filepath): Loads an XML document from a file and parses it.
-    - transform_and_save(xslt_exec, output_filepath, parameters): Generates a
-      transformed document using XSLT.
+    - transform_to_string(xslt_exec, parameters, format_output): Transforms
+      the XML document using an XSLT stylesheet and returns the result document
+      as a string.
+    - transform_and_save(xslt_exec, output_filepath, parameters): Transforms
+      the XML document using an XSLT stylesheet and saves the result
+      document to a file. The class instance is also updated with the result
+      document, so subsequent XPath queries or further XSLT processing is
+      performed on the transformed document.
     - add_namespace(ns_prefix, ns_uri): Adds a namespace to the `namespaces`
       attribute of the class instance.
     - get_all_comment_ids(): Extracts all comment note IDs in the document.
@@ -112,22 +121,31 @@ class SaxonXMLDocument:
         except (EnvironmentError, PySaxonApiError) as e:
             raise ValueError(f"Error reading or parsing the file '{filepath}': {e}")
 
-    def transform_and_save(
+    def transform_to_string(
             self,
             xslt_exec: PyXsltExecutable,
-            output_filepath: str,
-            parameters: Optional[Dict] = None
+            parameters: Optional[Dict] = None,
+            format_output: bool = True
     ):
         """
-        Transforms the XML document using an XSLT executable and saves the result
-        to the output filepath.
+        Transforms the XML document using an XSLT stylesheet and returns the
+        result document as a string.
 
         Parameters:
         - xslt_exec (PyXsltExecutable): The XSLT execution object.
-        - output_filepath (str): The file path where the transformed document will
-          be saved.
         - parameters (dict, optional): A dictionary with parameters for the XSLT
           executable. Defaults to None.
+        - format_output (bool, optional): Whether to postprocess the formatting
+          of the transformation result or not. Defaults to True, in which case
+          blank lines are removed and line endings are added after the XML
+          declaration and any XML processing instructions. This prettifies the
+          output, at a slight expense of performance. Generally, this is safe
+          to set to True when the output is XML or HTML, but when outputting
+          plain text you want to set it to False not to remove intentional
+          blank lines from the result.
+
+        Returns:
+        - String representation of the result document.
         """
         # Initialize parameters as an empty dictionary if None is passed
         parameters = parameters or {}
@@ -138,7 +156,45 @@ class SaxonXMLDocument:
         if parameters:
             self._set_xslt_parameters_from_dict(xslt_exec, parameters)
 
-        self.xml_doc_str = xslt_exec.transform_to_string(xdm_node=self.xml_doc_tree)
+        result = xslt_exec.transform_to_string(xdm_node=self.xml_doc_tree)
+
+        if format_output:
+            result = self._remove_blank_lines(result)
+            result = self._format_xml_with_line_endings(result)
+
+        return result
+
+    def transform_and_save(
+            self,
+            xslt_exec: PyXsltExecutable,
+            output_filepath: str,
+            parameters: Optional[Dict] = None,
+            format_output: bool = True
+    ):
+        """
+        Transforms the XML document using an XSLT executable and saves the result
+        document to the output filepath. The class instance is also updated with
+        the result document, so subsequent XPath queries or further XSLT
+        processing is performed on the transformed document.
+
+        Parameters:
+        - xslt_exec (PyXsltExecutable): The XSLT execution object.
+        - output_filepath (str): The file path where the transformed document will
+          be saved.
+        - parameters (dict, optional): A dictionary with parameters for the XSLT
+          executable. Defaults to None.
+        - format_output (bool, optional): Whether to postprocess the formatting
+          of the transformation result or not. Defaults to True, in which case
+          blank lines are removed and line endings are added after the XML
+          declaration and any XML processing instructions. This prettifies the
+          output, at a slight expense of performance. Generally, this is safe
+          to set to True when the output is XML or HTML, but when outputting
+          plain text you want to set it to False not to remove intentional
+          blank lines from the result.
+        """
+        self.xml_doc_str = self.transform_to_string(xslt_exec,
+                                                    parameters,
+                                                    format_output)
         self._save_to_file(output_filepath=output_filepath)
 
     def add_namespace(self, ns_prefix: str, ns_uri: str):
@@ -255,9 +311,7 @@ class SaxonXMLDocument:
           saved.
         """
         with open(output_filepath, "w", encoding="utf-8") as file:
-            xml_str = self._remove_blank_lines(self.xml_doc_str)
-            xml_str = self._format_xml_with_line_endings(xml_str)
-            file.write(xml_str)
+            file.write(self.xml_doc_str)
 
     def _parse_from_string(self, xml_str: str) -> PyXdmNode:
         """
