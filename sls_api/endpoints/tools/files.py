@@ -7,7 +7,7 @@ import logging
 import os
 import subprocess
 from typing import Any, Dict, Optional, Tuple
-import xml.etree.ElementTree as ET
+from lxml import etree as ET
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import get_project_config, \
@@ -820,30 +820,31 @@ def extract_publication_metadata_from_tei_xml(file_path: str) -> Tuple[Optional[
             tree = ET.parse(xml_file)
         root = tree.getroot()
 
-        # Determine namespace
+        # Declare namespace
         ns = {'tei': 'http://www.tei-c.org/ns/1.0'}
 
         # Helper function to get full text including subelements
         def get_full_text(element):
             return "".join(element.itertext()) if element is not None else None
 
-        # Extract the full text of <title> inside <titleStmt>
-        title_element = root.find("./tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:title", namespaces=ns)
+        # Extract the full text of the first <title> without an attribute inside <titleStmt>
+        title_element = root.xpath("./tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:title[not(@*)]", namespaces=ns)
+        title_element = title_element[0] if title_element else None
         title = get_full_text(title_element)
 
         # Extract the @when attribute value in <origDate> within <sourceDesc>
-        orig_date_element = root.find("./tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:origDate", namespaces=ns)
+        orig_date_element = root.find("./tei:teiHeader/tei:fileDesc/tei:sourceDesc//tei:origDate[@when]", namespaces=ns)
         orig_date = orig_date_element.get("when") if orig_date_element is not None else None
 
         # Fallbacks in case <origDate> not found in <sourceDesc>:
         if not orig_date:
             # Search for a <date> with @when in <bibl> within <sourceDesc>
-            date_element = root.find("./tei:teiHeader/tei:fileDesc/tei:sourceDesc/tei:bibl//tei:date", namespaces=ns)
+            date_element = root.find("./tei:teiHeader/tei:fileDesc/tei:sourceDesc/tei:bibl//tei:date[@when]", namespaces=ns)
             orig_date = date_element.get("when") if date_element is not None else None
 
             if not orig_date:
                 # Search for a <date> with @when in <correspDesc> within <profileDesc>
-                date_element = root.find("./tei:teiHeader/tei:profileDesc/tei:correspDesc/tei:correspAction[@type='sent']/tei:date", namespaces=ns)
+                date_element = root.find("./tei:teiHeader/tei:profileDesc/tei:correspDesc/tei:correspAction[@type='sent']/tei:date[@when]", namespaces=ns)
                 orig_date = date_element.get("when") if date_element is not None else None
 
         # Validate orig_date, must conform to YYYY, YYYY-MM or YYYY-MM-DD
