@@ -297,70 +297,89 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
 @text.route("/<project>/text/<collection_id>/<publication_id>/ms/<manuscript_id>/<section_id>")
 def get_manuscript(project, collection_id, publication_id, manuscript_id=None, section_id=None):
     """
-    Get one or all manuscripts for a given publication
+    Get one or all manuscripts for a given publication.
+
+    If neither `manuscript_id` nor `section_id` are specified, returns all manuscripts
+    for the publication without section processing.
+
+    If only `manuscript_id` is specified and 'ch' is not in the ID, the manuscript with the
+    ID is returned without section processing. If, however, 'ch' is in the `manuscript_id`,
+    it's regarded as a section ID instead of a manuscript ID, and then all manuscripts
+    are returned but only the specified section of them.
+
+    If both `manuscript_id` and `section_id` are specified, and 'ch' is not in the
+    `manuscript_id`, only the section with `section_id` of the manuscript with
+    `manuscript_id` ID is returned. If, however, 'ch' is in the `manuscript_id`, then all
+    manuscripts are returned but only the section of them marked with `section_id`
+    (generally this case should not happen).
     """
     can_show, message = get_published_status(project, collection_id, publication_id)
-    if can_show:
-        logger.info("Getting XML for {} and transforming...".format(request.full_path))
-        connection = db_engine.connect()
-        if manuscript_id is not None and 'ch' not in str(manuscript_id):
-            select = "SELECT sort_order, name, legacy_id, id, original_filename, language FROM publication_manuscript WHERE id = :m_id AND deleted != 1 ORDER BY sort_order ASC"
-            statement = sqlalchemy.sql.text(select).bindparams(m_id=manuscript_id)
-            manuscript_info = []
-            for row in connection.execute(statement).fetchall():
-                if row is not None:
-                    manuscript_info.append(row._asdict())
-            connection.close()
-        else:
-            select = "SELECT sort_order, name, legacy_id, id, original_filename, language FROM publication_manuscript WHERE publication_id = :p_id AND deleted != 1 ORDER BY sort_order ASC"
-            statement = sqlalchemy.sql.text(select).bindparams(p_id=publication_id)
-            manuscript_info = []
-            for row in connection.execute(statement).fetchall():
-                if row is not None:
-                    manuscript_info.append(row._asdict())
-            connection.close()
 
-        bookId = get_collection_legacy_id(collection_id)
-        if bookId is None:
-            bookId = collection_id
-
-        bookId = '"{}"'.format(bookId)
-
-        for index in range(len(manuscript_info)):
-            manuscript = manuscript_info[index]
-            if section_id is not None:
-                section_id = '"{}"'.format(section_id)
-                params = {
-                    "bookId": bookId,
-                    "sectionId": str(section_id)
-                }
-            elif manuscript_id is not None and 'ch' in str(manuscript_id):
-                section_id = '"{}"'.format(manuscript_id)
-                params = {
-                    "bookId": bookId,
-                    "sectionId": str(section_id)
-                }
-            else:
-                params = {
-                    "bookId": bookId
-                }
-            if manuscript["original_filename"] is None and manuscript["legacy_id"] is not None:
-                filename = "{}.xml".format(manuscript["legacy_id"])
-            else:
-                filename = "{}_{}_ms_{}.xml".format(collection_id, publication_id, manuscript["id"])
-            manuscript_info[index]["manuscript_changes"] = get_content(project, "ms", filename, "ms_changes.xsl", params).replace(" id=", " data-id=")
-            manuscript_info[index]["manuscript_normalized"] = get_content(project, "ms", filename, "ms_normalized.xsl", params).replace(" id=", " data-id=")
-
-        data = {
-            "id": "{}_{}".format(collection_id, publication_id),
-            "manuscripts": manuscript_info
-        }
-        return jsonify(data), 200
-    else:
+    if not can_show:
         return jsonify({
-            "id": "{}_{}_ms".format(collection_id, publication_id),
+            "id": f"{collection_id}_{publication_id}_ms",
             "error": message
         }), 403
+
+    logger.info(f"Getting XML for {request.full_path} and transforming...")
+    connection = db_engine.connect()
+
+    # Get manuscripts (either by specific ID or all)
+    if manuscript_id is not None and 'ch' not in str(manuscript_id):
+        query = """
+            SELECT sort_order, name, legacy_id, id, original_filename, language
+            FROM publication_manuscript
+            WHERE id = :m_id AND deleted != 1
+            ORDER BY sort_order ASC
+        """
+        statement = sqlalchemy.sql.text(query).bindparams(m_id=manuscript_id)
+    else:
+        query = """
+            SELECT sort_order, name, legacy_id, id, original_filename, language
+            FROM publication_manuscript
+            WHERE publication_id = :p_id AND deleted != 1
+            ORDER BY sort_order ASC
+        """
+        statement = sqlalchemy.sql.text(query).bindparams(p_id=publication_id)
+
+    manuscripts_list = [row._asdict() for row in connection.execute(statement).fetchall()]
+    connection.close()
+
+    # Get legacy bookId
+    book_id = get_collection_legacy_id(collection_id) or collection_id
+
+    # Initialise dict with XSLT parameters, string literals must be quoted for `lxml`
+    xslt_params = {
+        "bookId": f'"{book_id}"'
+    }
+
+    # Determine sectionId parameter for XSLT and append to xslt_params
+    if section_id is not None:
+        xslt_params['sectionId'] = f'"{section_id}"'
+    elif manuscript_id is not None and 'ch' in str(manuscript_id):
+        xslt_params['sectionId'] = f'"{manuscript_id}"'
+
+    for manuscript in manuscripts_list:
+        # Construct filename
+        if manuscript["original_filename"] is None and manuscript["legacy_id"]:
+            filename = f"{manuscript['legacy_id']}.xml"
+        else:
+            filename = f"{collection_id}_{publication_id}_ms_{manuscript['id']}.xml"
+
+        # Apply transformations
+        manuscript["manuscript_changes"] = get_content(
+            project, "ms", filename, "ms_changes.xsl", xslt_params
+        ).replace(" id=", " data-id=")
+
+        manuscript["manuscript_normalized"] = get_content(
+            project, "ms", filename, "ms_normalized.xsl", xslt_params
+        ).replace(" id=", " data-id=")
+
+    # Construct and return response
+    return jsonify({
+        "id": f"{collection_id}_{publication_id}",
+        "manuscripts": manuscripts_list
+    }), 200
 
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/var/")
