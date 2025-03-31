@@ -387,15 +387,17 @@ def transform_xml(
     Returns:
         String representation of the result document.
     """
-    logger.debug("Transforming {} using {}".format(xml_file_path, xsl_file_path))
+    logger.debug(f"Transforming {xml_file_path} using {xsl_file_path}")
+
     if params is not None:
-        logger.debug("Parameters are {}".format(params))
+        logger.debug(f"Parameters are {params}")
         if not isinstance(params, dict) and not isinstance(params, OrderedDict):
-            raise Exception("Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {}".format(type(params)))
+            raise Exception(f"Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {type(params)}")
+
     if not os.path.exists(xsl_file_path):
-        return "XSL file {!r} not found!".format(xsl_file_path)
+        return f"XSL file {xsl_file_path!r} not found!"
     if not os.path.exists(xml_file_path):
-        return "XML file {!r} not found!".format(xml_file_path)
+        return f"XML file {xml_file_path!r} not found!"
 
     if use_saxon:
         # Use the Saxon XSLT 3.0 processor.
@@ -421,8 +423,10 @@ def transform_xml(
             result = xsl_transform(xml_root)
         else:
             result = xsl_transform(xml_root, **params)
+
         if len(xsl_transform.error_log) > 0:
             logging.debug(xsl_transform.error_log)
+
         return str(result)
 
 
