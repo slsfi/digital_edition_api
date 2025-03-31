@@ -316,8 +316,6 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     can_show, message = get_published_status(project, collection_id, publication_id)
 
     if not can_show:
-
-    if not can_show:
         return jsonify({
             "id": f"{collection_id}_{publication_id}_ms",
             "id": f"{collection_id}_{publication_id}_ms",
