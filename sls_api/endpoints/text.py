@@ -297,11 +297,29 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     `manuscript_id` ID is returned. If, however, 'ch' is in the `manuscript_id`, then all
     manuscripts are returned but only the section of them marked with `section_id`
     (generally this case should not happen).
+    Get one or all manuscripts for a given publication.
+
+    If neither `manuscript_id` nor `section_id` are specified, returns all manuscripts
+    for the publication without section processing.
+
+    If only `manuscript_id` is specified and 'ch' is not in the ID, the manuscript with the
+    ID is returned without section processing. If, however, 'ch' is in the `manuscript_id`,
+    it's regarded as a section ID instead of a manuscript ID, and then all manuscripts
+    are returned but only the specified section of them.
+
+    If both `manuscript_id` and `section_id` are specified, and 'ch' is not in the
+    `manuscript_id`, only the section with `section_id` of the manuscript with
+    `manuscript_id` ID is returned. If, however, 'ch' is in the `manuscript_id`, then all
+    manuscripts are returned but only the section of them marked with `section_id`
+    (generally this case should not happen).
     """
     can_show, message = get_published_status(project, collection_id, publication_id)
 
     if not can_show:
+
+    if not can_show:
         return jsonify({
+            "id": f"{collection_id}_{publication_id}_ms",
             "id": f"{collection_id}_{publication_id}_ms",
             "error": message
         }), 403
