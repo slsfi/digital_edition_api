@@ -151,17 +151,13 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         logger.debug("Filename (est) for {} is {}".format(publication_id, filename))
         xsl_file = "est.xsl"
 
-        bookId = get_collection_legacy_id(collection_id)
-        if bookId is None:
-            bookId = collection_id
-        bookId = '"{}"'.format(bookId)
-
+        xslt_params = {
+            "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
+        }
         if section_id is not None:
-            section_id = '"{}"'.format(section_id)
-            content = get_content(project, "est", filename, xsl_file,
-                                  {"bookId": bookId, "sectionId": section_id})
-        else:
-            content = get_content(project, "est", filename, xsl_file, {"bookId": bookId})
+            xslt_params["sectionId"] = str(section_id)
+
+        content = get_content(project, "est", filename, xsl_file, xslt_params)
 
         select = "SELECT language FROM publication WHERE id = :p_id"
         statement = sqlalchemy.sql.text(select).bindparams(p_id=publication_id)
@@ -205,46 +201,35 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
                         AND legacy_id IS NOT NULL AND original_filename IS NULL"
             statement = sqlalchemy.sql.text(select).bindparams(p_id=publication_id)
             result = connection.execute(statement).fetchone()
-
-            bookId = get_collection_legacy_id(collection_id)
-            if bookId is None:
-                bookId = collection_id
-
-            bookId = '"{}"'.format(bookId)
+            connection.close()
 
             if result is not None:
                 filename = "{}_com.xml".format(result.legacy_id)
-                connection.close()
             else:
                 filename = "{}_{}_com.xml".format(collection_id, publication_id)
-                connection.close()
+
             logger.debug("Filename (com) for {} is {}".format(publication_id, filename))
-            params = {
-                "estDocument": '"file://{}"'.format(safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))),
-                "bookId": bookId
+
+            xslt_params = {
+                "estDocument": f'file://{safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))}',
+                "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
             }
 
             if note_id is not None and section_id is None:
-                params["noteId"] = '"{}"'.format(note_id)
+                xslt_params["noteId"] = str(note_id)
                 xsl_file = "notes.xsl"
             else:
                 xsl_file = "com.xsl"
 
             if section_id is not None:
-                section_id = '"{}"'.format(section_id)
-                content = get_content(project, "com", filename, xsl_file, {
-                    "sectionId": str(section_id),
-                    "estDocument": '"file://{}"'.format(safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))),
-                    "bookId": bookId
-                })
-            else:
-                content = get_content(project, "com", filename, xsl_file, params)
+                xslt_params["sectionId"] = str(section_id)
+
+            content = get_content(project, "com", filename, xsl_file, xslt_params)
 
             data = {
                 "id": "{}_{}_com".format(collection_id, publication_id),
                 "content": content
             }
-            connection.close()
             return jsonify(data), 200
         else:
             return jsonify({
@@ -345,19 +330,16 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     manuscripts_list = [row._asdict() for row in connection.execute(statement).fetchall()]
     connection.close()
 
-    # Get legacy bookId
-    book_id = get_collection_legacy_id(collection_id) or collection_id
-
-    # Initialise dict with XSLT parameters, string literals must be quoted for `lxml`
+    # Initialise dict with XSLT parameters
     xslt_params = {
-        "bookId": f'"{book_id}"'
+        "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
     }
 
     # Determine sectionId parameter for XSLT and append to xslt_params
     if section_id is not None:
-        xslt_params['sectionId'] = f'"{section_id}"'
+        xslt_params['sectionId'] = str(section_id)
     elif manuscript_id is not None and 'ch' in str(manuscript_id):
-        xslt_params['sectionId'] = f'"{manuscript_id}"'
+        xslt_params['sectionId'] = str(manuscript_id)
 
     for manuscript in manuscripts_list:
         # Construct filename
@@ -400,21 +382,12 @@ def get_variant(project, collection_id, publication_id, section_id=None):
                 variation_info.append(row._asdict())
         connection.close()
 
-        bookId = get_collection_legacy_id(collection_id)
-        if bookId is None:
-            bookId = collection_id
+        xslt_params = {
+            "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
+        }
 
-        bookId = '"{}"'.format(bookId)
         if section_id is not None:
-            section_id = '"{}"'.format(section_id)
-            params = {
-                "bookId": bookId,
-                "sectionId": str(section_id)
-            }
-        else:
-            params = {
-                "bookId": bookId
-            }
+            xslt_params["sectionId"] = str(section_id)
 
         for index in range(len(variation_info)):
             variation = variation_info[index]
@@ -429,7 +402,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
             else:
                 filename = "{}_{}_var_{}.xml".format(collection_id, publication_id, variation["id"])
 
-            variation_info[index]["content"] = get_content(project, "var", filename, xsl_file, params)
+            variation_info[index]["content"] = get_content(project, "var", filename, xsl_file, xslt_params)
 
         data = {
             "id": "{}_{}_var".format(collection_id, publication_id),
@@ -509,17 +482,13 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
         else:
             xsl_file = None
 
-        bookId = get_collection_legacy_id(collection_id)
-        if bookId is None:
-            bookId = collection_id
-        bookId = '"{}"'.format(bookId)
-
+        xslt_params = {
+            "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
+        }
         if section_id is not None:
-            section_id = '"{}"'.format(section_id)
-            content = get_xml_content(project, "est", filename, xsl_file,
-                                      {"bookId": bookId, "sectionId": section_id})
-        else:
-            content = get_xml_content(project, "est", filename, xsl_file, {"bookId": bookId})
+            xslt_params["sectionId"] = str(section_id)
+
+        content = get_xml_content(project, "est", filename, xsl_file, xslt_params)
 
         select = "SELECT language FROM publication WHERE id = :p_id"
         statement = sqlalchemy.sql.text(select).bindparams(p_id=publication_id)
@@ -530,7 +499,6 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
             text_language = result.language
 
         data = {
-            # @TODO: investigate if id should have language in its value or not (similar to filename).
             "id": "{}_{}_est".format(collection_id, publication_id),
             "content": content,
             "language": text_language
@@ -565,11 +533,6 @@ def get_comments_downloadable_format(project, format, collection_id, publication
             statement = sqlalchemy.sql.text(select).bindparams(p_id=publication_id)
             result = connection.execute(statement).fetchone()
 
-            bookId = get_collection_legacy_id(collection_id)
-            if bookId is None:
-                bookId = collection_id
-            bookId = '"{}"'.format(bookId)
-
             if result is not None:
                 filename = "{}_com.xml".format(result.legacy_id)
                 connection.close()
@@ -578,9 +541,9 @@ def get_comments_downloadable_format(project, format, collection_id, publication
                 connection.close()
             logger.debug("Filename (com) for {} is {}".format(publication_id, filename))
 
-            params = {
-                "estDocument": '"file://{}"'.format(safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))),
-                "bookId": bookId
+            xslt_params = {
+                "estDocument": f'file://{safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))}',
+                "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
             }
 
             if format == "xml":
@@ -591,14 +554,9 @@ def get_comments_downloadable_format(project, format, collection_id, publication
                 xsl_file = None
 
             if section_id is not None:
-                section_id = '"{}"'.format(section_id)
-                content = get_xml_content(project, "com", filename, xsl_file, {
-                    "sectionId": str(section_id),
-                    "estDocument": '"file://{}"'.format(safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))),
-                    "bookId": bookId
-                })
-            else:
-                content = get_xml_content(project, "com", filename, xsl_file, params)
+                xslt_params["sectionId"] = str(section_id)
+
+            content = get_xml_content(project, "com", filename, xsl_file, xslt_params)
 
             data = {
                 "id": "{}_{}_com".format(collection_id, publication_id),
