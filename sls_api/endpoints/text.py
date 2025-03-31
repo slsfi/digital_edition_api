@@ -211,7 +211,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
             logger.debug("Filename (com) for {} is {}".format(publication_id, filename))
 
             xslt_params = {
-                "estDocument": f"file://{safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))}",
+                "estDocument": f'file://{safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))}',
                 "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
             }
 
@@ -542,7 +542,7 @@ def get_comments_downloadable_format(project, format, collection_id, publication
             logger.debug("Filename (com) for {} is {}".format(publication_id, filename))
 
             xslt_params = {
-                "estDocument": f"file://{safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))}",
+                "estDocument": f'file://{safe_join(config["file_root"], "xml", "est", filename.replace("com", "est"))}',
                 "bookId": str(get_collection_legacy_id(collection_id) or collection_id)
             }
 
