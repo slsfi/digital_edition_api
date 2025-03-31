@@ -394,6 +394,14 @@ def transform_xml(
         if not isinstance(params, dict) and not isinstance(params, OrderedDict):
             raise Exception(f"Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {type(params)}")
 
+        if not use_saxon:
+            # lxml requires string parameters to be valid XPath string literals
+            # strparam() ensures proper quoting and escaping
+            params = {
+                key: lxml_escape_quotes_if_string(val)
+                for key, val in params.items()
+            }
+
     if not os.path.exists(xsl_file_path):
         return f"XSL file {xsl_file_path!r} not found!"
     if not os.path.exists(xml_file_path):
@@ -984,3 +992,25 @@ def is_any_valid_date_format(date_string: str) -> bool:
         return True
 
     return False
+
+
+def lxml_escape_quotes_if_string(value: Any) -> Any:
+    """
+    Ensures safe escaping of string values when passing parameters to lxml
+    XSLT transformations.
+
+    If the value is a string, it will be wrapped and escaped using
+    etree.XSLT.strparam() to make it a valid XPath string literal. This
+    prevents issues with embedded quotes or special characters when used
+    as XSLT parameters.
+
+    Non-string values are returned unchanged.
+
+    Args:
+        value (Any): The value to be checked and potentially escaped.
+
+    Returns:
+        Any: The escaped string for lxml XSLT, or the original value if not
+        a string.
+    """
+    return etree.XSLT.strparam(value) if isinstance(value, str) else value
