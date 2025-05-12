@@ -20,9 +20,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("publisher")
 logger.setLevel(logging.DEBUG)
 
-valid_projects = [project for project in config if isinstance(config[project], dict) and config[project].get("comments_database", False)]
-
-comment_db_engines = {project: create_engine(config[project]["comments_database"], pool_pre_ping=True) for project in valid_projects}
+projects = [project for project in config if isinstance(config[project], dict)]
 
 EST_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-est.xsl"
 COM_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-com.xsl"
@@ -39,17 +37,22 @@ def get_comments_from_database(project, document_note_ids):
     if not document_note_ids:
         return []
 
-    connection = comment_db_engines[project].connect()
+    # if project has comments database config, try and read comments from database
+    if projects[project].get("comments_database", False):
+        connection = create_engine(projects[project]["comments_database"], pool_pre_ping=True).connect()
 
-    comment_query = text("SELECT documentnote.id, documentnote.shortenedSelection, note.description \
-                         FROM documentnote INNER JOIN note ON documentnote.note_id = note.id \
-                         WHERE documentnote.deleted = 0 AND note.deleted = 0 AND documentnote.id IN :docnote_ids")
-    comment_query = comment_query.bindparams(docnote_ids=tuple(document_note_ids))
-    comments = connection.execute(comment_query).fetchall()
-    connection.close()
-    if len(comments) <= 0:
+        comment_query = text("SELECT documentnote.id, documentnote.shortenedSelection, note.description \
+                            FROM documentnote INNER JOIN note ON documentnote.note_id = note.id \
+                            WHERE documentnote.deleted = 0 AND note.deleted = 0 AND documentnote.id IN :docnote_ids")
+        comment_query = comment_query.bindparams(docnote_ids=tuple(document_note_ids))
+        comments = connection.execute(comment_query).fetchall()
+        connection.close()
+        if len(comments) <= 0:
+            return []
+        return [comment._asdict() for comment in comments if comment is not None]
+    else:
+        logger.warning(f"Project {project} lacks comments_database configuration.")
         return []
-    return [comment._asdict() for comment in comments if comment is not None]
 
 
 def get_letter_info_from_database(letter_id):
@@ -1085,7 +1088,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.list_projects:
-        logger.info(f"Projects with seemingly valid configuration: {', '.join(valid_projects)}")
+        logger.info(f"Projects with seemingly valid configuration: {', '.join(projects)}")
         sys.exit(0)
     else:
         if args.publication_ids is None:
@@ -1096,12 +1099,12 @@ if __name__ == "__main__":
             # use a tuple rather than a list, to make SQLAlchemy happier more easily
             ids = tuple(args.publication_ids)
         if str(args.project).lower() == "all":
-            for p in valid_projects:
+            for p in projects:
                 check_publication_mtimes_and_publish_files(p, ids, git_author=args.git_author,
                                                            no_git=args.no_git, force_publish=args.all_ids,
                                                            use_xslt_processing=args.use_xslt_processing)
         else:
-            if args.project in valid_projects:
+            if args.project in projects:
                 check_publication_mtimes_and_publish_files(args.project, ids, git_author=args.git_author,
                                                            no_git=args.no_git, force_publish=args.all_ids,
                                                            is_multilingual=args.is_multilingual,
