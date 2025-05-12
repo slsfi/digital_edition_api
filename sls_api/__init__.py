@@ -76,6 +76,10 @@ if security_config_exists:
     app.config["JWT_TOKEN_LOCATION"] = 'headers'
     app.config["SQLALCHEMY_DATABASE_URI"] = security_config["user_database"]
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    # handle database reconnects in user database backend
+    # setting pool_recycle to 300 invalidates old connections after 5 minutes
+    # this should prevent errors due to database timeouts (database may not allow long-lived connections)
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {"pool_size": 5, "max_overflow": 10, "pool_recycle": 300}
 
     jwt = JWTManager(app)
     db.init_app(app)
