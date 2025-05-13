@@ -9,7 +9,7 @@ setup(
         'argon2-cffi==23.1.0',
         'beautifulsoup4==4.13.3',
         'elasticsearch==7.17.12',
-        'flask==3.1.0',
+        'flask==3.1.1',
         'flask-jwt-extended==4.7.1',
         'flask-sqlalchemy==3.1.1',
         'flask-cors==5.0.1',
