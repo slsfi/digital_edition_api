@@ -12,7 +12,7 @@ setup(
         'flask==3.1.0',
         'flask-jwt-extended==4.7.1',
         'flask-sqlalchemy==3.1.1',
-        'flask-cors==5.0.1',
+        'flask-cors==6.0.0',
         'lxml==5.3.1',
         'mysqlclient==2.2.7',
         'passlib==1.7.4',
