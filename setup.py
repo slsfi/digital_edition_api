@@ -7,23 +7,23 @@ setup(
     include_package_data=True,
     install_requires=[
         'argon2-cffi==23.1.0',
-        'beautifulsoup4==4.13.3',
+        'beautifulsoup4==4.13.4',
         'elasticsearch==7.17.12',
-        'flask==3.1.0',
+        'flask==3.1.1',
         'flask-jwt-extended==4.7.1',
         'flask-sqlalchemy==3.1.1',
-        'flask-cors==5.0.1',
-        'lxml==5.3.1',
+        'flask-cors==6.0.0',
+        'lxml==5.4.0',
         'mysqlclient==2.2.7',
         'passlib==1.7.4',
-        'Pillow==11.1.0',
+        'Pillow==11.2.1',
         'psycopg2-binary==2.9.10',
         'raven[flask]==6.10.0',
         'ruamel.yaml==0.18.10',
         'requests==2.32.3',
-        'saxonche==12.5.0',
-        'sqlalchemy==2.0.38',
+        'saxonche==12.7.0',
+        'sqlalchemy==2.0.41',
         'werkzeug==3.1.3',
-        'uwsgi==2.0.28'
+        'uwsgi==2.0.29'
     ]
 )
