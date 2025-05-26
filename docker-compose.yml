@@ -1,6 +1,6 @@
 services:
     frontend:
-        image: docker.io/library/nginx:1.27.4
+        image: docker.io/library/nginx:1.28.0
         restart: unless-stopped
         volumes:
             - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
