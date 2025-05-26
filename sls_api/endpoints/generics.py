@@ -221,7 +221,7 @@ def path_hierarchy(project, path, language):
     hierarchy = {
         'id': slugify_id(path, language),
         'title': filter_title(os.path.basename(path)),
-        'basename': os.path.basename(path).replace('.md',''),
+        'basename': os.path.basename(path).replace('.md', ''),
         'path': slugify_path(project, path),
         'fullpath': path,
         'route': slugify_route(split_after(path, "/" + project_config["file_root"] + "/md/")),
@@ -244,6 +244,7 @@ def filter_title(path):
 
 def split_after(value, a):
     return value.lstrip(a)
+
 
 def cache_is_recent(source_file, xsl_file, cache_file):
     """
