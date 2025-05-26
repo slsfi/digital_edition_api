@@ -243,14 +243,7 @@ def filter_title(path):
 
 
 def split_after(value, a):
-    pos_a = value.rfind(a)
-    if pos_a == -1:
-        return ""
-    adjusted_pos_a = pos_a + len(a)
-    if adjusted_pos_a >= len(value):
-        return ""
-    return value[adjusted_pos_a:]
-
+    return value.lstrip(a)
 
 def cache_is_recent(source_file, xsl_file, cache_file):
     """
