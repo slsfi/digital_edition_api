@@ -1,5 +1,10 @@
 FROM python:3.13-slim
 
+# ensure we set UTF-8 as the "systemwide" encoding
+# this prevents python from mangling non-ASCII paths with surrogate-escape \udcc3 bytes
+ENV LANG C.UTF-8
+ENV LC_ALL C.UTF-8
+
 # build-essential is needed to build some libraries (mainly uwsgi and the various database support ones)
 # git is needed to pull/push file changes
 # imagemagick is needed for conversions as part of facsimile upload
