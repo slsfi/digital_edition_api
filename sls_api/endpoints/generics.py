@@ -213,17 +213,21 @@ def slugify_id(path, language):
 def slugify_path(project, path):
     project_config = get_project_config(project)
     path = split_after(path, "/" + project_config["file_root"] + "/md/")
-    return re.sub('.md', '', path)
+    return path.replace('.md', '')
 
 
 def path_hierarchy(project, path, language):
     project_config = get_project_config(project)
-    hierarchy = {'id': slugify_id(path, language), 'title': filter_title(os.path.basename(path)),
-                 'basename': re.sub('.md', '', os.path.basename(path)), 'path': slugify_path(project, path),
-                 'fullpath': path,
-                 'route': slugify_route(split_after(path, "/" + project_config["file_root"] + "/md/")),
-                 'type': 'folder',
-                 'children': [path_hierarchy(project, p, language) for p in sorted(glob.glob(os.path.join(path, '*')))]}
+    hierarchy = {
+        'id': slugify_id(path, language),
+        'title': filter_title(os.path.basename(path)),
+        'basename': os.path.basename(path).replace('.md',''),
+        'path': slugify_path(project, path),
+        'fullpath': path,
+        'route': slugify_route(split_after(path, "/" + project_config["file_root"] + "/md/")),
+        'type': 'folder',
+        'children': [path_hierarchy(project, p, language) for p in sorted(glob.glob(os.path.join(path, '*')))]
+    }
 
     if not hierarchy['children']:
         del hierarchy['children']
