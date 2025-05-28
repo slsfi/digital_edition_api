@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import sqlalchemy.sql
-from sqlalchemy import select
+from sqlalchemy import collate, select
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
@@ -515,6 +515,7 @@ def get_project_locations(project):
 def get_project_tags(project):
     """
     List all non-deleted tags/keywords in the specified project.
+    The tags/keywords are alphabetically ordered by name.
 
     URL Path Parameters:
 
@@ -601,6 +602,9 @@ def get_project_tags(project):
                 select(*tag_table.c)
                 .where(tag_table.c.project_id == project_id)
                 .where(tag_table.c.deleted < 1)
+                .order_by(
+                    collate(tag_table.c.name, "sv-x-icu")  # Use Swedish collation for sorting å, ä, ö correctly.
+                )
             )
             rows = connection.execute(stmt).fetchall()
             return create_success_response(

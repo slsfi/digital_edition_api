@@ -593,7 +593,7 @@ def get_publication_tags(project, publication_id):
             )
         )
         .order_by(
-            collate(tag_table.c.name, "sv-x-icu") # Use Swedish collation for sorting å, ä, ö correctly.
+            collate(tag_table.c.name, "sv-x-icu")  # Use Swedish collation for sorting å, ä, ö correctly.
         )
     )
 
