@@ -1581,7 +1581,7 @@ def edit_tag(project, tag_id):
                 if updated_row is None:
                     # No row was returned: invalid tag_id or project name
                     return create_error_response("Update failed: no keyword record with the provided 'tag_id' found in project.")
-                
+
                 # If the tag is deleted, also delete any events related to it
                 if "deleted" in values and values["deleted"]:
                     connection_table = get_table("event_connection")
@@ -1622,9 +1622,9 @@ def edit_tag(project, tag_id):
                         .returning(connection_table.c.id)
                     )
 
-                    updated_occ_ids = connection.execute(upd_occ_stmt).fetchall()
-                    updated_event_ids = connection.execute(upd_event_stmt).fetchall()
-                    updated_conn_ids = connection.execute(upd_conn_stmt).fetchall()
+                    connection.execute(upd_occ_stmt)
+                    connection.execute(upd_event_stmt)
+                    connection.execute(upd_conn_stmt)
 
                 return create_success_response(
                     message="Keyword record updated.",
