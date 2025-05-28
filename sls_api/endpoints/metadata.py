@@ -7,10 +7,13 @@ import json
 import logging
 import os
 import sqlalchemy.sql
+from sqlalchemy import select
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, path_hierarchy, select_all_from_table, flatten_json, get_first_valid_item_from_toc
+from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, \
+    path_hierarchy, select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
+    create_error_response, create_success_response, get_table
 from sls_api.endpoints.tools.files import git_commit_and_push_file
 
 meta = Blueprint('metadata', __name__)
@@ -508,20 +511,106 @@ def get_project_locations(project):
     return jsonify(results)
 
 
-# Get all subjects for a project
 @meta.route("/<project>/tags")
 def get_project_tags(project):
+    """
+    List all non-deleted tags/keywords in the specified project.
+
+    URL Path Parameters:
+
+    - project (str, required): The name of the project to retrieve
+      tags/keywords for (must be a valid project name).
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": array of objects or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an array of tag/keyword objects; `null`
+       on error.
+
+    Tag/keyword object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null
+    }
+
+    Example Request:
+
+        GET /projectname/tags
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Retrieved # keywords.",
+            "data": [
+                {
+                    "id": 123,
+                    "date_created": "2023-05-12T12:34:56",
+                    "date_modified": "2023-06-01T08:22:11",
+                    "deleted": 0,
+                    "type": "filosofiska",
+                    "name": "spelrumsmodellen",
+                    "description": "Description of the keyword.",
+                    "legacy_id": "k3524",
+                    "project_id": 5,
+                    "source": "Encyclopaedia Britannica",
+                    "name_translation_id": 86
+                },
+                ...
+            ]
+        }
+
+    Status Codes:
+
+    - 200 - OK: The tags/keywords are retrieved successfully.
+    - 400 - Bad Request: Invalid project name.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
     logger.info("Getting /<project>/tags")
-    connection = db_engine.connect()
+
+    # Verify that project name is valid and get project_id
     project_id = get_project_id_from_name(project)
-    sql = sqlalchemy.sql.text(""" SELECT * FROM tag WHERE project_id = :p_id """)
-    statement = sql.bindparams(p_id=project_id, )
-    results = []
-    for row in connection.execute(statement).fetchall():
-        if row is not None:
-            results.append(row._asdict())
-    connection.close()
-    return jsonify(results)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    tag_table = get_table("tag")
+
+    try:
+        with db_engine.connect() as connection:
+            stmt = (
+                select(*tag_table.c)
+                .where(tag_table.c.project_id == project_id)
+                .where(tag_table.c.deleted < 1)
+            )
+            rows = connection.execute(stmt).fetchall()
+            return create_success_response(
+                message=f"Retrieved {len(rows)} keywords.",
+                data=[row._asdict() for row in rows]
+            )
+
+    except Exception:
+        logger.exception("Exception retrieving project tags.")
+        return create_error_response("Unexpected error: failed to retrieve project keywords.", 500)
 
 
 # Get all subjects for a project
