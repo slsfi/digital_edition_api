@@ -1267,120 +1267,373 @@ def list_translations(project, translation_id):
 @project_permission_required
 def add_new_tag(project):
     """
-    Add a new tag object to the database
+    Add a new tag/keyword object to the specified project.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    type: tag type
-    name: tag name
+    - project (str, required): The name of the project to add the
+      tag/keyword to (must be a valid project name).
 
-    POST data CAN also contain:
-    description: tag description
-    legacy_id: Legacy id for tag
+    POST Data Parameters in JSON Format:
+
+    - name (str, required): The name of the tag/keyword. Cannot be empty.
+    - type (str, optional): The type or classification of the tag/keyword.
+      Can be used to group or categorise the tags/keywords.
+    - description (str, optional): A description or explanation of the tag/keyword.
+    - source (str, optional): A reference to a source where the tag/keyword
+      is defined.
+    - legacy_id (str, optional): Alternate or legacy ID of the tag/keyword.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the inserted tag/keyword
+      data; `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null
+    }
+
+    Example Request:
+
+        POST /projectname/tags/new/
+        {
+            "name": "spelrumsmodellen",
+            "type": "filosofiska",
+            "description": "metaforisk modell som används för att beskriva balansen mellan frihet och regler i mänsklig handling"
+            "source": "Wikipedia",
+            "legacy_id": "t42"
+        }
+
+    Example Success Response (HTTP 201):
+
+        {
+            "success": true,
+            "message": "Keyword record created.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": null,
+                "deleted": 0,
+                "type": "filosofiska",
+                "name": "spelrumsmodellen",
+                "description": "metaforisk modell som används för att beskriva balansen mellan frihet och regler i mänsklig handling",
+                "legacy_id": "t42",
+                "project_id": 5,
+                "source": "Wikipedia",
+                "name_translation_id": null
+            }
+        }
+
+    Status Codes:
+
+    - 201 - OK: The tag/keyword was created successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    tags = get_table("tag")
-    connection = db_engine.connect()
+        return create_error_response("No data provided.")
 
-    new_tag = {
-        "type": request_data.get("type", None),
-        "name": request_data.get("name", None),
-        "project_id": get_project_id_from_name(project),
-        "description": request_data.get("description", None),
-        "legacy_id": request_data.get("legacy_id", None)
-    }
+    # Verify that the required 'name' field was provided
+    if "name" not in request_data or not request_data["name"]:
+        return create_error_response("Validation error: 'name' required.")
+
+    # List of fields to check in request_data
+    fields = ["name",
+              "type",
+              "description",
+              "source",
+              "legacy_id"]
+
+    # Start building the dictionary of inserted values
+    values = {}
+
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if not request_data[field]:
+                # Field is empty or null
+                values[field] = None
+            else:
+                # Ensure field is saved as a string
+                values[field] = str(request_data[field])
+
+    values["project_id"] = project_id
+
     try:
-        with connection.begin():
-            insert = tags.insert().values(**new_tag)
-            result = connection.execute(insert)
-            new_row = select(tags).where(tags.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new tag with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new tag",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+        with db_engine.connect() as connection:
+            with connection.begin():
+                tag_table = get_table("tag")
+                stmt = (
+                    tag_table.insert()
+                    .values(**values)
+                    .returning(*tag_table.c)  # Return the inserted row
+                )
+                inserted_row = connection.execute(stmt).first()
+
+                if inserted_row is None:
+                    return create_error_response("Failed to create keyword record: no row returned.", 500)
+
+                return create_success_response(
+                    message="Keyword record created.",
+                    data=inserted_row._asdict(),
+                    status_code=201
+                )
+
+    except Exception:
+        logger.exception("Exception creating new tag.")
+        return create_error_response("Unexpected error: failed to create new keyword record.", 500)
 
 
 @event_tools.route("/<project>/tags/<tag_id>/edit/", methods=["POST"])
 @project_permission_required
 def edit_tag(project, tag_id):
     """
-    Update tag object to the database
+    Edit an existing tag/keyword object in the specified project by
+    updating its fields.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    type: tag type
-    name: tag name
+    - project (str, required): The name of the project containing the tag/keyword
+      to be edited.
+    - tag_id (int, required): The unique identifier of the tag/keyword to be
+      updated.
 
-    POST data CAN also contain:
-    description: tag description
-    legacy_id: Legacy id for tag
+    POST Data Parameters in JSON Format (at least one required):
+
+    - name (str): The name of the tag/keyword. Cannot be empty.
+    - type (str): The type or classification of the tag/keyword.
+      Can be used to group or categorise the tags/keywords.
+    - description (str): A description or explanation of the tag/keyword.
+    - source (str): A reference to a source where the tag/keyword
+      is defined.
+    - legacy_id (str): Alternate or legacy ID of the tag/keyword.
+    - deleted (int): Indicates if the tag/keyword is deleted (0 for no,
+      1 for yes).
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the updated tag/keyword data;
+      `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null
+    }
+
+    Example Request:
+
+        POST /projectname/tags/123/edit/
+        {
+            "name": "spelrumsmodellen"
+        }
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Keyword record updated.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2025-05-28T10:08:17",
+                "deleted": 0,
+                "type": "filosofiska",
+                "name": "spelrumsmodellen",
+                "description": "metaforisk modell som används för att beskriva balansen mellan frihet och regler i mänsklig handling",
+                "legacy_id": "t42",
+                "project_id": 5,
+                "source": "Wikipedia",
+                "name_translation_id": null
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'tag_id' must be a positive integer.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The tag/keyword was updated successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Convert tag_id to integer and verify
+    tag_id = int_or_none(tag_id)
+    if not tag_id or tag_id < 1:
+        return create_error_response("Validation error: 'tag_id' must be a positive integer.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
+        return create_error_response("No data provided.")
 
-    tags = get_table("tag")
+    # Verify that the 'name' field is non-empty if provided
+    if "name" in request_data and not request_data["name"]:
+        return create_error_response("Validation error: 'name' must not be empty.")
 
-    connection = db_engine.connect()
-    with connection.begin():
-        tag_query = select(tags.c.id).where(tags.c.id == int_or_none(tag_id))
-        tag_row = connection.execute(tag_query).fetchone()
-    if tag_row is None:
-        return jsonify({"msg": "No tag with an ID of {} exists.".format(tag_id)}), 404
+    # List of fields to check in request_data
+    fields = ["deleted",
+              "name",
+              "type",
+              "description",
+              "source",
+              "legacy_id"]
 
-    type = request_data.get("type", None)
-    name = request_data.get("name", None)
-    description = request_data.get("description", None)
-    legacy_id = request_data.get("legacy_id", None)
-
+    # Start building the dictionary of inserted values
     values = {}
-    if type is not None:
-        values["type"] = type
-    if name is not None:
-        values["name"] = name
-    if description is not None:
-        values["description"] = description
-    if legacy_id is not None:
-        values["legacy_id"] = legacy_id
 
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None and field != "deleted":
+                values[field] = None
+            else:
+                if field == "deleted":
+                    if not validate_int(request_data[field], 0, 1):
+                        return create_error_response(f"Validation error: '{field}' must be either 0 or 1.")
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    if not values:
+        return create_error_response("Validation error: no valid fields provided to update.")
+
+    # Add date_modified
     values["date_modified"] = datetime.now()
 
-    if len(values) > 0:
-        try:
+    try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                update = tags.update().where(tags.c.id == int(tag_id)).values(**values)
-                connection.execute(update)
-                return jsonify({
-                    "msg": "Updated tag {} with values {}".format(int(tag_id), str(values)),
-                    "tag_id": int(tag_id)
-                })
-        except Exception as e:
-            result = {
-                "msg": "Failed to update tag.",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    else:
-        connection.close()
-        return jsonify("No valid update values given."), 400
+                tag_table = get_table("tag")
+                stmt = (
+                    tag_table.update()
+                    .where(tag_table.c.id == tag_id)
+                    .where(tag_table.c.project_id == project_id)
+                    .values(**values)
+                    .returning(*tag_table.c)  # Return the updated row
+                )
+                updated_row = connection.execute(stmt).first()
+
+                if updated_row is None:
+                    # No row was returned: invalid tag_id or project name
+                    return create_error_response("Update failed: no keyword record with the provided 'tag_id' found in project.")
+                
+                # If the tag is deleted, also delete any events related to it
+                if "deleted" in values and values["deleted"]:
+                    connection_table = get_table("event_connection")
+                    occurrence_table = get_table("event_occurrence")
+                    event_table = get_table("event")
+
+                    del_upd_value = {
+                        "deleted": 1
+                    }
+
+                    # Subquery: Get event IDs for tag_id (used in two of the updates)
+                    event_id_subquery = (
+                        select(connection_table.c.event_id)
+                        .where(connection_table.c.tag_id == tag_id)
+                    ).scalar_subquery()
+
+                    # 1. Update event_occurrence where event_id matches subquery
+                    upd_occ_stmt = (
+                        occurrence_table.update()
+                        .where(occurrence_table.c.event_id.in_(event_id_subquery))
+                        .values(**del_upd_value)
+                        .returning(occurrence_table.c.id)
+                    )
+
+                    # 2. Update event where id matches same subquery
+                    upd_event_stmt = (
+                        event_table.update()
+                        .where(event_table.c.id.in_(event_id_subquery))
+                        .values(**del_upd_value)
+                        .returning(event_table.c.id)
+                    )
+
+                    # 3. Update event_connection directly using tag_id filter
+                    upd_conn_stmt = (
+                        connection_table.update()
+                        .where(connection_table.c.tag_id == tag_id)
+                        .values(**del_upd_value)
+                        .returning(connection_table.c.id)
+                    )
+
+                    updated_occ_ids = connection.execute(upd_occ_stmt).fetchall()
+                    updated_event_ids = connection.execute(upd_event_stmt).fetchall()
+                    updated_conn_ids = connection.execute(upd_conn_stmt).fetchall()
+
+                return create_success_response(
+                    message="Keyword record updated.",
+                    data=updated_row._asdict()
+                )
+
+    except Exception:
+        logger.exception("Exception updating tag.")
+        return create_error_response("Unexpected error: failed to update keyword record.", 500)
 
 
 @event_tools.route("/<project>/work_manifestation/new/", methods=["POST"])
