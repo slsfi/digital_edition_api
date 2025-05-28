@@ -2,7 +2,7 @@ import logging
 import os
 from flask import Blueprint, request, Response
 from flask_jwt_extended import jwt_required
-from sqlalchemy import asc, desc, select, text
+from sqlalchemy import and_, asc, collate, desc, select
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, \
@@ -478,14 +478,15 @@ def get_publication_manuscripts(project, publication_id):
 @jwt_required()
 def get_publication_tags(project, publication_id):
     """
-    List all (non-deleted) tags for the specified publication.
+    List all (non-deleted) tags/keywords for the specified publication. The
+    tags/keywords are ordered alphabetically by name.
 
     URL Path Parameters:
 
     - project (str, required): The name of the project for which to retrieve
-      publication tags.
+      publication tags/keywords.
     - publication_id (int, required): The id of the publication to retrieve
-      tags for. Must be a positive integer.
+      tags/keywords for. Must be a positive integer.
 
     Returns:
 
@@ -500,7 +501,26 @@ def get_publication_tags(project, publication_id):
 
     - `success`: A boolean indicating whether the operation was successful.
     - `message`: A string containing a descriptive message about the result.
-    - `data`: On success, an array of tag objects; `null` on error.
+    - `data`: On success, an array of tag/keyword objects with event data;
+      `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null,
+        "event_occurrence_id": number,
+        "event_id": number
+    }
 
     Example Request:
 
@@ -510,7 +530,7 @@ def get_publication_tags(project, publication_id):
 
         {
             "success": true,
-            "message": "Retrieved # publication tags.",
+            "message": "Retrieved # publication keywords.",
             "data": [
                 {
                     "id": 1,
@@ -530,7 +550,8 @@ def get_publication_tags(project, publication_id):
 
     Status Codes:
 
-    - 200 - OK: The request was successful, and the publication tags are returned.
+    - 200 - OK: The request was successful, and the publication tags/keywords
+            are returned.
     - 400 - Bad Request: The project name or publication_id is invalid.
     - 500 - Internal Server Error: Database query or execution failed.
     """
@@ -544,40 +565,50 @@ def get_publication_tags(project, publication_id):
     if not publication_id or publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
-    statement = """
-        SELECT
-            t.*, e_o.*
-        FROM
-            event_occurrence e_o
-        JOIN
-            event_connection e_c
-            ON e_o.event_id = e_c.event_id
-        JOIN
-            tag t
-            ON t.id = e_c.tag_id
-        WHERE
-            e_o.publication_id = :pub_id
-            AND e_c.tag_id IS NOT NULL
-            AND e_c.deleted < 1
-            AND e_o.deleted < 1
-            AND t.deleted < 1
-    """
+    tag_table = get_table("tag")
+    connection_table = get_table("event_connection")
+    occurrence_table = get_table("event_occurrence")
+
+    stmt = (
+        select(
+            *tag_table.c,
+            occurrence_table.c.id.label("event_occurrence_id"),
+            occurrence_table.c.event_id
+        )
+        .select_from(
+            occurrence_table
+            .join(
+                connection_table,
+                occurrence_table.c.event_id == connection_table.c.event_id
+            )
+            .join(tag_table, tag_table.c.id == connection_table.c.tag_id)
+        )
+        .where(
+            and_(
+                occurrence_table.c.publication_id == publication_id,
+                connection_table.c.tag_id.isnot(None),
+                connection_table.c.deleted < 1,
+                occurrence_table.c.deleted < 1,
+                tag_table.c.deleted < 1
+            )
+        )
+        .order_by(
+            collate(tag_table.c.name, "sv-x-icu") # Use Swedish collation for sorting å, ä, ö correctly.
+        )
+    )
 
     try:
         with db_engine.connect() as connection:
-            rows = connection.execute(
-                text(statement),
-                {"pub_id": publication_id}
-            ).fetchall()
+            rows = connection.execute(stmt).fetchall()
 
             return create_success_response(
-                message=f"Retrieved {len(rows)} publication tags.",
+                message=f"Retrieved {len(rows)} publication keywords.",
                 data=[row._asdict() for row in rows]
             )
 
     except Exception:
-        logger.exception("Exception retrieving publication tags.")
-        return create_error_response("Unexpected error: failed to retrieve publication tags.", 500)
+        logger.exception("Exception retrieving publication keywords.")
+        return create_error_response("Unexpected error: failed to retrieve publication keywords.", 500)
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/facsimiles/")
