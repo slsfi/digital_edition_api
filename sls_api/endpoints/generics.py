@@ -15,7 +15,8 @@ import re
 from ruamel.yaml import YAML
 from sls_api.models import User
 from sqlalchemy import create_engine, Connection, MetaData, Table
-from sqlalchemy.sql import select, text
+from sqlalchemy.sql import and_, select, text
+from sqlalchemy.sql.selectable import Select
 import time
 from typing import Any, Dict, List, Optional, Tuple
 from werkzeug.security import safe_join
@@ -587,6 +588,73 @@ def update_publication_related_table(
 
     except Exception:
         return None
+
+
+def build_select_with_filters(table: Table, filters: dict, columns=None) -> Select:
+    """
+    Build a parameterized SQLAlchemy SELECT statement with dynamic WHERE
+    conditions.
+
+    This function constructs a SELECT statement against the given
+    SQLAlchemy Table object, applying equality-based filtering conditions
+    derived from the `filters` dictionary. Each key in the dictionary is
+    expected to match a column name in the table. Only valid columns are
+    included in the final WHERE clause.
+
+    Args:
+        table (sqlalchemy.Table): The SQLAlchemy Table object
+            representing the database table to query.
+        filters (dict): A dictionary where each key is a column name (as
+            a string) and the corresponding value is the value to filter
+            by. For example:
+            {
+                "publication_id": 1,
+                "deleted": 0
+            }
+        columns (str | list[str] | None, optional): A single column name
+            or list of column names to select. If None, all columns are
+            selected.
+
+    Returns:
+        sqlalchemy.sql.selectable.Select: A SQLAlchemy SELECT object with
+        a dynamically constructed WHERE clause.
+
+    Raises:
+        ValueError if none of the keys in the filter dictionary match
+        any columns in the provided table, or if the dictionary is empty,
+        or if no valid columns are provided.
+
+    Example:
+
+    >>> stmt = build_select_with_filters(my_table, {"id": 42, "type": "draft"}, columns=["id"])
+    >>> result = connection.execute(stmt).fetchone()
+    """
+    # Validate and collect filter conditions
+    conditions = [
+        table.c[key] == value
+        for key, value in filters.items()
+        if key in table.c
+    ]
+    if not conditions:
+        raise ValueError("No valid filters found")
+
+    # Handle column selection
+    if columns is None:
+        stmt = select(table)
+    else:
+        if isinstance(columns, str):
+            columns = [columns]
+        selected_cols = [
+            table.c[col]
+            for col in columns
+            if col in table.c
+        ]
+        if not selected_cols:
+            raise ValueError("No valid columns found for selection")
+        stmt = select(*selected_cols)
+
+    return stmt.where(and_(*conditions))
+
 
 
 def create_translation(neutral, connection=None):
