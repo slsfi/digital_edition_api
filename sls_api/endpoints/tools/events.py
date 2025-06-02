@@ -1542,7 +1542,7 @@ def edit_tag(project, tag_id):
               "source",
               "legacy_id"]
 
-    # Start building the dictionary of inserted values
+    # Start building the dictionary of updated values
     values = {}
 
     # Loop over the fields list, check each one in request_data and validate
@@ -1952,10 +1952,6 @@ def find_event_by_description():
     return jsonify(result)
 
 
-# The following event-related endpoints should not be used! They are left here only
-# for reference for the time being.
-
-
 @event_tools.route("/<project>/events/new/", methods=["POST"])
 @project_permission_required
 def add_new_event(project):
@@ -2235,351 +2231,173 @@ def add_new_event(project):
         return create_error_response("Unexpected error: failed to create new connection.", 500)
 
 
-@event_tools.route("/event/<event_id>/connections/new/", methods=["POST"])
-@jwt_required()
-def connect_event(event_id):
+@event_tools.route("/<project>/events/<event_id>/delete/", methods=["POST"])
+@project_permission_required
+def delete_event(project, event_id):
     """
-    Link an event to a location, subject, or tag through event_connection
+    Delete the event, event connection and event occurrence with the
+    specified event ID.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data MUST contain at least one of the following:
-    subject_id: ID for the subject involved in the given event
-    location_id: ID for the location involved in the given event
-    tag_id: ID for the tag involved in the given event
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    events = get_table("event")
-    connection = db_engine.connect()
-    with connection.begin():
-        select_event = select(events).where(events.c.id == int_or_none(event_id))
-        event_exists = connection.execute(select_event).fetchall()
-    if len(event_exists) != 1:
-        return jsonify(
-            {
-                "msg": "Event ID not found in database"
-            }
-        ), 404
-    event_connections = get_table("event_connection")
-    new_event_connection = {
-        "event_id": int(event_id),
-        "subject_id": int(request_data["subject_id"]) if request_data.get("subject_id", None) else None,
-        "location_id": int(request_data["location_id"]) if request_data.get("location_id", None) else None,
-        "tag_id": int(request_data["tag_id"]) if request_data.get("tag_id", None) else None
+    - project (str, required): The name of the project the event occurs
+      in. Strictly it doesn’t matter which project name is given as long
+      as it’s a valid project name because currently events in the
+      database don’t include project information.
+    - event_id (int, required): The unique identifier of the event to
+      be deleted.
+
+    POST Data Parameters in JSON Format:
+
+    - None.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the updated event data;
+      `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "event_id": number,
+        "event_connection_id": number,
+        "event_occurrence_id": number,
+        "deleted": number
     }
-    try:
-        with connection.begin():
-            insert = event_connections.insert().values(**new_event_connection)
-            result = connection.execute(insert)
-            new_row = select(event_connections).where(event_connections.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new event_connection with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
+
+    Example Request:
+
+        POST /projectname/events/123/delete/
+        {}
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Connection deleted.",
+            "data": {
+                "event_id": 123,
+                "event_connection_id": 46,
+                "event_occurrence_id": 94,
+                "deleted": 1
             }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new event_connection",
-            "reason": str(e)
         }
-        return jsonify(result), 500
-    finally:
-        connection.close()
 
+    Example Error Response (HTTP 400):
 
-@event_tools.route("/event/<event_id>/connections/")
-@jwt_required()
-def get_event_connections(event_id):
+        {
+            "success": false,
+            "message": "Validation error: 'event_id' must be a positive integer.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The event was successfully deleted.
+    - 400 - Bad Request: Fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
-    List all event_connections for a given event, to find related locations, subjects, and tags
-    """
-    event_connections = get_table("event_connection")
-    connection = db_engine.connect()
-    statement = select(event_connections).where(event_connections.c.event_id == int_or_none(event_id))
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
 
+    # Verify that event_id is a positive integer
+    event_id = int_or_none(event_id)
+    if not validate_int(event_id, 1):
+        return create_error_response("Validation error: 'event_id' must be a positive integer.")
 
-@event_tools.route("/event/<event_id>/occurrences/")
-@jwt_required()
-def get_event_occurrences(event_id):
-    """
-    Get a list of all event_occurrence in the database, optionally limiting to a given event
-    """
-    event_occurrences = get_table("event_occurrence")
-    connection = db_engine.connect()
-    statement = select(event_occurrences).where(event_occurrences.c.event_id == int_or_none(event_id))
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
-
-
-@event_tools.route("/event/<event_id>/occurrences/new/", methods=["POST"])
-@jwt_required()
-def new_event_occurrence(event_id):
-    """
-    Add a new event_occurrence to the database
-
-    POST data MUST be in JSON format.
-
-    POST data SHOULD contain the following:
-    type: event occurrence type
-    description: event occurrence description
-
-    POST data SHOULD also contain at least one of the following:
-    publication_id: ID for publication the event occurs in
-    publicationVersion_id: ID for publication version the event occurs in
-    publicationManuscript_id: ID for publication manuscript the event occurs in
-    publicationFacsimile_id: ID for publication facsimile the event occurs in
-    publicationComment_id: ID for publication comment the event occurs in
-    publicationFacsimile_page: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    events = get_table("event")
-    connection = db_engine.connect()
-    with connection.begin():
-        select_event = select(events).where(events.c.id == int_or_none(event_id))
-        event_exists = connection.execute(select_event).fetchall()
-    if len(event_exists) != 1:
-        return jsonify(
-            {
-                "msg": "Event ID not found in database"
-            }
-        ), 404
-
-    event_occurrences = get_table("event_occurrence")
-    new_occurrence = {
-        "event_id": int(event_id),
-        "type": request_data.get("type", None),
-        "description": request_data.get("description", None),
-        "publication_id": int(request_data["publication_id"]) if request_data.get("publication_id", None) else None,
-        "publication_version_id": int(request_data["publicationVersion_id"]) if request_data.get("publicationVersion_id", None) else None,
-        "publication_manuscript_id": int(request_data["publicationManuscript_id"]) if request_data.get("publicationManuscript_id", None) else None,
-        "publication_facsimile_id": int(request_data["publicationFacsimile_id"]) if request_data.get("publicationFacsimile_id", None) else None,
-        "publication_comment_id": int(request_data["publicationComment_id"]) if request_data.get("publicationComment_id", None) else None,
-        "publication_facsimile_page": int(request_data["publicationFacsimile_page"]) if request_data.get("publicationFacsimile_page", None) else None,
+    upd_values = {
+        "deleted": 1,
+        "date_modified": datetime.now()
     }
+
     try:
-        with connection.begin():
-            insert = event_occurrences.insert().values(**new_occurrence)
-            result = connection.execute(insert)
-            new_row = select(event_occurrences).where(event_occurrences.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new event_occurrence with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new event_occurrence",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
-
-
-@event_tools.route("/event/<publication_id>/occurrences/add/", methods=["POST"])
-@jwt_required()
-def new_publication_event_occurrence(publication_id):
-    """
-    Add a new tag_id event_occurrence to the publication
-
-    POST data MUST be in JSON format.
-
-    POST data MUST contain the following:
-    publication_id: ID for publication the event occurs in
-    tag_id: ID for publication the event occurs in
-
-    POST data MAY contain the following:
-    publicationFacsimile_page: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    event_occ = get_table("event_occurrence")
-    connection = db_engine.connect()
-    with connection.begin():
-        select_event = select(event_occ.c.event_id).where(event_occ.c.publication_id == int_or_none(publication_id)).where(event_occ.c.deleted != 1)
-        result = connection.execute(select_event).fetchone()
-    if int_or_none(result["event_id"]) is None:
-        event_id = int_or_none(result)
-    else:
-        event_id = int_or_none(result["event_id"])
-    # No existing connection between publication and event, we need to create an event
-    if event_id is None:
-        # create event
-        events = get_table("event")
-        new_event = {
-            "type": "publication",
-            "description": "publication->tag",
-        }
-        try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                insert = events.insert().values(**new_event)
-                result = connection.execute(insert)
-                event_id = result.inserted_primary_key[0]
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
+                event_table = get_table("event")
+                event_connection_table = get_table("event_connection")
+                event_occurrence_table = get_table("event_occurrence")
 
-        # Create the occurrence, connection between publication and event
-        new_occurrence = {
-            "event_id": int(event_id),
-            "type": request_data.get("type", None),
-            "description": request_data.get("description", None),
-            "publication_id": int(request_data["publication_id"]) if request_data.get("publication_id", None) else None,
-            "publication_facsimile_page": int(request_data["publication_facsimile_page"]) if request_data.get("publication_facsimile_page", None) else None,
-        }
-        try:
-            with connection.begin():
-                insert = event_occ.insert().values(**new_occurrence)
-                connection.execute(insert)
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event_occurrence",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
+                # Check that the event_id is valid and non-deleted
+                event_exists_stmt = (
+                    select(event_table.c.id)
+                    .where(event_table.c.id == event_id)
+                    .where(event_table.c.deleted == 0)
+                )
 
-        # Create the connection between tag and event
-        event_conn = get_table("event_connection")
-        new_connection = {
-            "event_id": int(event_id),
-            "tag_id": request_data.get("tag_id", None)
-        }
-        try:
-            with connection.begin():
-                insert = event_conn.insert().values(**new_connection)
-                connection.execute(insert)
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event_connection",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    else:
-        try:
-            new_connection = {
-                "event_id": int(event_id),
-                "tag_id": request_data.get("tag_id", None)
-            }
-            with connection.begin():
-                event_conn = get_table("event_connection")
-                insert = event_conn.insert().values(**new_connection)
-                result = connection.execute(insert)
-                new_row = select(event_conn).where(event_conn.c.id == result.inserted_primary_key[0])
-                if new_row is not None:
-                    new_row = new_row._asdict()
-                result = {
-                    "msg": "Created new event_connection with ID {}".format(result.inserted_primary_key[0]),
-                    "row": new_row
+                event_ids = connection.execute(event_exists_stmt).fetchall()
+
+                if len(event_ids) < 1:
+                    return create_error_response("Failed to delete connection: invalid event ID or an event for the connection does not exist.")
+                elif len(event_ids) > 1:
+                    return create_error_response("Failed to delete connection: event ID is referenced by multiple connection or occurrence rows. This may be legacy data and must be reviewed manually.")
+
+                # Delete event
+                upd_ev_stmt = (
+                    event_table.update()
+                    .where(event_table.c.id == event_id)
+                    .where(event_table.c.deleted == 0)
+                    .values(**upd_values)
+                    .returning(*event_table.c)  # Return the updated row
+                )
+                upd_ev_row = connection.execute(upd_ev_stmt).first()
+
+                if upd_ev_row is None:
+                    # No row was returned: invalid event_id
+                    return create_error_response("Failed to delete connection: invalid event ID or the event is already deleted.")
+
+                # Delete event connection
+                upd_ev_conn_stmt = (
+                    event_connection_table.update()
+                    .where(event_connection_table.c.event_id == event_id)
+                    .where(event_connection_table.c.deleted == 0)
+                    .values(**upd_values)
+                    .returning(*event_connection_table.c)  # Return the updated row
+                )
+                upd_ev_conn_row = connection.execute(upd_ev_conn_stmt).first()
+
+                if upd_ev_conn_row is None:
+                    # No row was returned: invalid event_id
+                    return create_error_response("Failed to delete connection: invalid event ID or the event connection is already deleted.")
+
+                # Delete event occurrence
+                upd_ev_occu_stmt = (
+                    event_occurrence_table.update()
+                    .where(event_occurrence_table.c.event_id == event_id)
+                    .where(event_occurrence_table.c.deleted == 0)
+                    .values(**upd_values)
+                    .returning(*event_occurrence_table.c)  # Return the updated row
+                )
+                upd_ev_occu_row = connection.execute(upd_ev_occu_stmt).first()
+
+                if upd_ev_occu_row is None:
+                    # No row was returned: invalid event_id
+                    return create_error_response("Failed to delete connection: invalid event ID or the event occurrence is already deleted.")
+
+                response_data = {
+                    "event_id": upd_ev_row["id"],
+                    "event_connection_id": upd_ev_conn_row["id"],
+                    "event_occurrence_id": upd_ev_occu_row["id"],
+                    "deleted": upd_ev_row["deleted"]
                 }
-                return jsonify(result), 201
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event_connection",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
 
+                return create_success_response(
+                    message="Connection deleted.",
+                    data=response_data
+                )
 
-@event_tools.route("/event/<occ_id>/occurrences/edit/", methods=["POST"])
-@jwt_required()
-def edit_event_occurrence(occ_id):
-    """
-    Edit a event_occurrence
-    id of the event_occurrence: Number for publication facsimile page the event occurs in
-    publication_facsimile_page: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-
-    publication_facsimile_page = request_data.get("publication_facsimile_page", None)
-
-    values = {}
-    if publication_facsimile_page is not None:
-        values["publication_facsimile_page"] = publication_facsimile_page
-
-    values["date_modified"] = datetime.now()
-    connection = db_engine.connect()
-    event_occurrences = get_table("event_occurrence")
-    try:
-        with connection.begin():
-            update = event_occurrences.update().where(event_occurrences.c.id == int(occ_id)).values(**values)
-            connection.execute(update)
-            return jsonify({
-                "msg": "Updated event_occurrences {} with values {}".format(int(occ_id), str(values)),
-                "occ_id": int(occ_id)
-            })
-    except Exception as e:
-        result = {
-            "msg": "Failed to update event_occurrences.",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
-
-
-@event_tools.route("/event/<occ_id>/occurrences/delete/", methods=["POST"])
-@jwt_required()
-def delete_event_occurrence(occ_id):
-    """
-    Logical delete a event_occurrence
-    id of the event_occurrence: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-
-    values = {
-        "date_modified": datetime.now(),
-        "deleted": 1
-    }
-
-    connection = db_engine.connect()
-    event_occurrences = get_table("event_occurrence")
-    try:
-        with connection.begin():
-            update = event_occurrences.update().where(event_occurrences.c.id == int(occ_id)).values(**values)
-            connection.execute(update)
-            return jsonify({
-                "msg": "Delete event_occurrences {} with values {}".format(int(occ_id), str(values)),
-                "occ_id": int(occ_id)
-            })
-    except Exception as e:
-        result = {
-            "msg": "Failed to delete event_occurrences.",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+    except Exception:
+        logger.exception("Exception deleting event.")
+        return create_error_response("Unexpected error: failed to delete the connection.", 500)
