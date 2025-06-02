@@ -656,7 +656,6 @@ def build_select_with_filters(table: Table, filters: dict, columns=None) -> Sele
     return stmt.where(and_(*conditions))
 
 
-
 def create_translation(neutral, connection=None):
     """
     Inserts a new translation record with the provided neutral text and

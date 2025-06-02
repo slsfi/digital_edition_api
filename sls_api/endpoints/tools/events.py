@@ -2112,7 +2112,7 @@ def add_new_event(project):
         return create_error_response(f"Validation error: '{occurrence_field}' must be a positive integer.")
 
     if occurrence_field == "publication_facsimile_id" and ("publication_facsimile_page" not in request_data or int_or_none(request_data["publication_facsimile_page"]) is None):
-        return create_error_response(f"Validation error: 'publication_facsimile_page' must be provided and be an integer.")
+        return create_error_response("Validation error: 'publication_facsimile_page' must be provided and be an integer.")
 
     # Form values objects
     connection_values = {}
@@ -2163,7 +2163,7 @@ def add_new_event(project):
 
                 # Proceed with creating an event for this connection and occurrence,
                 # as there is no existing event.
-                event_values = { "description": f"project {project_id}" }
+                event_values = {"description": f"project {project_id}"}
 
                 # Insert event query
                 insert_ev_stmt = (
