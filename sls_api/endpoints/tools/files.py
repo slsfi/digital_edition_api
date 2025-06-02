@@ -1061,7 +1061,7 @@ def handle_collection_toc(project, collection_id, language=None):
 
             # Get author and construct git commit message
             author_email = str(identity)
-            author = f"{author_email.split("@")[0]} <{author_email}>"
+            author = f"{author_email.split('@')[0]} <{author_email}>"
             message = f"ToC update by {author_email}"
 
             # git commit (and possibly push) file
