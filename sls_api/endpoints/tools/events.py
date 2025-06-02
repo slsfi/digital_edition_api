@@ -2387,10 +2387,10 @@ def delete_event(project, event_id):
                     return create_error_response("Failed to delete connection: invalid event ID or the event occurrence is already deleted.")
 
                 response_data = {
-                    "event_id": upd_ev_row["id"],
+                    "event_id":            upd_ev_row["id"],
                     "event_connection_id": upd_ev_conn_row["id"],
                     "event_occurrence_id": upd_ev_occu_row["id"],
-                    "deleted": upd_ev_row["deleted"]
+                    "deleted":             upd_ev_row["deleted"]
                 }
 
                 return create_success_response(
