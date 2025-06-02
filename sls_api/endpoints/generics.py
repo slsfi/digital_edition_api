@@ -992,6 +992,22 @@ def is_any_valid_date_format(date_string: str) -> bool:
     return False
 
 
+def is_valid_language(lang: str) -> bool:
+    """
+    Validate the language code for use in filenames.
+
+    A valid language code must be 1 to 20 characters long and contain
+    only alphanumeric characters and hyphens.
+
+    Args:
+        lang (str): The language code to validate.
+
+    Returns:
+        bool: True if the language code is valid, False otherwise.
+    """
+    return re.fullmatch(r"[a-zA-Z0-9\-]{1,20}", lang) is not None
+
+
 def lxml_escape_quotes_if_string(value: Any) -> Any:
     """
     Ensures safe escaping of string values when passing parameters to lxml

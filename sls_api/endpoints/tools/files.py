@@ -12,7 +12,8 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import get_project_config, \
     project_permission_required, create_error_response, \
-    create_success_response, is_any_valid_date_format
+    create_success_response, is_any_valid_date_format, \
+    int_or_none, is_valid_language
 
 
 file_tools = Blueprint("file_tools", __name__)
@@ -910,3 +911,167 @@ def _recurse(path, container):
         if head not in container:
             container[head] = {}
         _recurse("/".join(tail), container[head])
+
+
+@file_tools.route("/<project>/collection-toc/<collection_id>/<language>", methods=["GET", "PUT"])
+@file_tools.route("/<project>/collection-toc/<collection_id>", methods=["GET", "PUT"])
+@project_permission_required
+def handle_collection_toc(project, collection_id, language=None):
+    """
+    Get or save the table of contents file for the specified collection
+    in the specified language and project. This endpoint requires
+    authentication; there is a separate GET-only endpoint in metadata.py
+    for digital edition frontends.
+
+    URL Path Parameters:
+
+    - project (str): Project name.
+    - collection_id (int): The id of the collection.
+    - language (str or None, optional): The language of the table of
+      contents.
+
+    PUT Data Parameters in JSON Format:
+
+    - A valid JSON object with the new table of contents data of the
+      collection.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object if GET method; null if PUT method
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: If GET method, an object; if PUT method, `null`.
+
+    Status Codes:
+
+    - 200 - OK: Successfully retrieved or updated the table of contents.
+    - 201 - OK: Successfully added the table of contents as a new file.
+    - 400 - Bad Request: Invalid data.
+    - 403 - Forbidden: Permission denied performing the operation.
+    - 404 - Not Found: The table of contens file was not found on the
+            server.
+    - 415 - Unsupported Media Type: The provided JSON data is invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Validate project config
+    config = get_project_config(project)
+    if config is None:
+        return create_error_response("Error: project config not found on the server.", 500)
+
+    config_ok = check_project_config(project)
+    if not config_ok[0]:
+        logger.warning(f"Project '{project}' has an incomplete config: {config_ok[1]}")
+        return create_error_response(f"Error: {config_ok[1]}", 500)
+
+    # Validate collection_id
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return create_error_response("Validation error: 'collection_id' must be a positive integer.")
+
+    # Validate language
+    if language is not None and not is_valid_language(language):
+        return create_error_response("Validation error: 'language' can only contain alphanumeric characters and hyphens, and can’t be more than 20 characters long.")
+
+    filename = f"{collection_id}_{language}.json" if language else f"{collection_id}.json"
+    filepath = safe_join(config["file_root"], "toc", filename)
+
+    if filepath is None:
+        return create_error_response("Error: invalid table of contents file path.", 400)
+
+    # Resolve the real, absolute path
+    filepath = os.path.realpath(filepath)
+
+    toc_file_exists = os.path.isfile(filepath)
+
+    if request.method == "GET":
+        try:
+            # Check if the file exists
+            if not toc_file_exists:
+                return create_error_response(f"Error: the table of contents file {filename} was not found on the server.", 404)
+
+            # Read file contents and parse json into a dict
+            with open(filepath, "r", encoding="utf-8-sig") as json_file:
+                contents = json.load(json_file)
+
+            return create_success_response(f"Loaded {filename}.", contents)
+
+        except FileNotFoundError:
+            logger.exception(f"File not found error when trying to read ToC-file at {filepath}.")
+            return create_error_response(f"Error: {filename} not found.", 404)
+        except PermissionError:
+            logger.exception(f"Permission denied error when trying to read ToC-file at {filepath}.")
+            return create_error_response(f"Error: permission denied when trying to read {filename}.", 403)
+        except json.JSONDecodeError:
+            logger.exception(f"Invalid JSON in ToC file at {filepath}.")
+            return create_error_response(f"Error: file {filename} contains invalid JSON.", 415)
+        except Exception:
+            logger.exception(f"Error accessing file at {filepath}.")
+            return create_error_response(f"Error accessing file at {filepath}.", 500)
+
+    elif request.method == "PUT":
+        # Verify that request data was provided
+        request_data = request.get_json(silent=True)
+        if not request_data:
+            return create_error_response("No data provided or data not valid JSON.", 415)
+
+        try:
+            # Save new ToC as filepath.new
+            with open(f"{filepath}.new", "w", encoding="utf-8") as outfile:
+                json.dump(request_data, outfile)
+        except Exception:
+            logger.exception(f"Error saving file {filepath}.new.")
+            # If saving file fails, remove it before returning an error
+            try:
+                os.remove(f"{filepath}.new")
+            except FileNotFoundError:
+                pass
+            return create_error_response("Error: failed to save data to disk.", 500)
+        else:
+            # Check identity though it should never be invalid at this point,
+            # we will use it later to get the user’s email.
+            identity = get_jwt_identity()
+            if not identity:
+                return create_error_response("Error: permission denied.", 403)
+
+            # Attempt to rename the new ToC file so it replaces the old file
+            try:
+                os.rename(f"{filepath}.new", filepath)
+            except PermissionError:
+                logger.exception(f"Permission error renaming ToC file {filepath}.new.")
+                try:
+                    os.remove(f"{filepath}.new")
+                except FileNotFoundError:
+                    pass
+                return create_error_response("Error: permission denied when trying to rename file saving data to disk.", 403)
+            except OSError:
+                logger.exception(f"Error renaming ToC file {filepath}.new.")
+                try:
+                    os.remove(f"{filepath}.new")
+                except FileNotFoundError:
+                    pass
+                return create_error_response("Error: renaming file failed while saving data to disk.", 500)
+
+            # Get author and construct git commit message
+            author_email = str(identity)
+            author = f"{author_email.split("@")[0]} <{author_email}>"
+            message = f"ToC update by {author_email}"
+
+            # git commit (and possibly push) file
+            commit_result = git_commit_and_push_file(project, author, message, filepath)
+            if commit_result:
+                return create_success_response(f"Saved {filename}.",
+                                               None,
+                                               200 if toc_file_exists else 201)
+            else:
+                return create_error_response("Error: git commit failed. Possible configuration fault or git conflict.", 500)
+
+    else:
+        return create_error_response("Error: invalid request method. Only GET and PUT are allowed.")
