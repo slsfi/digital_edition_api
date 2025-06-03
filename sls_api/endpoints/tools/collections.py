@@ -1,6 +1,6 @@
 import logging
 from flask import Blueprint, request
-from sqlalchemy import select, and_, or_, not_, asc, desc
+from sqlalchemy import collate, select, and_, or_, not_
 from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, \
@@ -535,14 +535,21 @@ def list_facsimile_collections(project, order_by="id", direction="desc"):
                 )
             )
 
+            # Columns that should use collation-aware sorting
+            collation_columns = {"title", "description"}
+            collation_name = "sv-x-icu"
+
+            order_column = publication_facsimile_collection.c[order_by]
+
+            # Apply collation if the column needs it
+            if order_by in collation_columns:
+                order_column = collate(order_column, collation_name)
+
+            # Apply ordering direction
             if direction == "desc":
-                stmt = stmt.order_by(
-                    desc(publication_facsimile_collection.c[order_by])
-                )
+                stmt = stmt.order_by(order_column.desc())
             else:
-                stmt = stmt.order_by(
-                    asc(publication_facsimile_collection.c[order_by])
-                )
+                stmt = stmt.order_by(order_column.asc())
 
             rows = connection.execute(stmt).fetchall()
             return create_success_response(
@@ -935,7 +942,8 @@ def list_facsimile_collection_links(project, collection_id, order_by="id", direc
       collection to retrieve facsimiles for (must be a positive integer).
     - order_by (str, optional): The column by which to order the facsimile
       objects. Valid options include columns from the publication_facsimile
-      table like "id", "page_number", as well as "publication_name" for the name of the publication. Defaults to "id".
+      table like "id", "page_number", as well as "publication_name" for the
+      name of the publication. Defaults to "id".
     - direction (str, optional): The sort direction, valid values are `asc`
       (ascending, default) and `desc` (descending).
 
@@ -1035,14 +1043,15 @@ def list_facsimile_collection_links(project, collection_id, order_by="id", direc
 
             # Order by facsimile table column or publication name
             if order_by == "publication_name":
-                order_column = publication_table.c.name
+                # Use collation-aware sorting
+                order_column = collate(publication_table.c.name, "sv-x-icu")
             else:
                 order_column = facsimile_table.c[order_by]
 
             if direction == "asc":
-                stmt = stmt.order_by(asc(order_column))
+                stmt = stmt.order_by(order_column.asc())
             else:
-                stmt = stmt.order_by(desc(order_column))
+                stmt = stmt.order_by(order_column.desc())
 
             rows = connection.execute(stmt).fetchall()
 
@@ -1179,14 +1188,16 @@ def list_publication_collections(project, order_by="id", direction="asc"):
             )
         )
 
+        order_column = collection_table.c[order_by]
+
+        # Apply collation if the column needs it
+        if order_by == "name":
+            order_column = collate(order_column, "sv-x-icu")
+
         if direction == "asc":
-            stmt = stmt.order_by(
-                asc(collection_table.c[order_by])
-            )
+            stmt = stmt.order_by(order_column.asc())
         else:
-            stmt = stmt.order_by(
-                desc(collection_table.c[order_by])
-            )
+            stmt = stmt.order_by(order_column.desc())
 
         with db_engine.connect() as connection:
             rows = connection.execute(stmt).fetchall()
@@ -1459,12 +1470,18 @@ def list_publications(project, collection_id, order_by="id"):
                 if not result:
                     return create_error_response("Validation error: could not find publication collection, either 'project' or 'collection_id' is invalid.")
 
+                order_column = publication_table.c[order_by]
+
+                # Apply collation if the column needs it
+                if order_by == "name":
+                    order_column = collate(order_column, "sv-x-icu")
+
                 # Proceed to selecting the publications
                 select_pub_stmt = (
                     select(publication_table)
                     .where(publication_table.c.publication_collection_id == collection_id)
                     .where(publication_table.c.deleted < 1)
-                    .order_by(publication_table.c[order_by])
+                    .order_by(order_column)
                 )
                 rows = connection.execute(select_pub_stmt).fetchall()
 

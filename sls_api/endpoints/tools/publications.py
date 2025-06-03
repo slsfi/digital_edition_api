@@ -2,7 +2,7 @@ import logging
 import os
 from flask import Blueprint, request, Response
 from flask_jwt_extended import jwt_required
-from sqlalchemy import asc, desc, select, text
+from sqlalchemy import collate, select, text
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, \
@@ -121,14 +121,17 @@ def get_publications(project, order_by="id", direction="asc"):
                 .order_by(publication_table.c.publication_collection_id)
             )
 
+            order_column = publication_table.c[order_by]
+
+            # Apply collation if the column needs it
+            if order_by == "name":
+                order_column = collate(order_column, "sv-x-icu")
+
+            # Apply ordering direction
             if direction == "asc":
-                stmt = stmt.order_by(
-                    asc(publication_table.c[order_by])
-                )
+                stmt = stmt.order_by(order_column.asc())
             else:
-                stmt = stmt.order_by(
-                    desc(publication_table.c[order_by])
-                )
+                stmt = stmt.order_by(order_column.desc())
 
             rows = connection.execute(stmt).fetchall()
 
