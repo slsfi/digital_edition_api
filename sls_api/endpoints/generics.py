@@ -992,20 +992,39 @@ def is_any_valid_date_format(date_string: str) -> bool:
     return False
 
 
-def is_valid_language(lang: str) -> bool:
+def is_valid_language(language_tag: str) -> bool:
     """
-    Validate the language code for use in filenames.
-
-    A valid language code must be 1 to 20 characters long and contain
-    only alphanumeric characters and hyphens.
+    Validate the language tag against a list of base language tags
+    (BCP 47 subset).
 
     Args:
-        lang (str): The language code to validate.
+        language_tag (str): The language tag to validate.
 
     Returns:
-        bool: True if the language code is valid, False otherwise.
+        bool: True if the language tag is valid, False otherwise.
     """
-    return re.fullmatch(r"[a-zA-Z0-9\-]{1,20}", lang) is not None
+    valid_tags = {
+        "ar",  # Arabic
+        "cs",  # Czech
+        "da",  # Danish
+        "de",  # German
+        "el",  # Greek
+        "en",  # English
+        "es",  # Spanish
+        "fi",  # Finnish
+        "fr",  # French
+        "hu",  # Hungarian
+        "is",  # Icelandic
+        "it",  # Italian
+        "la",  # Latin
+        "nl",  # Dutch
+        "no",  # Norwegian
+        "pl",  # Polish
+        "pt",  # Portuguese
+        "ru",  # Russian
+        "sv"   # Swedish
+    }
+    return language_tag in valid_tags
 
 
 def lxml_escape_quotes_if_string(value: Any) -> Any:
