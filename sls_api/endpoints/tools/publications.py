@@ -7,7 +7,8 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, \
     get_table, int_or_none, validate_int, project_permission_required, \
-    create_error_response, create_success_response, get_project_config
+    create_error_response, create_success_response, get_project_config, \
+    get_project_collation
 
 
 publication_tools = Blueprint("publication_tools", __name__)
@@ -125,7 +126,8 @@ def get_publications(project, order_by="id", direction="asc"):
 
             # Apply collation if the column needs it
             if order_by == "name":
-                order_column = collate(order_column, "sv-x-icu")
+                collation_name = get_project_collation(project)
+                order_column = collate(order_column, collation_name)
 
             # Apply ordering direction
             if direction == "asc":

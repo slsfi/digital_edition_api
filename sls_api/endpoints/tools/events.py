@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
     project_permission_required, select_all_from_table, create_translation, create_translation_text, \
-    get_translation_text_id, validate_int, create_error_response, create_success_response
+    get_translation_text_id, validate_int, create_error_response, create_success_response, get_project_collation
 
 
 event_tools = Blueprint("event_tools", __name__)
@@ -279,7 +279,7 @@ def list_project_subjects(project, order_by="last_name", direction="asc"):
                 "place_of_birth", "occupation", "description",
                 "source", "alias", "previous_last_name"
             }
-            collation_name = "sv-x-icu"
+            collation_name = get_project_collation(project)
 
             # Build the order_by clause based on multiple columns
             # if ordering by last_name

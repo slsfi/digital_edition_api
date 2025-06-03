@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, \
     int_or_none, project_permission_required, validate_int, create_error_response, \
-    create_success_response
+    create_success_response, get_project_collation
 
 
 collection_tools = Blueprint("collection_tools", __name__)
@@ -537,7 +537,7 @@ def list_facsimile_collections(project, order_by="id", direction="desc"):
 
             # Columns that should use collation-aware sorting
             collation_columns = {"title", "description"}
-            collation_name = "sv-x-icu"
+            collation_name = get_project_collation(project)
 
             order_column = publication_facsimile_collection.c[order_by]
 
@@ -1044,7 +1044,8 @@ def list_facsimile_collection_links(project, collection_id, order_by="id", direc
             # Order by facsimile table column or publication name
             if order_by == "publication_name":
                 # Use collation-aware sorting
-                order_column = collate(publication_table.c.name, "sv-x-icu")
+                collation_name = get_project_collation(project)
+                order_column = collate(publication_table.c.name, collation_name)
             else:
                 order_column = facsimile_table.c[order_by]
 
@@ -1192,7 +1193,8 @@ def list_publication_collections(project, order_by="id", direction="asc"):
 
         # Apply collation if the column needs it
         if order_by == "name":
-            order_column = collate(order_column, "sv-x-icu")
+            collation_name = get_project_collation(project)
+            order_column = collate(order_column, collation_name)
 
         if direction == "asc":
             stmt = stmt.order_by(order_column.asc())
@@ -1474,7 +1476,8 @@ def list_publications(project, collection_id, order_by="id"):
 
                 # Apply collation if the column needs it
                 if order_by == "name":
-                    order_column = collate(order_column, "sv-x-icu")
+                    collation_name = get_project_collation(project)
+                    order_column = collate(order_column, collation_name)
 
                 # Proceed to selecting the publications
                 select_pub_stmt = (
