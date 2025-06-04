@@ -1,6 +1,5 @@
-from flask import abort, Blueprint, request, Response
+from flask import abort, Blueprint, Response
 from flask.json import jsonify
-from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 import glob
 import io
 import json
@@ -10,8 +9,10 @@ import sqlalchemy.sql
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, path_hierarchy, select_all_from_table, flatten_json, get_first_valid_item_from_toc
-from sls_api.endpoints.tools.files import git_commit_and_push_file
+from sls_api.endpoints.generics import db_engine, get_project_config, \
+    get_project_id_from_name, path_hierarchy, select_all_from_table, \
+    flatten_json, get_first_valid_item_from_toc, int_or_none, \
+    is_valid_language
 
 meta = Blueprint('metadata', __name__)
 
@@ -159,95 +160,63 @@ def get_first_toc_item(project, collection_id, language=None):
             abort(404)
 
 
-@meta.route("/<project>/toc/<collection_id>/<language>", methods=["GET", "PUT"])
-@meta.route("/<project>/toc/<collection_id>", methods=["GET", "PUT"])
-@jwt_required(optional=True)
-def handle_toc(project, collection_id, language=None):
+@meta.route("/<project>/toc/<collection_id>/<language>")
+@meta.route("/<project>/toc/<collection_id>")
+def get_toc(project, collection_id, language=None):
+    """
+    Get the table of contents of the specified collection, optionally in
+    a specific language. If a JSON file with the table of contents exists,
+    it is returned as a raw string.
+
+    To update the table of contents file for a collection, use the
+    endpoint that requires authentication in tools/files.py.
+    """
+    # Validate project config
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
-    else:
-        if request.method == "GET":
-            if language is not None and language != "":
-                logger.info(f"Getting table of contents for /{project}/toc/{collection_id}/{language}")
-                file_path_query = safe_join(config["file_root"], "toc", f'{collection_id}_{language}.json')
-            else:
-                logger.info(f"Getting table of contents for /{project}/toc/{collection_id}")
-                file_path_query = safe_join(config["file_root"], "toc", f'{collection_id}.json')
 
-            try:
-                file_path = [f for f in glob.iglob(file_path_query)][0]
-                logger.info(f"Finding {file_path} (toc collection fetch)")
-                if os.path.exists(file_path):
-                    with io.open(file_path, encoding="UTF-8") as json_file:
-                        contents = json_file.read()
-                    return contents, 200
-                else:
-                    abort(404)
-            except IndexError:
-                logger.warning(f"File {file_path_query} not found on disk.")
-                abort(404)
-            except Exception:
-                logger.exception(f"Error fetching {file_path_query}")
-                abort(404)
-        elif request.method == "PUT":
-            # uploading a new table of contents requires authorization and project permission
-            identity = get_jwt_identity()
-            claims = get_jwt()
-            if not identity:
-                return jsonify({"msg": "Missing Authorization Header"}), 403
-            else:
-                authorized = False
-                # in debug mode, test user has access to every project
-                if int(os.environ.get("FLASK_DEBUG", 0)) == 1 and identity == "test@test.com":
-                    authorized = True
-                elif claims["projects"] is not None and project in claims["projects"]:
-                    authorized = True
+    if "file_root" not in config:
+        logger.warning(f"Project '{project}' is missing file_root information from config.")
+        return jsonify({"msg": "Invalid project config, unable to get table of contents."}), 500
 
-                if not authorized:
-                    return jsonify({"msg": "No access to this project."}), 403
-                else:
-                    if language is not None and language != "":
-                        logger.info(f"Processing new table of contents for /{project}/toc/{collection_id}/{language}")
-                    else:
-                        logger.info(f"Processing new table of contents for /{project}/toc/{collection_id}")
-                    data = request.get_json()
-                    if not data:
-                        return jsonify({"msg": "No JSON in payload."}), 400
-                    if language is not None and language != "":
-                        file_path = safe_join(config["file_root"], "toc", f"{collection_id}_{language}.json")
-                    else:
-                        file_path = safe_join(config["file_root"], "toc", f"{collection_id}.json")
-                    try:
-                        # save new toc as file_path.new
-                        with open(f"{file_path}.new", "w", encoding="utf-8") as outfile:
-                            json.dump(data, outfile)
-                    except Exception as ex:
-                        # if we fail to save the file, make sure it doesn't exist before returning an error
-                        try:
-                            os.remove(f"{file_path}.new")
-                        except FileNotFoundError:
-                            pass
-                        return jsonify({"msg": "Failed to save JSON data to disk.", "reason": ex}), 500
-                    else:
-                        # if we succeed, remove the old file and rename file_path.new to file_path
-                        # (could be combined into just os.rename, but some OSes don't like that)
-                        os.rename(f"{file_path}.new", file_path)
+    # Validate collection_id
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return jsonify({"msg": "Validation error: 'collection_id' must be a positive integer."}), 400
 
-                        # get author and construct git commit message
-                        author_email = get_jwt_identity()["sub"]
-                        author = "{} <{}>".format(
-                            author_email.split("@")[0],
-                            author_email
-                        )
-                        message = "TOC update by {}".format(author_email)
+    # Validate language
+    if language is not None and not is_valid_language(language):
+        return jsonify({"msg": "Validation error: 'language' can only contain alphanumeric characters and hyphens, and can’t be more than 20 characters long."}), 400
 
-                        # git commit (and possibly push) file
-                        commit_result = git_commit_and_push_file(project, author, message, file_path)
-                        if commit_result:
-                            return jsonify({"msg": f"Saved new toc as {file_path}"})
-                        else:
-                            return jsonify({"msg": "git commit failed! Possible configuration fault or git conflict."}), 500
+    filename = f"{collection_id}_{language}.json" if language else f"{collection_id}.json"
+    filepath = safe_join(config["file_root"], "toc", filename)
+
+    if filepath is None:
+        return jsonify({"msg": "Error: invalid table of contents file path."}), 400
+
+    filepath = os.path.realpath(filepath)
+    logger.info(f"Getting collection table of contents from {filepath}")
+
+    try:
+        if not os.path.isfile(filepath):
+            logger.info(f"Table of contents file {filepath} not found on server.")
+            return jsonify({"msg": f"Error: the table of contents file {filename} was not found on the server."}), 404
+
+        with open(filepath, "r", encoding="utf-8-sig") as json_file:
+            contents = json_file.read()
+
+        return contents, 200
+
+    except FileNotFoundError:
+        logger.exception(f"File not found error when trying to read ToC-file at {filepath}.")
+        return jsonify({"msg": "Error: table of contents file not found."}), 404
+    except PermissionError:
+        logger.exception(f"Permission denied error when trying to read ToC-file at {filepath}.")
+        return jsonify({"msg": "Error: permission denied when trying to read table of contents file."}), 403
+    except Exception:
+        logger.exception(f"Error accessing file at {filepath}.")
+        return jsonify({"msg": "Error reading table of contents file."}), 500
 
 
 @meta.route("/<project>/collections")

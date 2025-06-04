@@ -37,6 +37,9 @@ FACSIMILE_IMAGE_SIZES = {
     4: "4000x4000"
 }
 
+# Default PostgreSQL collation for ordering
+DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
+
 metadata = MetaData()
 
 logger = logging.getLogger("sls_api.generics")
@@ -83,6 +86,15 @@ def get_project_config(project_name):
     if project_name in config:
         return config[project_name]
     return None
+
+
+def get_project_collation(project_name: str) -> str:
+    config = get_project_config(project_name)
+
+    if config is None or "collation" not in config:
+        return DEFAULT_COLLATION
+    else:
+        return config["collation"]
 
 
 def int_or_none(var):
@@ -1057,6 +1069,41 @@ def is_any_valid_date_format(date_string: str) -> bool:
         return True
 
     return False
+
+
+def is_valid_language(language_tag: str) -> bool:
+    """
+    Validate the language tag against a list of base language tags
+    (BCP 47 subset).
+
+    Args:
+        language_tag (str): The language tag to validate.
+
+    Returns:
+        bool: True if the language tag is valid, False otherwise.
+    """
+    valid_tags = {
+        "ar",  # Arabic
+        "cs",  # Czech
+        "da",  # Danish
+        "de",  # German
+        "el",  # Greek
+        "en",  # English
+        "es",  # Spanish
+        "fi",  # Finnish
+        "fr",  # French
+        "hu",  # Hungarian
+        "is",  # Icelandic
+        "it",  # Italian
+        "la",  # Latin
+        "nl",  # Dutch
+        "no",  # Norwegian
+        "pl",  # Polish
+        "pt",  # Portuguese
+        "ru",  # Russian
+        "sv"   # Swedish
+    }
+    return language_tag in valid_tags
 
 
 def lxml_escape_quotes_if_string(value: Any) -> Any:

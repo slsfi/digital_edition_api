@@ -2,12 +2,13 @@ import logging
 import os
 from flask import Blueprint, request, Response
 from flask_jwt_extended import jwt_required
-from sqlalchemy import and_, asc, collate, desc, select
+from sqlalchemy import and_, collate, select
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, \
     get_table, int_or_none, validate_int, project_permission_required, \
-    create_error_response, create_success_response, get_project_config
+    create_error_response, create_success_response, get_project_config, \
+    get_project_collation
 
 
 publication_tools = Blueprint("publication_tools", __name__)
@@ -121,14 +122,18 @@ def get_publications(project, order_by="id", direction="asc"):
                 .order_by(publication_table.c.publication_collection_id)
             )
 
+            order_column = publication_table.c[order_by]
+
+            # Apply collation if the column needs it
+            if order_by == "name":
+                collation_name = get_project_collation(project)
+                order_column = collate(order_column, collation_name)
+
+            # Apply ordering direction
             if direction == "asc":
-                stmt = stmt.order_by(
-                    asc(publication_table.c[order_by])
-                )
+                stmt = stmt.order_by(order_column.asc())
             else:
-                stmt = stmt.order_by(
-                    desc(publication_table.c[order_by])
-                )
+                stmt = stmt.order_by(order_column.desc())
 
             rows = connection.execute(stmt).fetchall()
 
