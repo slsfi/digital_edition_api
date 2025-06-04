@@ -1,12 +1,12 @@
 import logging
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from sqlalchemy import asc, cast, desc, select, text, Text
+from sqlalchemy import cast, collate, select, text, Text
 from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
     project_permission_required, select_all_from_table, create_translation, create_translation_text, \
-    get_translation_text_id, validate_int, create_error_response, create_success_response
+    get_translation_text_id, validate_int, create_error_response, create_success_response, get_project_collation
 
 
 event_tools = Blueprint("event_tools", __name__)
@@ -273,29 +273,38 @@ def list_project_subjects(project, order_by="last_name", direction="asc"):
                 .where(subject_table.c.project_id == project_id)
             )
 
+            # Columns that should use collation-aware sorting
+            collation_columns = {
+                "last_name", "first_name", "full_name", "type",
+                "place_of_birth", "occupation", "description",
+                "source", "alias", "previous_last_name"
+            }
+            collation_name = get_project_collation(project)
+
             # Build the order_by clause based on multiple columns
             # if ordering by last_name
             order_columns = []
 
-            if direction == "asc":
-                order_columns.append(
-                    asc(subject_table.c[order_by])
-                )
-                if order_by == "last_name":
-                    order_columns.append(
-                        asc(subject_table.c.full_name)
-                    )
-            else:
-                order_columns.append(
-                    desc(subject_table.c[order_by])
-                )
-                if order_by == "last_name":
-                    order_columns.append(
-                        desc(subject_table.c.full_name)
-                    )
+            # Primary column to order by
+            col = subject_table.c[order_by]
+            if order_by in collation_columns:
+                col = collate(col, collation_name)
+
+            # Apply primary ordering
+            order_columns.append(col.asc() if direction == "asc" else col.desc())
+
+            # Secondary ordering by full_name if sorting by last_name
+            if order_by == "last_name":
+                full_name_col = subject_table.c.full_name
+                if "full_name" in collation_columns:
+                    full_name_col = collate(full_name_col, collation_name)
+                order_columns.append(full_name_col.asc()
+                                     if direction == "asc"
+                                     else full_name_col.desc())
 
             # Apply multiple order_by clauses
             stmt = stmt.order_by(*order_columns)
+
             rows = connection.execute(stmt).fetchall()
 
             return create_success_response(

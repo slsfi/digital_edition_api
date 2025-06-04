@@ -36,6 +36,9 @@ FACSIMILE_IMAGE_SIZES = {
     4: "4000x4000"
 }
 
+# Default PostgreSQL collation for ordering
+DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
+
 metadata = MetaData()
 
 logger = logging.getLogger("sls_api.generics")
@@ -82,6 +85,15 @@ def get_project_config(project_name):
     if project_name in config:
         return config[project_name]
     return None
+
+
+def get_project_collation(project_name: str) -> str:
+    config = get_project_config(project_name)
+
+    if config is None or "collation" not in config:
+        return DEFAULT_COLLATION
+    else:
+        return config["collation"]
 
 
 def int_or_none(var):
