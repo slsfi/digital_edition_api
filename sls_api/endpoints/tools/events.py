@@ -1361,12 +1361,14 @@ def list_project_tags(project):
 
     try:
         with db_engine.connect() as connection:
+            collation_name = get_project_collation(project)
+
             stmt = (
                 select(*tag_table.c)
                 .where(tag_table.c.project_id == project_id)
                 .where(tag_table.c.deleted < 1)
                 .order_by(
-                    collate(tag_table.c.name, "sv-x-icu")  # Use Swedish collation for sorting å, ä, ö correctly.
+                    collate(tag_table.c.name, collation_name)
                 )
             )
             rows = connection.execute(stmt).fetchall()

@@ -574,6 +574,8 @@ def get_publication_tags(project, publication_id):
     connection_table = get_table("event_connection")
     occurrence_table = get_table("event_occurrence")
 
+    collation_name = get_project_collation(project)
+
     stmt = (
         select(
             *tag_table.c,
@@ -598,7 +600,7 @@ def get_publication_tags(project, publication_id):
             )
         )
         .order_by(
-            collate(tag_table.c.name, "sv-x-icu")  # Use Swedish collation for sorting å, ä, ö correctly.
+            collate(tag_table.c.name, collation_name)
         )
     )
 
