@@ -477,7 +477,7 @@ def get_project_locations(project):
     return jsonify(results)
 
 
-# Get all subjects for a project
+# Get all tags for a project
 @meta.route("/<project>/tags")
 def get_project_tags(project):
     logger.info("Getting /<project>/tags")

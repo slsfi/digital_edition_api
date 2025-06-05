@@ -1,12 +1,13 @@
 import logging
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
-from sqlalchemy import cast, collate, select, text, Text
+from sqlalchemy import and_, cast, collate, select, text, Text
 from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
     project_permission_required, select_all_from_table, create_translation, create_translation_text, \
-    get_translation_text_id, validate_int, create_error_response, create_success_response, get_project_collation
+    get_translation_text_id, validate_int, create_error_response, create_success_response, \
+    build_select_with_filters, get_project_collation
 
 
 event_tools = Blueprint("event_tools", __name__)
@@ -1272,124 +1273,489 @@ def list_translations(project, translation_id):
         return create_error_response("Unexpected error: failed to retrieve translations.", 500)
 
 
-@event_tools.route("/<project>/tags/new/", methods=["POST"])
+@event_tools.route("/<project>/keywords/list/")
 @project_permission_required
-def add_new_tag(project):
+def list_project_keywords(project):
     """
-    Add a new tag object to the database
+    List all non-deleted keywords in the specified project.
+    The keywords are alphabetically ordered by name.
+    (Note: keywords are named 'tags' in the database.)
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    type: tag type
-    name: tag name
+    - project (str, required): The name of the project to retrieve
+      keywords for (must be a valid project name).
 
-    POST data CAN also contain:
-    description: tag description
-    legacy_id: Legacy id for tag
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    tags = get_table("tag")
-    connection = db_engine.connect()
+    Returns:
 
-    new_tag = {
-        "type": request_data.get("type", None),
-        "name": request_data.get("name", None),
-        "project_id": get_project_id_from_name(project),
-        "description": request_data.get("description", None),
-        "legacy_id": request_data.get("legacy_id", None)
-    }
-    try:
-        with connection.begin():
-            insert = tags.insert().values(**new_tag)
-            result = connection.execute(insert)
-            new_row = select(tags).where(tags.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new tag with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new tag",
-            "reason": str(e)
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": array of objects or null
         }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an array of keyword objects; `null`
+       on error.
+
+    Keyword object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null
+    }
+
+    Example Request:
+
+        GET /projectname/keywords
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Retrieved # keywords.",
+            "data": [
+                {
+                    "id": 123,
+                    "date_created": "2023-05-12T12:34:56",
+                    "date_modified": "2023-06-01T08:22:11",
+                    "deleted": 0,
+                    "type": "filosofiska",
+                    "name": "spelrumsmodellen",
+                    "description": "Description of the keyword.",
+                    "legacy_id": "k3524",
+                    "project_id": 5,
+                    "source": "Encyclopaedia Britannica",
+                    "name_translation_id": 86
+                },
+                ...
+            ]
+        }
+
+    Status Codes:
+
+    - 200 - OK: The keywords are retrieved successfully.
+    - 400 - Bad Request: Invalid project name.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    tag_table = get_table("tag")
+
+    try:
+        with db_engine.connect() as connection:
+            collation_name = get_project_collation(project)
+
+            stmt = (
+                select(*tag_table.c)
+                .where(tag_table.c.project_id == project_id)
+                .where(tag_table.c.deleted < 1)
+                .order_by(
+                    collate(tag_table.c.name, collation_name)
+                )
+            )
+            rows = connection.execute(stmt).fetchall()
+            return create_success_response(
+                message=f"Retrieved {len(rows)} keywords.",
+                data=[row._asdict() for row in rows]
+            )
+
+    except Exception:
+        logger.exception("Exception retrieving project keywords.")
+        return create_error_response("Unexpected error: failed to retrieve project keywords.", 500)
 
 
-@event_tools.route("/<project>/tags/<tag_id>/edit/", methods=["POST"])
+@event_tools.route("/<project>/keywords/new/", methods=["POST"])
 @project_permission_required
-def edit_tag(project, tag_id):
+def add_new_keyword(project):
     """
-    Update tag object to the database
+    Add a new keyword object to the specified project.
+    (Note: keywords are named 'tags' in the database.)
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    type: tag type
-    name: tag name
+    - project (str, required): The name of the project to add the
+      keyword to (must be a valid project name).
 
-    POST data CAN also contain:
-    description: tag description
-    legacy_id: Legacy id for tag
+    POST Data Parameters in JSON Format:
+
+    - name (str, required): The name of the keyword. Cannot be empty.
+    - type (str, optional): The type or classification of the keyword.
+      Can be used to group or categorise the keywords.
+    - description (str, optional): A description or explanation of the keyword.
+    - source (str, optional): A reference to a source where the keyword
+      is defined.
+    - legacy_id (str, optional): Alternate or legacy ID of the keyword.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the inserted keyword
+      data; `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null
+    }
+
+    Example Request:
+
+        POST /projectname/keywords/new/
+        {
+            "name": "spelrumsmodellen",
+            "type": "filosofiska",
+            "description": "metaforisk modell som används för att beskriva balansen mellan frihet och regler i mänsklig handling"
+            "source": "Wikipedia",
+            "legacy_id": "t42"
+        }
+
+    Example Success Response (HTTP 201):
+
+        {
+            "success": true,
+            "message": "Keyword record created.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": null,
+                "deleted": 0,
+                "type": "filosofiska",
+                "name": "spelrumsmodellen",
+                "description": "metaforisk modell som används för att beskriva balansen mellan frihet och regler i mänsklig handling",
+                "legacy_id": "t42",
+                "project_id": 5,
+                "source": "Wikipedia",
+                "name_translation_id": null
+            }
+        }
+
+    Status Codes:
+
+    - 201 - OK: The keyword was created successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
+        return create_error_response("No data provided.")
 
-    tags = get_table("tag")
+    # Verify that the required 'name' field was provided
+    if "name" not in request_data or not request_data["name"]:
+        return create_error_response("Validation error: 'name' required.")
 
-    connection = db_engine.connect()
-    with connection.begin():
-        tag_query = select(tags.c.id).where(tags.c.id == int_or_none(tag_id))
-        tag_row = connection.execute(tag_query).fetchone()
-    if tag_row is None:
-        return jsonify({"msg": "No tag with an ID of {} exists.".format(tag_id)}), 404
+    # List of fields to check in request_data
+    fields = ["name",
+              "type",
+              "description",
+              "source",
+              "legacy_id"]
 
-    type = request_data.get("type", None)
-    name = request_data.get("name", None)
-    description = request_data.get("description", None)
-    legacy_id = request_data.get("legacy_id", None)
-
+    # Start building the dictionary of inserted values
     values = {}
-    if type is not None:
-        values["type"] = type
-    if name is not None:
-        values["name"] = name
-    if description is not None:
-        values["description"] = description
-    if legacy_id is not None:
-        values["legacy_id"] = legacy_id
 
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if not request_data[field]:
+                # Field is empty or null
+                values[field] = None
+            else:
+                # Ensure field is saved as a string
+                values[field] = str(request_data[field])
+
+    values["project_id"] = project_id
+
+    try:
+        with db_engine.connect() as connection:
+            with connection.begin():
+                tag_table = get_table("tag")
+                stmt = (
+                    tag_table.insert()
+                    .values(**values)
+                    .returning(*tag_table.c)  # Return the inserted row
+                )
+                inserted_row = connection.execute(stmt).first()
+
+                if inserted_row is None:
+                    return create_error_response("Failed to create keyword record: no row returned.", 500)
+
+                return create_success_response(
+                    message="Keyword record created.",
+                    data=inserted_row._asdict(),
+                    status_code=201
+                )
+
+    except Exception:
+        logger.exception("Exception creating new keyword.")
+        return create_error_response("Unexpected error: failed to create new keyword record.", 500)
+
+
+@event_tools.route("/<project>/keywords/<keyword_id>/edit/", methods=["POST"])
+@project_permission_required
+def edit_keyword(project, keyword_id):
+    """
+    Edit an existing keyword object in the specified project by
+    updating its fields. If the keyword is deleted, it’s connections
+    to event occurrences are also deleted.
+    (Note: keywords are named 'tags' in the database.)
+
+    URL Path Parameters:
+
+    - project (str, required): The name of the project containing the keyword
+      to be edited.
+    - keyword_id (int, required): The unique identifier of the keyword to be
+      updated.
+
+    POST Data Parameters in JSON Format (at least one required):
+
+    - name (str): The name of the keyword. Cannot be empty.
+    - type (str): The type or classification of the keyword.
+      Can be used to group or categorise the keywords.
+    - description (str): A description or explanation of the keyword.
+    - source (str): A reference to a source where the keyword
+      is defined.
+    - legacy_id (str): Alternate or legacy ID of the keyword.
+    - deleted (int): Indicates if the keyword is deleted (0 for no,
+      1 for yes).
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the updated keyword data;
+      `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "id": number,
+        "date_created": string | null,
+        "date_modified": string | null,
+        "deleted": number,
+        "type": string | null,
+        "name": string | null,
+        "description": string | null,
+        "legacy_id": string | null,
+        "project_id": number,
+        "source": string | null,
+        "name_translation_id": number | null
+    }
+
+    Example Request:
+
+        POST /projectname/keywords/123/edit/
+        {
+            "name": "spelrumsmodellen"
+        }
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Keyword record updated.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2025-05-28T10:08:17",
+                "deleted": 0,
+                "type": "filosofiska",
+                "name": "spelrumsmodellen",
+                "description": "metaforisk modell som används för att beskriva balansen mellan frihet och regler i mänsklig handling",
+                "legacy_id": "t42",
+                "project_id": 5,
+                "source": "Wikipedia",
+                "name_translation_id": null
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'keyword_id' must be a positive integer.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The keyword was updated successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Convert keyword_id to integer and verify
+    keyword_id = int_or_none(keyword_id)
+    if not keyword_id or keyword_id < 1:
+        return create_error_response("Validation error: 'keyword_id' must be a positive integer.")
+
+    # Verify that request data was provided
+    request_data = request.get_json()
+    if not request_data:
+        return create_error_response("No data provided.")
+
+    # Verify that the 'name' field is non-empty if provided
+    if "name" in request_data and not request_data["name"]:
+        return create_error_response("Validation error: 'name' must not be empty.")
+
+    # List of fields to check in request_data
+    fields = ["deleted",
+              "name",
+              "type",
+              "description",
+              "source",
+              "legacy_id"]
+
+    # Start building the dictionary of updated values
+    values = {}
+
+    # Loop over the fields list, check each one in request_data and validate
+    for field in fields:
+        if field in request_data:
+            if request_data[field] is None and field != "deleted":
+                values[field] = None
+            else:
+                if field == "deleted":
+                    if not validate_int(request_data[field], 0, 1):
+                        return create_error_response(f"Validation error: '{field}' must be either 0 or 1.")
+                else:
+                    # Ensure remaining fields are strings
+                    request_data[field] = str(request_data[field])
+
+                # Add the field to the insert values
+                values[field] = request_data[field]
+
+    if not values:
+        return create_error_response("Validation error: no valid fields provided to update.")
+
+    # Add date_modified
     values["date_modified"] = datetime.now()
 
-    if len(values) > 0:
-        try:
+    try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                update = tags.update().where(tags.c.id == int(tag_id)).values(**values)
-                connection.execute(update)
-                return jsonify({
-                    "msg": "Updated tag {} with values {}".format(int(tag_id), str(values)),
-                    "tag_id": int(tag_id)
-                })
-        except Exception as e:
-            result = {
-                "msg": "Failed to update tag.",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    else:
-        connection.close()
-        return jsonify("No valid update values given."), 400
+                tag_table = get_table("tag")
+                stmt = (
+                    tag_table.update()
+                    .where(tag_table.c.id == keyword_id)
+                    .where(tag_table.c.project_id == project_id)
+                    .values(**values)
+                    .returning(*tag_table.c)  # Return the updated row
+                )
+                updated_row = connection.execute(stmt).first()
+
+                if updated_row is None:
+                    # No row was returned: invalid keyword_id or project name
+                    return create_error_response(f"Update failed: no keyword with ID '{keyword_id}' found in project.")
+
+                # If the keyword is deleted, also delete any events related to it
+                if "deleted" in values and values["deleted"]:
+                    connection_table = get_table("event_connection")
+                    occurrence_table = get_table("event_occurrence")
+                    event_table = get_table("event")
+
+                    del_upd_value = {
+                        "deleted": 1,
+                        "date_modified": values["date_modified"]
+                    }
+
+                    # Subquery: Get event IDs for tag_id (used in two of the updates)
+                    event_id_subquery = (
+                        select(connection_table.c.event_id)
+                        .where(connection_table.c.tag_id == keyword_id)
+                    ).scalar_subquery()
+
+                    # 1. Update event_occurrence where event_id matches subquery
+                    upd_occ_stmt = (
+                        occurrence_table.update()
+                        .where(occurrence_table.c.event_id.in_(event_id_subquery))
+                        .values(**del_upd_value)
+                        .returning(occurrence_table.c.id)
+                    )
+
+                    # 2. Update event where id matches same subquery
+                    upd_event_stmt = (
+                        event_table.update()
+                        .where(event_table.c.id.in_(event_id_subquery))
+                        .values(**del_upd_value)
+                        .returning(event_table.c.id)
+                    )
+
+                    # 3. Update event_connection directly using tag_id filter
+                    upd_conn_stmt = (
+                        connection_table.update()
+                        .where(connection_table.c.tag_id == keyword_id)
+                        .values(**del_upd_value)
+                        .returning(connection_table.c.id)
+                    )
+
+                    connection.execute(upd_occ_stmt)
+                    connection.execute(upd_event_stmt)
+                    connection.execute(upd_conn_stmt)
+
+                return create_success_response(
+                    message="Keyword record updated.",
+                    data=updated_row._asdict()
+                )
+
+    except Exception:
+        logger.exception("Exception updating keyword.")
+        return create_error_response("Unexpected error: failed to update keyword record.", 500)
 
 
 @event_tools.route("/<project>/work_manifestation/new/", methods=["POST"])
@@ -1615,11 +1981,11 @@ def get_subjects():
     return jsonify(result)
 
 
-@event_tools.route("/tags/")
+@event_tools.route("/keywords/")
 @jwt_required()
-def get_tags():
+def get_keywords():
     """
-    Get all tags from the database
+    Get all keywords from the database
     """
     return select_all_from_table("tag")
 
@@ -1705,396 +2071,452 @@ def find_event_by_description():
     return jsonify(result)
 
 
-@event_tools.route("/events/new/", methods=["POST"])
-@jwt_required()
-def add_new_event():
+@event_tools.route("/<project>/events/new/", methods=["POST"])
+@project_permission_required
+def add_new_event(project):
     """
-    Add a new event to the database
+    Add a new event to the specified project.
 
-    POST data MUST be in JSON format.
+    URL Path Parameters:
 
-    POST data SHOULD contain:
-    type: event type
-    description: event description
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    events = get_table("event")
-    connection = db_engine.connect()
+    - project (str, required): The name of the project to add the
+      event to (must be a valid project name).
 
-    new_event = {
-        "type": request_data.get("type", None),
-        "description": request_data.get("description", None),
+    POST Data Parameters in JSON Format:
+
+    - publication_id (int, required): ID of the publication the event is
+      related to.
+    - Exactly one of the following:
+        - subject_id (int): ID of a person/subject record.
+        - tag_id (int): ID of a keyword record.
+        - location_id (int): ID of a place/location record.
+        - work_manifestation_id (int):  ID of a work title record.
+        - correspondence_id (int): ID of a correspondence.
+    - Optionally exactly one of the following:
+        - publication_comment_id (int): ID of a publication comment.
+        - publication_facsimile_id (int): ID of a publication facsimile.
+        - publication_manuscript_id (int): ID of a publication manuscript.
+        - publication_song_id (int): ID of a publication song.
+        - publication_version_id (int): ID of a publication version.
+    - publication_facsimile_page (int, required if publication_facsimile_id set,
+      otherwise ignored): page/image number of a publication facsimile.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the inserted event related
+      data; `null` on error.
+
+    Response object keys and their data types:
+
+    {
+        "event_id": number,
+        "event_connection_id": number,
+        "event_occurrence_id": number,
+        "publication_id": number,
+        "subject_id": number | null,
+        "tag_id": number | null,
+        "location_id": number | null,
+        "work_manifestation_id": number | null,
+        "correspondence_id": number | null,
+        "publication_comment_id": number | null,
+        "publication_facsimile_id": number | null,
+        "publication_manuscript_id": number | null,
+        "publication_song_id": number | null,
+        "publication_version_id": number | null,
+        "publication_facsimile_page": number | null
     }
-    try:
-        with connection.begin():
-            insert = events.insert().values(**new_event)
-            result = connection.execute(insert)
-            new_row = select(events).where(events.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new event with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new event",
-            "reason": str(e)
+
+    Example Request:
+
+        POST /projectname/events/new/
+        {
+            "publication_id": 4751,
+            "tag_id": 12
         }
-        return jsonify(result), 500
-    finally:
-        connection.close()
 
+    Example Success Response (HTTP 201):
 
-@event_tools.route("/event/<event_id>/connections/new/", methods=["POST"])
-@jwt_required()
-def connect_event(event_id):
+        {
+            "success": true,
+            "message": "Connection created.",
+            "data": {
+                "event_id": 4,
+                "event_connection_id": 32,
+                "event_occurrence_id": 7,
+                "publication_id": 4751,
+                "subject_id": null,
+                "tag_id": 12,
+                "location_id": null,
+                "work_manifestation_id": null,
+                "correspondence_id": null,
+                "publication_comment_id": null,
+                "publication_facsimile_id": null,
+                "publication_manuscript_id": null,
+                "publication_song_id": null,
+                "publication_version_id": null,
+                "publication_facsimile_page": null
+            }
+        }
+
+    Status Codes:
+
+    - 201 - OK: The event was created successfully.
+    - 400 - Bad Request: No data provided or fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
     """
-    Link an event to a location, subject, or tag through event_connection
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
 
-    POST data MUST be in JSON format.
-
-    POST data MUST contain at least one of the following:
-    subject_id: ID for the subject involved in the given event
-    location_id: ID for the location involved in the given event
-    tag_id: ID for the tag involved in the given event
-    """
+    # Verify that request data was provided
     request_data = request.get_json()
     if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    events = get_table("event")
-    connection = db_engine.connect()
-    with connection.begin():
-        select_event = select(events).where(events.c.id == int_or_none(event_id))
-        event_exists = connection.execute(select_event).fetchall()
-    if len(event_exists) != 1:
-        return jsonify(
-            {
-                "msg": "Event ID not found in database"
-            }
-        ), 404
-    event_connections = get_table("event_connection")
-    new_event_connection = {
-        "event_id": int(event_id),
-        "subject_id": int(request_data["subject_id"]) if request_data.get("subject_id", None) else None,
-        "location_id": int(request_data["location_id"]) if request_data.get("location_id", None) else None,
-        "tag_id": int(request_data["tag_id"]) if request_data.get("tag_id", None) else None
-    }
+        return create_error_response("No data provided.")
+
+    # Verify that the required 'publication_id' field was provided
+    publication_id = int_or_none(request_data["publication_id"]) if "publication_id" in request_data else None
+    if not publication_id or publication_id < 1:
+        return create_error_response("Validation error: 'publication_id' required and must be a positive integer.")
+
+    # List of connection fields to check in request_data, one must be
+    # present (if multiple, respond with error)
+    connection_fields = ["subject_id",
+                         "tag_id",
+                         "location_id",
+                         "work_manifestation_id",
+                         "correspondence_id"]
+
+    present_connection_fields = [key for key in connection_fields if key in request_data and request_data[key] is not None]
+
+    if len(present_connection_fields) != 1:
+        return create_error_response("Validation error: exactly one of 'subject_id', 'tag_id', 'location_id', 'work_manifestation_id' and 'correspondence_id' must be provided.")
+
+    connection_field = present_connection_fields[0]
+
+    if not validate_int(request_data[connection_field], 1):
+        return create_error_response(f"Validation error: '{connection_field}' must be a positive integer.")
+
+    # List of optional occurrence fields to check in request data,
+    # one or none must be present (if multiple, respond with error)
+    occurrence_fields = ["publication_comment_id",
+                         "publication_facsimile_id",
+                         "publication_manuscript_id",
+                         "publication_song_id",
+                         "publication_version_id"]
+
+    present_occurrence_fields = [key for key in occurrence_fields if key in request_data and request_data[key] is not None]
+
+    if len(present_occurrence_fields) > 1:
+        return create_error_response("Validation error: no more than one of 'publication_comment_id', 'publication_facsimile_id', 'publication_manuscript_id', 'publication_song_id' and 'publication_version_id' can be provided.")
+
+    occurrence_field = present_occurrence_fields[0] if len(present_occurrence_fields) == 1 else None
+
+    if occurrence_field and not validate_int(request_data[occurrence_field], 1):
+        return create_error_response(f"Validation error: '{occurrence_field}' must be a positive integer.")
+
+    if occurrence_field == "publication_facsimile_id" and ("publication_facsimile_page" not in request_data or int_or_none(request_data["publication_facsimile_page"]) is None):
+        return create_error_response("Validation error: 'publication_facsimile_page' must be provided and be an integer.")
+
+    # Form values objects
+    connection_values = {}
+    occurrence_values = {}
+
+    connection_values[connection_field] = request_data[connection_field]
+    connection_values["deleted"] = 0
+    occurrence_values["publication_id"] = publication_id
+    occurrence_values["deleted"] = 0
+
+    if occurrence_field:
+        occurrence_values[occurrence_field] = request_data[occurrence_field]
+        if occurrence_field == "publication_facsimile_id":
+            occurrence_values["publication_facsimile_page"] = request_data["publication_facsimile_page"]
+
     try:
-        with connection.begin():
-            insert = event_connections.insert().values(**new_event_connection)
-            result = connection.execute(insert)
-            new_row = select(event_connections).where(event_connections.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new event_connection with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new event_connection",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
-
-
-@event_tools.route("/event/<event_id>/connections/")
-@jwt_required()
-def get_event_connections(event_id):
-    """
-    List all event_connections for a given event, to find related locations, subjects, and tags
-    """
-    event_connections = get_table("event_connection")
-    connection = db_engine.connect()
-    statement = select(event_connections).where(event_connections.c.event_id == int_or_none(event_id))
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
-
-
-@event_tools.route("/event/<event_id>/occurrences/")
-@jwt_required()
-def get_event_occurrences(event_id):
-    """
-    Get a list of all event_occurrence in the database, optionally limiting to a given event
-    """
-    event_occurrences = get_table("event_occurrence")
-    connection = db_engine.connect()
-    statement = select(event_occurrences).where(event_occurrences.c.event_id == int_or_none(event_id))
-    rows = connection.execute(statement).fetchall()
-    result = []
-    for row in rows:
-        if row is not None:
-            result.append(row._asdict())
-    connection.close()
-    return jsonify(result)
-
-
-@event_tools.route("/event/<event_id>/occurrences/new/", methods=["POST"])
-@jwt_required()
-def new_event_occurrence(event_id):
-    """
-    Add a new event_occurrence to the database
-
-    POST data MUST be in JSON format.
-
-    POST data SHOULD contain the following:
-    type: event occurrence type
-    description: event occurrence description
-
-    POST data SHOULD also contain at least one of the following:
-    publication_id: ID for publication the event occurs in
-    publicationVersion_id: ID for publication version the event occurs in
-    publicationManuscript_id: ID for publication manuscript the event occurs in
-    publicationFacsimile_id: ID for publication facsimile the event occurs in
-    publicationComment_id: ID for publication comment the event occurs in
-    publicationFacsimile_page: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    events = get_table("event")
-    connection = db_engine.connect()
-    with connection.begin():
-        select_event = select(events).where(events.c.id == int_or_none(event_id))
-        event_exists = connection.execute(select_event).fetchall()
-    if len(event_exists) != 1:
-        return jsonify(
-            {
-                "msg": "Event ID not found in database"
-            }
-        ), 404
-
-    event_occurrences = get_table("event_occurrence")
-    new_occurrence = {
-        "event_id": int(event_id),
-        "type": request_data.get("type", None),
-        "description": request_data.get("description", None),
-        "publication_id": int(request_data["publication_id"]) if request_data.get("publication_id", None) else None,
-        "publication_version_id": int(request_data["publicationVersion_id"]) if request_data.get("publicationVersion_id", None) else None,
-        "publication_manuscript_id": int(request_data["publicationManuscript_id"]) if request_data.get("publicationManuscript_id", None) else None,
-        "publication_facsimile_id": int(request_data["publicationFacsimile_id"]) if request_data.get("publicationFacsimile_id", None) else None,
-        "publication_comment_id": int(request_data["publicationComment_id"]) if request_data.get("publicationComment_id", None) else None,
-        "publication_facsimile_page": int(request_data["publicationFacsimile_page"]) if request_data.get("publicationFacsimile_page", None) else None,
-    }
-    try:
-        with connection.begin():
-            insert = event_occurrences.insert().values(**new_occurrence)
-            result = connection.execute(insert)
-            new_row = select(event_occurrences).where(event_occurrences.c.id == result.inserted_primary_key[0])
-            new_row = connection.execute(new_row).fetchone()
-            if new_row is not None:
-                new_row = new_row._asdict()
-            result = {
-                "msg": "Created new event_occurrence with ID {}".format(result.inserted_primary_key[0]),
-                "row": new_row
-            }
-            return jsonify(result), 201
-    except Exception as e:
-        result = {
-            "msg": "Failed to create new event_occurrence",
-            "reason": str(e)
-        }
-        return jsonify(result), 500
-    finally:
-        connection.close()
-
-
-@event_tools.route("/event/<publication_id>/occurrences/add/", methods=["POST"])
-@jwt_required()
-def new_publication_event_occurrence(publication_id):
-    """
-    Add a new event_occurrence to the publication
-
-    POST data MUST be in JSON format.
-
-    POST data MUST contain the following:
-    publication_id: ID for publication the event occurs in
-    tag_id: ID for publication the event occurs in
-
-    POST data MAY contain the following:
-    publicationFacsimile_page: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
-    event_occ = get_table("event_occurrence")
-    connection = db_engine.connect()
-    with connection.begin():
-        select_event = select(event_occ.c.event_id).where(event_occ.c.publication_id == int_or_none(publication_id)).where(event_occ.c.deleted != 1)
-        result = connection.execute(select_event).fetchone()
-    if int_or_none(result["event_id"]) is None:
-        event_id = int_or_none(result)
-    else:
-        event_id = int_or_none(result["event_id"])
-    # No existing connection between publication and event, we need to create an event
-    if event_id is None:
-        # create event
-        events = get_table("event")
-        new_event = {
-            "type": "publication",
-            "description": "publication->tag",
-        }
-        try:
+        with db_engine.connect() as connection:
             with connection.begin():
-                insert = events.insert().values(**new_event)
-                result = connection.execute(insert)
-                event_id = result.inserted_primary_key[0]
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
+                event_table = get_table("event")
+                event_connection_table = get_table("event_connection")
+                event_occurrence_table = get_table("event_occurrence")
 
-        # Create the occurrence, connection between publication and event
-        new_occurrence = {
-            "event_id": int(event_id),
-            "type": request_data.get("type", None),
-            "description": request_data.get("description", None),
-            "publication_id": int(request_data["publication_id"]) if request_data.get("publication_id", None) else None,
-            "publication_facsimile_page": int(request_data["publication_facsimile_page"]) if request_data.get("publication_facsimile_page", None) else None,
-        }
-        try:
-            with connection.begin():
-                insert = event_occ.insert().values(**new_occurrence)
-                connection.execute(insert)
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event_occurrence",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
+                # Check if an event for this connection and occurrence already exists
+                check_ev_conn_subq = build_select_with_filters(event_connection_table,
+                                                               connection_values,
+                                                               "event_id").scalar_subquery()
+                check_ev_occ_subq = build_select_with_filters(event_occurrence_table,
+                                                              occurrence_values,
+                                                              "event_id").scalar_subquery()
 
-        # Create the connection between tag and event
-        event_conn = get_table("event_connection")
-        new_connection = {
-            "event_id": int(event_id),
-            "tag_id": request_data.get("tag_id", None)
-        }
-        try:
-            with connection.begin():
-                insert = event_conn.insert().values(**new_connection)
-                connection.execute(insert)
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event_connection",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
-    else:
-        try:
-            new_connection = {
-                "event_id": int(event_id),
-                "tag_id": request_data.get("tag_id", None)
-            }
-            with connection.begin():
-                event_conn = get_table("event_connection")
-                insert = event_conn.insert().values(**new_connection)
-                result = connection.execute(insert)
-                new_row = select(event_conn).where(event_conn.c.id == result.inserted_primary_key[0])
-                if new_row is not None:
-                    new_row = new_row._asdict()
-                result = {
-                    "msg": "Created new event_connection with ID {}".format(result.inserted_primary_key[0]),
-                    "row": new_row
+                event_exists_stmt = (
+                    select(event_table.c.id)
+                    .where(
+                        and_(
+                            event_table.c.id.in_(check_ev_conn_subq),
+                            event_table.c.id.in_(check_ev_occ_subq),
+                            event_table.c.deleted == 0
+                        )
+                    )
+                )
+
+                event_ids = connection.execute(event_exists_stmt).fetchall()
+
+                if len(event_ids) > 1:
+                    return create_error_response("Unable to create connection: multiple instances of this connection already exist.", 400)
+                elif len(event_ids) == 1:
+                    return create_error_response("Unable to create connection: a connection with the given publication and reference already exists.")
+
+                # Proceed with creating an event for this connection and occurrence,
+                # as there is no existing event.
+                event_values = {"description": f"project {project_id}"}
+
+                # Insert event query
+                insert_ev_stmt = (
+                    event_table.insert()
+                    .values(**event_values)
+                    .returning(event_table.c.id)  # Return the ID of the inserted row
+                )
+
+                # Execute insert event query first to get an event ID
+                insert_ev_result = connection.execute(insert_ev_stmt).first()
+                if insert_ev_result is None:
+                    return create_error_response("Unexpected error: failed to insert new event in the database.", 500)
+
+                event_id = insert_ev_result[0]
+                connection_values["event_id"] = event_id
+                occurrence_values["event_id"] = event_id
+
+                # Insert event connection query
+                insert_ev_conn_stmt = (
+                    event_connection_table.insert()
+                    .values(**connection_values)
+                    .returning(*event_connection_table.c)  # Return the inserted row
+                )
+
+                # Insert event occurrence query
+                insert_ev_occu_stmt = (
+                    event_occurrence_table.insert()
+                    .values(**occurrence_values)
+                    .returning(*event_occurrence_table.c)  # Return the inserted row
+                )
+
+                insert_conn_result = connection.execute(insert_ev_conn_stmt).first()
+                insert_occu_result = connection.execute(insert_ev_occu_stmt).first()
+
+                if insert_conn_result is None:
+                    return create_error_response("Unexpected error: failed to insert new event connection in the database.", 500)
+                if insert_occu_result is None:
+                    return create_error_response("Unexpected error: failed to insert new event occurrence in the database.", 500)
+
+                response_data = {
+                    "event_id":                   event_id,
+                    "event_connection_id":        insert_conn_result["id"],
+                    "event_occurrence_id":        insert_occu_result["id"],
+                    "publication_id":             insert_occu_result["publication_id"],
+                    "subject_id":                 insert_conn_result["subject_id"],
+                    "tag_id":                     insert_conn_result["tag_id"],
+                    "location_id":                insert_conn_result["location_id"],
+                    "work_manifestation_id":      insert_conn_result["work_manifestation_id"],
+                    "correspondence_id":          insert_conn_result["correspondence_id"],
+                    "publication_comment_id":     insert_occu_result["publication_comment_id"],
+                    "publication_facsimile_id":   insert_occu_result["publication_facsimile_id"],
+                    "publication_manuscript_id":  insert_occu_result["publication_manuscript_id"],
+                    "publication_song_id":        insert_occu_result["publication_song_id"],
+                    "publication_version_id":     insert_occu_result["publication_version_id"],
+                    "publication_facsimile_page": insert_occu_result["publication_facsimile_page"]
                 }
-                return jsonify(result), 201
-        except Exception as e:
-            result = {
-                "msg": "Failed to create new event_connection",
-                "reason": str(e)
-            }
-            return jsonify(result), 500
-        finally:
-            connection.close()
+
+                return create_success_response(
+                    message="Connection created.",
+                    data=response_data,
+                    status_code=201
+                )
+
+    except ValueError:
+        logger.exception("Invalid query parameters for building select statement.")
+        return create_error_response("Unexpected error: ValueError building select statement.", 500)
+    except Exception:
+        logger.exception("Exception creating new connection.")
+        return create_error_response("Unexpected error: failed to create new connection.", 500)
 
 
-@event_tools.route("/event/<occ_id>/occurrences/edit/", methods=["POST"])
-@jwt_required()
-def edit_event_occurrence(occ_id):
+@event_tools.route("/<project>/events/<event_id>/delete/", methods=["POST"])
+@project_permission_required
+def delete_event(project, event_id):
     """
-    Edit a event_occurrence
-    id of the event_occurrence: Number for publication facsimile page the event occurs in
-    publication_facsimile_page: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
+    Delete the event, event connection and event occurrence with the
+    specified event ID.
 
-    publication_facsimile_page = request_data.get("publication_facsimile_page", None)
+    URL Path Parameters:
 
-    values = {}
-    if publication_facsimile_page is not None:
-        values["publication_facsimile_page"] = publication_facsimile_page
+    - project (str, required): The name of the project the event occurs
+      in. Strictly it doesn’t matter which project name is given as long
+      as it’s a valid project name because currently events in the
+      database don’t include project information.
+    - event_id (int, required): The unique identifier of the event to
+      be deleted.
 
-    values["date_modified"] = datetime.now()
-    connection = db_engine.connect()
-    event_occurrences = get_table("event_occurrence")
-    try:
-        with connection.begin():
-            update = event_occurrences.update().where(event_occurrences.c.id == int(occ_id)).values(**values)
-            connection.execute(update)
-            return jsonify({
-                "msg": "Updated event_occurrences {} with values {}".format(int(occ_id), str(values)),
-                "occ_id": int(occ_id)
-            })
-    except Exception as e:
-        result = {
-            "msg": "Failed to update event_occurrences.",
-            "reason": str(e)
+    POST Data Parameters in JSON Format:
+
+    - None.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
         }
-        return jsonify(result), 500
-    finally:
-        connection.close()
 
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the updated event data;
+      `null` on error.
 
-@event_tools.route("/event/<occ_id>/occurrences/delete/", methods=["POST"])
-@jwt_required()
-def delete_event_occurrence(occ_id):
-    """
-    Logical delete a event_occurrence
-    id of the event_occurrence: Number for publication facsimile page the event occurs in
-    """
-    request_data = request.get_json()
-    if not request_data:
-        return jsonify({"msg": "No data provided."}), 400
+    Response object keys and their data types:
 
-    values = {
-        "date_modified": datetime.now(),
-        "deleted": 1
+    {
+        "event_id": number,
+        "event_connection_id": number,
+        "event_occurrence_id": number,
+        "deleted": number
     }
 
-    connection = db_engine.connect()
-    event_occurrences = get_table("event_occurrence")
-    try:
-        with connection.begin():
-            update = event_occurrences.update().where(event_occurrences.c.id == int(occ_id)).values(**values)
-            connection.execute(update)
-            return jsonify({
-                "msg": "Delete event_occurrences {} with values {}".format(int(occ_id), str(values)),
-                "occ_id": int(occ_id)
-            })
-    except Exception as e:
-        result = {
-            "msg": "Failed to delete event_occurrences.",
-            "reason": str(e)
+    Example Request:
+
+        POST /projectname/events/123/delete/
+        {}
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Connection deleted.",
+            "data": {
+                "event_id": 123,
+                "event_connection_id": 46,
+                "event_occurrence_id": 94,
+                "deleted": 1
+            }
         }
-        return jsonify(result), 500
-    finally:
-        connection.close()
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'event_id' must be a positive integer.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The event was successfully deleted.
+    - 400 - Bad Request: Fields are invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Verify that event_id is a positive integer
+    event_id = int_or_none(event_id)
+    if not validate_int(event_id, 1):
+        return create_error_response("Validation error: 'event_id' must be a positive integer.")
+
+    upd_values = {
+        "deleted": 1,
+        "date_modified": datetime.now()
+    }
+
+    try:
+        with db_engine.connect() as connection:
+            with connection.begin():
+                event_table = get_table("event")
+                event_connection_table = get_table("event_connection")
+                event_occurrence_table = get_table("event_occurrence")
+
+                # Check that the event_id is valid and non-deleted
+                event_exists_stmt = (
+                    select(event_table.c.id)
+                    .where(event_table.c.id == event_id)
+                    .where(event_table.c.deleted == 0)
+                )
+
+                event_ids = connection.execute(event_exists_stmt).fetchall()
+
+                if len(event_ids) < 1:
+                    return create_error_response("Failed to delete connection: invalid event ID or an event for the connection does not exist.")
+                elif len(event_ids) > 1:
+                    return create_error_response("Failed to delete connection: event ID is referenced by multiple connection or occurrence rows. This may be legacy data and must be reviewed manually.")
+
+                # Delete event
+                upd_ev_stmt = (
+                    event_table.update()
+                    .where(event_table.c.id == event_id)
+                    .where(event_table.c.deleted == 0)
+                    .values(**upd_values)
+                    .returning(*event_table.c)  # Return the updated row
+                )
+                upd_ev_row = connection.execute(upd_ev_stmt).first()
+
+                if upd_ev_row is None:
+                    # No row was returned: invalid event_id
+                    return create_error_response("Failed to delete connection: invalid event ID or the event is already deleted.")
+
+                # Delete event connection
+                upd_ev_conn_stmt = (
+                    event_connection_table.update()
+                    .where(event_connection_table.c.event_id == event_id)
+                    .where(event_connection_table.c.deleted == 0)
+                    .values(**upd_values)
+                    .returning(*event_connection_table.c)  # Return the updated row
+                )
+                upd_ev_conn_row = connection.execute(upd_ev_conn_stmt).first()
+
+                if upd_ev_conn_row is None:
+                    # No row was returned: invalid event_id
+                    return create_error_response("Failed to delete connection: invalid event ID or the event connection is already deleted.")
+
+                # Delete event occurrence
+                upd_ev_occu_stmt = (
+                    event_occurrence_table.update()
+                    .where(event_occurrence_table.c.event_id == event_id)
+                    .where(event_occurrence_table.c.deleted == 0)
+                    .values(**upd_values)
+                    .returning(*event_occurrence_table.c)  # Return the updated row
+                )
+                upd_ev_occu_row = connection.execute(upd_ev_occu_stmt).first()
+
+                if upd_ev_occu_row is None:
+                    # No row was returned: invalid event_id
+                    return create_error_response("Failed to delete connection: invalid event ID or the event occurrence is already deleted.")
+
+                response_data = {
+                    "event_id":            upd_ev_row["id"],
+                    "event_connection_id": upd_ev_conn_row["id"],
+                    "event_occurrence_id": upd_ev_occu_row["id"],
+                    "deleted":             upd_ev_row["deleted"]
+                }
+
+                return create_success_response(
+                    message="Connection deleted.",
+                    data=response_data
+                )
+
+    except Exception:
+        logger.exception("Exception deleting event.")
+        return create_error_response("Unexpected error: failed to delete the connection.", 500)
