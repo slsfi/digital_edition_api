@@ -1039,7 +1039,7 @@ def handle_collection_toc(project, collection_id, language=None):
 
     # Validate language
     if language is not None and not is_valid_language(language):
-        return create_error_response("Validation error: 'language' can only contain alphanumeric characters and hyphens, and can’t be more than 20 characters long.")
+        return create_error_response("Validation error: 'language' is not among valid language codes.")
 
     filename = f"{collection_id}_{language}.json" if language else f"{collection_id}.json"
     filepath = safe_join(config["file_root"], "toc", filename)
