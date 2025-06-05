@@ -1146,7 +1146,7 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
     Get an existing table of contents for the specified collection in the
     specified language (optional) and project, with publication names
     and dates updated from the database.
-    
+
     Note: This endpoint does not modify the table of contents file in the
     project repository – it simply loads the table of contents on the
     server, updates it with the latest publication data in the database,
@@ -1290,7 +1290,7 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
 
     except Exception:
         logger.exception("Exception retrieving publications data for collection ToC update.")
-        return create_error_response("Unexpected error: failed to retrieve publications data.", 500)  
+        return create_error_response("Unexpected error: failed to retrieve publications data.", 500)
 
     if len(publication_rows) == 0:
         return create_error_response(f"No publications in collection with ID '{collection_id}'.")
