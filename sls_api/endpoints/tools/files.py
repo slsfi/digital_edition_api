@@ -8,12 +8,13 @@ import os
 import subprocess
 from typing import Any, Dict, Optional, Tuple
 from lxml import etree as ET
+from sqlalchemy import select
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import get_project_config, \
+from sls_api.endpoints.generics import db_engine, get_project_config, \
     project_permission_required, create_error_response, \
     create_success_response, is_any_valid_date_format, \
-    int_or_none, is_valid_language
+    int_or_none, is_valid_language, get_table, get_project_id_from_name
 
 
 file_tools = Blueprint("file_tools", __name__)
@@ -97,6 +98,64 @@ def update_files_in_git_repo(project, specific_file=False):
         except subprocess.CalledProcessError as e:
             return False, str(e.output)
         return True, specific_file
+
+
+def apply_updates_to_collection_toc(
+    data: Dict[str, Any] | list,
+    update_map: Dict[str, Dict[str, Any]]
+) -> int:
+    """
+    Recursively traverse a nested JSON structure (collection table of
+    contents) and update nodes that match itemIds found in the
+    `update_map`. Returns the count of updated nodes.
+
+    Behavior:
+        - If a node contains an `itemId` that exists in `update_map`, its
+          `text` and/or `date` fields will be updated.
+        - The original structure of the JSON is preserved.
+        - This function modifies `data` in-place.
+
+    Args:
+        data (dict or list): The JSON data structure (a dictionary or
+            list of dictionaries) containing items to potentially
+            update. This structure may be deeply nested and include
+            "children" arrays.
+        update_map (dict): A dictionary mapping itemIds (str) to
+            dictionaries with the updated field values (e.g.,
+            {"text": ..., "date": ...}). Only the keys present in the
+            mapped value will be updated.
+
+    Returns:
+        int: Number of nodes where at least one field was changed.
+    """
+    updated_count = 0
+
+    def _apply(node):
+        nonlocal updated_count
+
+        if isinstance(node, dict):
+            item_id = node.get("itemId")
+            if item_id and item_id in update_map:
+                updated_fields = update_map[item_id]
+                changed = False
+                for key, new_value in updated_fields.items():
+                    if node.get(key) != new_value:
+                        node[key] = new_value
+                        changed = True
+                if changed:
+                    updated_count += 1
+
+            # Recurse into children
+            if "children" in node:
+                for child in node["children"]:
+                    _apply(child)
+
+        elif isinstance(node, list):
+            for item in node:
+                _apply(item)
+
+    _apply(data)
+    return updated_count
 
 
 @file_tools.route("/<project>/config/get")
@@ -958,7 +1017,9 @@ def handle_collection_toc(project, collection_id, language=None):
     - 403 - Forbidden: Permission denied performing the operation.
     - 404 - Not Found: The table of contens file was not found on the
             server.
-    - 415 - Unsupported Media Type: The provided JSON data is invalid.
+    - 415 - Unsupported Media Type: The JSON data of the table of contents
+            file on the server, or the JSON data in the request, is
+            invalid.
     - 500 - Internal Server Error: Database query or execution failed.
     """
     # Validate project config
@@ -1075,3 +1136,187 @@ def handle_collection_toc(project, collection_id, language=None):
 
     else:
         return create_error_response("Error: invalid request method. Only GET and PUT are allowed.")
+
+
+@file_tools.route("/<project>/collection-toc-update-items/<collection_id>/<language>", methods=["POST"])
+@file_tools.route("/<project>/collection-toc-update-items/<collection_id>", methods=["POST"])
+@project_permission_required
+def get_collection_toc_updated_from_db(project, collection_id, language=None):
+    """
+    Get an existing table of contents for the specified collection in the
+    specified language (optional) and project, with publication names
+    and dates updated from the database.
+    
+    Note: This endpoint does not modify the table of contents file in the
+    project repository – it simply loads the table of contents on the
+    server, updates it with the latest publication data in the database,
+    and returns it as a JSON object. The structure of the table of
+    contents is not altered.
+
+    URL Path Parameters:
+
+    - project (str): Project name.
+    - collection_id (int): The id of the collection.
+    - language (str or None, optional): The language of the table of
+      contents.
+
+    POST Data Parameters in JSON Format:
+
+    - update (array, required): an array of strings with the names of the
+      fields to update. Valid field names are "text" and "date".
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object with the updated table of contents,
+      `null` on error.
+
+    Status Codes:
+
+    - 200 - OK: Successfully retrieved the updated table of contents.
+    - 400 - Bad Request: Invalid request data.
+    - 403 - Forbidden: Permission denied trying to read the table of
+            contents file.
+    - 404 - Not Found: The table of contens file was not found on the
+            server.
+    - 415 - Unsupported Media Type: The JSON data of the table of contents
+            file on the server is invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Validate project config
+    config = get_project_config(project)
+    if config is None:
+        return create_error_response("Error: project config not found on the server.", 500)
+
+    config_ok = check_project_config(project)
+    if not config_ok[0]:
+        logger.warning(f"Project '{project}' has an incomplete config: {config_ok[1]}")
+        return create_error_response(f"Error: {config_ok[1]}", 500)
+
+    # Validate collection_id
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return create_error_response("Validation error: 'collection_id' must be a positive integer.")
+
+    # Validate language
+    if language is not None and not is_valid_language(language):
+        return create_error_response("Validation error: 'language' can only contain alphanumeric characters and hyphens, and can’t be more than 20 characters long.")
+
+    # Validate request data
+    payload = request.get_json()
+    update_fields = payload.get("update", []) if payload else []
+    valid_fields = ["text", "date"]
+    if not update_fields or not any(f in valid_fields for f in update_fields):
+        return create_error_response("Request must include a valid update list with either 'date', 'text' or both.")
+
+    filename = f"{collection_id}_{language}.json" if language else f"{collection_id}.json"
+    filepath = safe_join(config["file_root"], "toc", filename)
+
+    if filepath is None:
+        return create_error_response("Error: invalid table of contents file path.")
+
+    # Resolve the real, absolute path
+    filepath = os.path.realpath(filepath)
+
+    try:
+        # Check if the file exists
+        if not os.path.isfile(filepath):
+            return create_error_response(f"Error: the table of contents file {filename} was not found on the server.", 404)
+
+        # Read file contents and parse json into a dict
+        with open(filepath, "r", encoding="utf-8-sig") as json_file:
+            toc = json.load(json_file)
+
+    except FileNotFoundError:
+        logger.exception(f"File not found error when trying to read ToC-file at {filepath}.")
+        return create_error_response(f"Error: {filename} not found.", 404)
+    except PermissionError:
+        logger.exception(f"Permission denied error when trying to read ToC-file at {filepath}.")
+        return create_error_response(f"Error: permission denied when trying to read {filename}.", 403)
+    except json.JSONDecodeError:
+        logger.exception(f"Invalid JSON in ToC file at {filepath}.")
+        return create_error_response(f"Error: file {filename} contains invalid JSON.", 415)
+    except Exception:
+        logger.exception(f"Error accessing file at {filepath}.")
+        return create_error_response(f"Error accessing file at {filepath}.", 500)
+
+    if not toc:
+        return create_error_response(f"The table of contents file {filename} is empty.")
+
+    # Fetch publication data
+    collection_table = get_table("publication_collection")
+    publication_table = get_table("publication")
+
+    try:
+        with db_engine.connect() as connection:
+            # Check for publication_collection existence in project
+            select_coll_stmt = (
+                select(collection_table.c.id)
+                .where(collection_table.c.id == collection_id)
+                .where(collection_table.c.project_id == project_id)
+                .where(collection_table.c.deleted < 1)
+            )
+            result = connection.execute(select_coll_stmt).first()
+
+            if not result:
+                return create_error_response("Validation error: could not find publication collection, either 'project' or 'collection_id' is invalid.")
+
+            # Proceed to selecting the publications
+            select_pub_stmt = (
+                select(
+                    publication_table.c.id,
+                    publication_table.c.name,
+                    publication_table.c.original_publication_date
+                )
+                .where(publication_table.c.publication_collection_id == collection_id)
+                .where(publication_table.c.deleted < 1)
+            )
+            publication_rows = connection.execute(select_pub_stmt).fetchall()
+
+    except Exception:
+        logger.exception("Exception retrieving publications data for collection ToC update.")
+        return create_error_response("Unexpected error: failed to retrieve publications data.", 500)  
+
+    if len(publication_rows) == 0:
+        return create_error_response(f"No publications in collection with ID '{collection_id}'.")
+
+    # Build update map
+    update_map = {}
+    for row in publication_rows:
+        item_id = f"{collection_id}_{row['id']}"
+        entry = {}
+
+        if "text" in update_fields:
+            entry["text"] = row["name"] or ""
+
+        if "date" in update_fields:
+            entry["date"] = row["original_publication_date"] or ""
+
+        if entry:
+            update_map[item_id] = entry
+
+    # Update fields in the collection ToC (in-place)
+    updated_item_count = apply_updates_to_collection_toc(toc, update_map)
+
+    resp_message = f"Updated {updated_item_count} items in the table of contents with publication data from the database. The changes are unsaved."
+
+    if updated_item_count == 0:
+        resp_message = "Publication data already up to date, no changes made to the table of contents."
+
+    # Respond with the updated ToC, don't write it to disk
+    return create_success_response(resp_message, toc)
