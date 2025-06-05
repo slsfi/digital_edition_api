@@ -1215,7 +1215,7 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
 
     # Validate language
     if language is not None and not is_valid_language(language):
-        return create_error_response("Validation error: 'language' can only contain alphanumeric characters and hyphens, and can’t be more than 20 characters long.")
+        return create_error_response("Validation error: 'language' is not among valid language codes.")
 
     # Validate request data
     payload = request.get_json()
@@ -1298,6 +1298,7 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
     # Build update map
     update_map = {}
     for row in publication_rows:
+        row = row._asdict()
         item_id = f"{collection_id}_{row['id']}"
         entry = {}
 
