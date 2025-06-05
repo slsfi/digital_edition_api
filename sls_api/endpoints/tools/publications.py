@@ -479,19 +479,20 @@ def get_publication_manuscripts(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication manuscripts.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/tags/")
+@publication_tools.route("/<project>/publication/<publication_id>/keywords/")
 @jwt_required()
-def get_publication_tags(project, publication_id):
+def get_publication_keywords(project, publication_id):
     """
-    List all (non-deleted) tags/keywords for the specified publication. The
-    tags/keywords are ordered alphabetically by name.
+    List all (non-deleted) keywords for the specified publication. The
+    keywords are ordered alphabetically by name.
+    (Note: keywords are named 'tags' in the database.)
 
     URL Path Parameters:
 
     - project (str, required): The name of the project for which to retrieve
-      publication tags/keywords.
+      publication keywords.
     - publication_id (int, required): The id of the publication to retrieve
-      tags/keywords for. Must be a positive integer.
+      keywords for. Must be a positive integer.
 
     Returns:
 
@@ -506,7 +507,7 @@ def get_publication_tags(project, publication_id):
 
     - `success`: A boolean indicating whether the operation was successful.
     - `message`: A string containing a descriptive message about the result.
-    - `data`: On success, an array of tag/keyword objects with event data;
+    - `data`: On success, an array of keyword objects with event data;
       `null` on error.
 
     Response object keys and their data types:
@@ -529,7 +530,7 @@ def get_publication_tags(project, publication_id):
 
     Example Request:
 
-        GET /projectname/publication/456/tags/
+        GET /projectname/publication/456/keywords/
 
     Example Success Response (HTTP 200):
 
@@ -555,7 +556,7 @@ def get_publication_tags(project, publication_id):
 
     Status Codes:
 
-    - 200 - OK: The request was successful, and the publication tags/keywords
+    - 200 - OK: The request was successful, and the publication keywords
             are returned.
     - 400 - Bad Request: The project name or publication_id is invalid.
     - 500 - Internal Server Error: Database query or execution failed.

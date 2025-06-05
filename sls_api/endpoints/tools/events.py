@@ -1273,17 +1273,18 @@ def list_translations(project, translation_id):
         return create_error_response("Unexpected error: failed to retrieve translations.", 500)
 
 
-@event_tools.route("/<project>/tags/list/")
+@event_tools.route("/<project>/keywords/list/")
 @project_permission_required
-def list_project_tags(project):
+def list_project_keywords(project):
     """
-    List all non-deleted tags/keywords in the specified project.
-    The tags/keywords are alphabetically ordered by name.
+    List all non-deleted keywords in the specified project.
+    The keywords are alphabetically ordered by name.
+    (Note: keywords are named 'tags' in the database.)
 
     URL Path Parameters:
 
     - project (str, required): The name of the project to retrieve
-      tags/keywords for (must be a valid project name).
+      keywords for (must be a valid project name).
 
     Returns:
 
@@ -1298,10 +1299,10 @@ def list_project_tags(project):
 
     - `success`: A boolean indicating whether the operation was successful.
     - `message`: A string containing a descriptive message about the result.
-    - `data`: On success, an array of tag/keyword objects; `null`
+    - `data`: On success, an array of keyword objects; `null`
        on error.
 
-    Tag/keyword object keys and their data types:
+    Keyword object keys and their data types:
 
     {
         "id": number,
@@ -1319,7 +1320,7 @@ def list_project_tags(project):
 
     Example Request:
 
-        GET /projectname/tags
+        GET /projectname/keywords
 
     Example Success Response (HTTP 200):
 
@@ -1346,12 +1347,10 @@ def list_project_tags(project):
 
     Status Codes:
 
-    - 200 - OK: The tags/keywords are retrieved successfully.
+    - 200 - OK: The keywords are retrieved successfully.
     - 400 - Bad Request: Invalid project name.
     - 500 - Internal Server Error: Database query or execution failed.
     """
-    logger.info("Getting /<project>/tags")
-
     # Verify that project name is valid and get project_id
     project_id = get_project_id_from_name(project)
     if not project_id:
@@ -1378,30 +1377,31 @@ def list_project_tags(project):
             )
 
     except Exception:
-        logger.exception("Exception retrieving project tags.")
+        logger.exception("Exception retrieving project keywords.")
         return create_error_response("Unexpected error: failed to retrieve project keywords.", 500)
 
 
-@event_tools.route("/<project>/tags/new/", methods=["POST"])
+@event_tools.route("/<project>/keywords/new/", methods=["POST"])
 @project_permission_required
-def add_new_tag(project):
+def add_new_keyword(project):
     """
-    Add a new tag/keyword object to the specified project.
+    Add a new keyword object to the specified project.
+    (Note: keywords are named 'tags' in the database.)
 
     URL Path Parameters:
 
     - project (str, required): The name of the project to add the
-      tag/keyword to (must be a valid project name).
+      keyword to (must be a valid project name).
 
     POST Data Parameters in JSON Format:
 
-    - name (str, required): The name of the tag/keyword. Cannot be empty.
-    - type (str, optional): The type or classification of the tag/keyword.
-      Can be used to group or categorise the tags/keywords.
-    - description (str, optional): A description or explanation of the tag/keyword.
-    - source (str, optional): A reference to a source where the tag/keyword
+    - name (str, required): The name of the keyword. Cannot be empty.
+    - type (str, optional): The type or classification of the keyword.
+      Can be used to group or categorise the keywords.
+    - description (str, optional): A description or explanation of the keyword.
+    - source (str, optional): A reference to a source where the keyword
       is defined.
-    - legacy_id (str, optional): Alternate or legacy ID of the tag/keyword.
+    - legacy_id (str, optional): Alternate or legacy ID of the keyword.
 
     Returns:
 
@@ -1416,7 +1416,7 @@ def add_new_tag(project):
 
     - `success`: A boolean indicating whether the operation was successful.
     - `message`: A string containing a descriptive message about the result.
-    - `data`: On success, an object containing the inserted tag/keyword
+    - `data`: On success, an object containing the inserted keyword
       data; `null` on error.
 
     Response object keys and their data types:
@@ -1437,7 +1437,7 @@ def add_new_tag(project):
 
     Example Request:
 
-        POST /projectname/tags/new/
+        POST /projectname/keywords/new/
         {
             "name": "spelrumsmodellen",
             "type": "filosofiska",
@@ -1468,7 +1468,7 @@ def add_new_tag(project):
 
     Status Codes:
 
-    - 201 - OK: The tag/keyword was created successfully.
+    - 201 - OK: The keyword was created successfully.
     - 400 - Bad Request: No data provided or fields are invalid.
     - 500 - Internal Server Error: Database query or execution failed.
     """
@@ -1529,35 +1529,36 @@ def add_new_tag(project):
                 )
 
     except Exception:
-        logger.exception("Exception creating new tag.")
+        logger.exception("Exception creating new keyword.")
         return create_error_response("Unexpected error: failed to create new keyword record.", 500)
 
 
-@event_tools.route("/<project>/tags/<tag_id>/edit/", methods=["POST"])
+@event_tools.route("/<project>/keywords/<keyword_id>/edit/", methods=["POST"])
 @project_permission_required
-def edit_tag(project, tag_id):
+def edit_keyword(project, keyword_id):
     """
-    Edit an existing tag/keyword object in the specified project by
-    updating its fields. If the tag/keyword is deleted, it’s connections
+    Edit an existing keyword object in the specified project by
+    updating its fields. If the keyword is deleted, it’s connections
     to event occurrences are also deleted.
+    (Note: keywords are named 'tags' in the database.)
 
     URL Path Parameters:
 
-    - project (str, required): The name of the project containing the tag/keyword
+    - project (str, required): The name of the project containing the keyword
       to be edited.
-    - tag_id (int, required): The unique identifier of the tag/keyword to be
+    - keyword_id (int, required): The unique identifier of the keyword to be
       updated.
 
     POST Data Parameters in JSON Format (at least one required):
 
-    - name (str): The name of the tag/keyword. Cannot be empty.
-    - type (str): The type or classification of the tag/keyword.
-      Can be used to group or categorise the tags/keywords.
-    - description (str): A description or explanation of the tag/keyword.
-    - source (str): A reference to a source where the tag/keyword
+    - name (str): The name of the keyword. Cannot be empty.
+    - type (str): The type or classification of the keyword.
+      Can be used to group or categorise the keywords.
+    - description (str): A description or explanation of the keyword.
+    - source (str): A reference to a source where the keyword
       is defined.
-    - legacy_id (str): Alternate or legacy ID of the tag/keyword.
-    - deleted (int): Indicates if the tag/keyword is deleted (0 for no,
+    - legacy_id (str): Alternate or legacy ID of the keyword.
+    - deleted (int): Indicates if the keyword is deleted (0 for no,
       1 for yes).
 
     Returns:
@@ -1573,7 +1574,7 @@ def edit_tag(project, tag_id):
 
     - `success`: A boolean indicating whether the operation was successful.
     - `message`: A string containing a descriptive message about the result.
-    - `data`: On success, an object containing the updated tag/keyword data;
+    - `data`: On success, an object containing the updated keyword data;
       `null` on error.
 
     Response object keys and their data types:
@@ -1594,7 +1595,7 @@ def edit_tag(project, tag_id):
 
     Example Request:
 
-        POST /projectname/tags/123/edit/
+        POST /projectname/keywords/123/edit/
         {
             "name": "spelrumsmodellen"
         }
@@ -1623,13 +1624,13 @@ def edit_tag(project, tag_id):
 
         {
             "success": false,
-            "message": "Validation error: 'tag_id' must be a positive integer.",
+            "message": "Validation error: 'keyword_id' must be a positive integer.",
             "data": null
         }
 
     Status Codes:
 
-    - 200 - OK: The tag/keyword was updated successfully.
+    - 200 - OK: The keyword was updated successfully.
     - 400 - Bad Request: No data provided or fields are invalid.
     - 500 - Internal Server Error: Database query or execution failed.
     """
@@ -1638,10 +1639,10 @@ def edit_tag(project, tag_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert tag_id to integer and verify
-    tag_id = int_or_none(tag_id)
-    if not tag_id or tag_id < 1:
-        return create_error_response("Validation error: 'tag_id' must be a positive integer.")
+    # Convert keyword_id to integer and verify
+    keyword_id = int_or_none(keyword_id)
+    if not keyword_id or keyword_id < 1:
+        return create_error_response("Validation error: 'keyword_id' must be a positive integer.")
 
     # Verify that request data was provided
     request_data = request.get_json()
@@ -1691,7 +1692,7 @@ def edit_tag(project, tag_id):
                 tag_table = get_table("tag")
                 stmt = (
                     tag_table.update()
-                    .where(tag_table.c.id == tag_id)
+                    .where(tag_table.c.id == keyword_id)
                     .where(tag_table.c.project_id == project_id)
                     .values(**values)
                     .returning(*tag_table.c)  # Return the updated row
@@ -1699,10 +1700,10 @@ def edit_tag(project, tag_id):
                 updated_row = connection.execute(stmt).first()
 
                 if updated_row is None:
-                    # No row was returned: invalid tag_id or project name
-                    return create_error_response("Update failed: no keyword record with the provided 'tag_id' found in project.")
+                    # No row was returned: invalid keyword_id or project name
+                    return create_error_response(f"Update failed: no keyword with ID '{keyword_id}' found in project.")
 
-                # If the tag is deleted, also delete any events related to it
+                # If the keyword is deleted, also delete any events related to it
                 if "deleted" in values and values["deleted"]:
                     connection_table = get_table("event_connection")
                     occurrence_table = get_table("event_occurrence")
@@ -1716,7 +1717,7 @@ def edit_tag(project, tag_id):
                     # Subquery: Get event IDs for tag_id (used in two of the updates)
                     event_id_subquery = (
                         select(connection_table.c.event_id)
-                        .where(connection_table.c.tag_id == tag_id)
+                        .where(connection_table.c.tag_id == keyword_id)
                     ).scalar_subquery()
 
                     # 1. Update event_occurrence where event_id matches subquery
@@ -1738,7 +1739,7 @@ def edit_tag(project, tag_id):
                     # 3. Update event_connection directly using tag_id filter
                     upd_conn_stmt = (
                         connection_table.update()
-                        .where(connection_table.c.tag_id == tag_id)
+                        .where(connection_table.c.tag_id == keyword_id)
                         .values(**del_upd_value)
                         .returning(connection_table.c.id)
                     )
@@ -1753,7 +1754,7 @@ def edit_tag(project, tag_id):
                 )
 
     except Exception:
-        logger.exception("Exception updating tag.")
+        logger.exception("Exception updating keyword.")
         return create_error_response("Unexpected error: failed to update keyword record.", 500)
 
 
@@ -1980,11 +1981,11 @@ def get_subjects():
     return jsonify(result)
 
 
-@event_tools.route("/tags/")
+@event_tools.route("/keywords/")
 @jwt_required()
-def get_tags():
+def get_keywords():
     """
-    Get all tags from the database
+    Get all keywords from the database
     """
     return select_all_from_table("tag")
 
@@ -2087,7 +2088,7 @@ def add_new_event(project):
       related to.
     - Exactly one of the following:
         - subject_id (int): ID of a person/subject record.
-        - tag_id (int): ID of a keyword/tag record.
+        - tag_id (int): ID of a keyword record.
         - location_id (int): ID of a place/location record.
         - work_manifestation_id (int):  ID of a work title record.
         - correspondence_id (int): ID of a correspondence.
