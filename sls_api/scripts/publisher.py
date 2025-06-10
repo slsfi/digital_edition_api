@@ -20,6 +20,7 @@ logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger("publisher")
 logger.setLevel(logging.DEBUG)
 
+# list of projects in this API (useful for if we want to process all projects)
 projects = [project for project in config if isinstance(config[project], dict)]
 
 EST_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-est.xsl"
@@ -38,8 +39,8 @@ def get_comments_from_database(project, document_note_ids):
         return []
 
     # if project has comments database config, try and read comments from database
-    if projects[project].get("comments_database", False):
-        connection = create_engine(projects[project]["comments_database"], pool_pre_ping=True).connect()
+    if config[project].get("comments_database", False):
+        connection = create_engine(config[project]["comments_database"], pool_pre_ping=True).connect()
 
         comment_query = text("SELECT documentnote.id, documentnote.shortenedSelection, note.description \
                             FROM documentnote INNER JOIN note ON documentnote.note_id = note.id \
