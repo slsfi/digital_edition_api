@@ -20,7 +20,7 @@ setup(
         'psycopg2-binary==2.9.10',
         'raven[flask]==6.10.0',
         'ruamel.yaml==0.18.10',
-        'requests==2.32.3',
+        'requests==2.32.4',
         'saxonche==12.7.0',
         'sqlalchemy==2.0.41',
         'werkzeug==3.1.3',
