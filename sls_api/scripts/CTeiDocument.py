@@ -656,7 +656,7 @@ class CTeiDocument:
         elemContainer = self.__GetOrCreate(elemProfileDesc, self.sPrefix + ':textClass', 'textClass')
 
         # Create genre
-        sGenre = sGenre.lower()
+        sGenre = sGenre.lower() if sGenre is not None else ''
         sGenreId = sGenre
         # Check if genre should be mapped according to dictionary
         if sGenre in self.sGenres:
