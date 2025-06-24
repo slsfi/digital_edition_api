@@ -36,6 +36,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    # wait for lint job to finish successfully before starting
+    needs: lint
     steps:
       - uses: actions/checkout@v4
 
