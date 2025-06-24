@@ -56,7 +56,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           file: Dockerfile
           tags: ${{ steps.metadata.output.tags }}
           labels: ${{ steps.metadata.output.labels }}
