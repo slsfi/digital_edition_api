@@ -1,16 +1,18 @@
 services:
     frontend:
         image: docker.io/library/nginx:1.28.0
-        restart: unless-stopped
-        volumes:
-            - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
         depends_on:
             - backend
         ports:
             - "8000:80"
+        restart: unless-stopped
+        volumes:
+            - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     backend:
-        build:
-            context: .
+        image: ghcr.io/slsfi/digital_edition_api:latest
+        restart: unless-stopped
+        # user for the backend container should match the user permissions for any mounted configs, files, and SSH keys on the host system
+        user: deploy
         volumes:
             # Files for Digital Editions need to be mounted
             # Syntax is host_path:container_path
@@ -19,9 +21,8 @@ services:
             #- /var/files/parland:/var/parland-files/
             #- /var/files/xslt:/var/xslt-files/
 
-            # SSH keys for API to use may be mounted if needed
-            #- /var/www/ssh/deploy_key:/home/uwsgi/.ssh/id_rsa
+            # SSH keys for API to use may be mounted if needed, under /mnt/ssh (see ssh_config.conf)
+            #- /var/www/ssh/deploy_key:/mnt/ssh/.ssh/id_rsa
 
             # Config files need to be mounted
             - ./sls_api/configs:/app/sls_api/configs
-        restart: unless-stopped
