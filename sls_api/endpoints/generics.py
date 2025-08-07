@@ -244,18 +244,21 @@ def slugify_id(path: str, language: str | None = None) -> str:
         '202-003'
     """
     segments = path.split(os.sep)
-
     numbered_parts = []
-    for segment in segments:
-        segment = segment.strip()
-        match = re.match(r'^(\d+)', segment)  # Match digits at the start of the segment
-        if match:
-            numbered_parts.append(match.group(1))
 
-    if language:
-        return f"{language}-" + '-'.join(numbered_parts)
-    else:
-        return '-'.join(numbered_parts)
+    for segment in segments:
+        segment = segment.lstrip()
+        digits = []
+        for ch in segment:  # collect digits at start of the segment
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        if digits:
+            numbered_parts.append(''.join(digits))
+
+    slug = '-'.join(numbered_parts)
+    return f"{language}-{slug}" if language else slug
 
 
 def slugify_path(project, path):
