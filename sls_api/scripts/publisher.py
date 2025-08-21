@@ -255,7 +255,7 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
                                com_master_file_path: str,
                                est_target_path: str,
                                com_target_path: str,
-                               com_xsl_path: Optional[str]=None):
+                               com_xsl_path: Optional[str] = None):
     """
     Given a project name, and paths to valid EST/COM masters and targets, regenerates target files based on source files
     """
