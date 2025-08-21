@@ -117,6 +117,88 @@ def calculate_checksum(full_file_path) -> str:
     return hash_md5.hexdigest()
 
 
+def safe_checksum(path: str) -> str | None:
+    """
+    Return the MD5 checksum of a file if it exists, otherwise return None.
+
+    This function is a "safe" wrapper around `calculate_checksum()` that
+    avoids raising errors for missing files. It checks whether the given
+    path exists first; if so, it calculates and returns the checksum,
+    otherwise it returns `None`.
+
+    Args:
+        path (str): Path to the file.
+
+    Returns:
+        str | None: The MD5 checksum string if the file exists, otherwise None.
+    """
+    return calculate_checksum(path) if os.path.exists(path) else None
+
+
+def file_fingerprint(path: str) -> Tuple[Optional[int], Optional[str]]:
+    """
+    Return a snapshot of a file as (size, md5).
+
+    Args:
+        path (str): Filesystem path to the file.
+
+    Returns:
+        tuple[Optional[int], Optional[str]]:
+            - (None, None) if the file does not exist.
+            - (size_in_bytes, md5_hex) if the file exists.
+
+    Notes:
+        - Always computes the checksum if the file exists. This ensures that
+          later comparison against a post-fingerprint can detect same-size
+          modifications.
+    """
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return (None, None)
+
+    return (size, safe_checksum(path))  # safe_checksum returns str | None
+
+
+def changed_by_size_or_hash(pre: Tuple[Optional[int], Optional[str]], path: str) -> bool:
+    """
+    Compare a pre-fingerprint of a file with the current file state to detect changes.
+
+    Args:
+        pre (tuple[Optional[int], Optional[str]]): The file state before
+            processing, as returned by `file_fingerprint()`.
+            - First element: file size in bytes, or None if file didn’t exist.
+            - Second element: md5 checksum, or None if file didn’t exist.
+        path (str): Filesystem path to check against the current state.
+
+    Returns:
+        bool: True if the file was created, deleted, resized, or modified;
+        False if unchanged.
+
+    Logic:
+        - If existence or size differs → considered changed.
+        - If file never existed and still doesn’t → unchanged.
+        - If sizes are equal and file existed before → compute post-hash and
+          compare with pre-hash to detect same-size modifications.
+    """
+    pre_size, pre_md5 = pre
+
+    try:
+        post_size = os.path.getsize(path)
+    except OSError:
+        post_size = None
+
+    if pre_size != post_size:
+        return True  # created, deleted, or resized
+
+    if pre_size is None:
+        return False  # didn't exist before, still doesn't
+
+    # Same size and existed before → confirm with post-hash
+    post_md5 = safe_checksum(path)
+    return pre_md5 != post_md5
+
+
 def project_permission_required(fn):
     """
     Function decorator that checks for JWT authorization and that the user has edit rights for the project.
