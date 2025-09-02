@@ -216,11 +216,49 @@ def slugify_route(path):
     return path.lower()
 
 
-def slugify_id(path, language):
-    path = re.sub(r'[^0-9]', '', path)
-    path = language + path
-    path = '-'.join(path[i:i + 2] for i in range(0, len(path), 2))
-    return path
+def slugify_id(path: str, language: Optional[str] = None) -> str:
+    """
+    Generates a slug identifier from a file path by extracting numeric
+    prefixes from path segments.
+
+    This function scans each segment of the given file path and collects
+    leading digit sequences (of any length) from segments that start with
+    digits. These numeric parts are joined with hyphens to form the slug.
+    If a non-empty `language` string is provided, it is prepended to
+    the slug with a hyphen separator.
+
+    Args:
+        path (str): The full file path from which to generate the slug.
+        language (str): An optional language code to prefix the slug. If
+                        empty, no prefix is added.
+
+    Returns:
+        str: A hyphen-separated slug composed of leading numeric parts
+             from the path, optionally prefixed by the language code.
+
+    Example:
+        >>> slugify_id("/path/to/04 - Articles/01 - Introduction.md", "en")
+        'en-04-01'
+
+        >>> slugify_id("/docs/202 - History/003 - Chapter.md", "")
+        '202-003'
+    """
+    segments = path.split(os.sep)
+    numbered_parts = []
+
+    for segment in segments:
+        segment = segment.lstrip()
+        digits = []
+        for ch in segment:  # collect digits at start of the segment
+            if ch.isdigit():
+                digits.append(ch)
+            else:
+                break
+        if digits:
+            numbered_parts.append(''.join(digits))
+
+    slug = '-'.join(numbered_parts)
+    return f"{language}-{slug}" if language else slug
 
 
 def slugify_path(project, path):
