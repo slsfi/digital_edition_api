@@ -11,7 +11,8 @@ from sqlalchemy.sql import text
 from subprocess import CalledProcessError
 from typing import Any, Dict, List, Optional, Union
 
-from sls_api.endpoints.generics import calculate_checksum, config, db_engine, get_project_id_from_name
+from sls_api.endpoints.generics import changed_by_size_or_hash, \
+    config, db_engine, file_fingerprint, get_project_id_from_name
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -248,7 +249,13 @@ def compile_xslt_stylesheets(
     return xslt_execs
 
 
-def generate_est_and_com_files(publication_info, project, est_master_file_path, com_master_file_path, est_target_path, com_target_path, com_xsl_path=None):
+def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
+                               project: str,
+                               est_master_file_path: str,
+                               com_master_file_path: str,
+                               est_target_path: str,
+                               com_target_path: str,
+                               com_xsl_path: Optional[str] = None):
     """
     Given a project name, and paths to valid EST/COM masters and targets, regenerates target files based on source files
     """
@@ -262,8 +269,13 @@ def generate_est_and_com_files(publication_info, project, est_master_file_path, 
         raise ex
 
     if publication_info is not None:
-        est_document.SetMetadata(publication_info['original_publication_date'], publication_info['p_id'], publication_info['name'],
-                                 publication_info['genre'], 'est', publication_info['c_id'], publication_info['publication_group_id'])
+        est_document.SetMetadata(publication_info['original_publication_date'],
+                                 publication_info['p_id'],
+                                 publication_info['name'],
+                                 publication_info['genre'],
+                                 'est',
+                                 publication_info['c_id'],
+                                 publication_info['publication_group_id'])
         letterId = est_document.GetLetterId()
         if letterId is not None:
             letterData = get_letter_info_from_database(letterId)
@@ -271,18 +283,24 @@ def generate_est_and_com_files(publication_info, project, est_master_file_path, 
 
     est_document.Save(est_target_path)
 
+    # Generate comments file for this document
+
+    # If com_master_file_path doesn't exist, use COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT.
+    # If the template file doesn't exist either, don't generate a comments file for this document.
+    if not os.path.exists(com_master_file_path):
+        com_master_file_path = os.path.join(config[project]["file_root"],
+                                            COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+
+        if not os.path.exists(com_master_file_path):
+            logger.info(f"Skipping com file generation: no comments file associated with publication and no template file exists at {COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT}")
+            return
+
     # Get all documentnote IDs from the main master file (these are the IDs of the comments for this document)
     note_ids = est_document.GetAllNoteIDs()
     # Use these note_ids to get all comments for this publication from the notes database
     comments = get_comments_from_database(project, note_ids)
 
-    # generate comments file for this document
     com_document = CTeiDocument()
-
-    # if com_master_file_path doesn't exist, use COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT
-    if not os.path.exists(com_master_file_path):
-        com_master_file_path = os.path.join(
-            config[project]["file_root"], COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
 
     # load in com_master file
     try:
@@ -290,16 +308,21 @@ def generate_est_and_com_files(publication_info, project, est_master_file_path, 
 
         # if com_xsl_path is invalid or not given, try using COMMENTS_XSL_PATH_IN_FILE_ROOT
         if com_xsl_path is None or not os.path.exists(com_xsl_path):
-            com_xsl_path = os.path.join(
-                config[project]["file_root"], LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT)
+            com_xsl_path = os.path.join(config[project]["file_root"],
+                                        LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT)
 
         # process comments and save
         com_document.ProcessCommments(comments, est_document, com_xsl_path)
         com_document.PostProcessOtherText()
 
         if publication_info is not None:
-            com_document.SetMetadata(publication_info['original_publication_date'], publication_info['p_id'], publication_info['name'],
-                                     publication_info['genre'], 'com', publication_info['c_id'], publication_info['publication_group_id'])
+            com_document.SetMetadata(publication_info['original_publication_date'],
+                                     publication_info['p_id'],
+                                     publication_info['name'],
+                                     publication_info['genre'],
+                                     'com',
+                                     publication_info['c_id'],
+                                     publication_info['publication_group_id'])
 
         com_document.Save(com_target_path)
     except Exception as ex:
@@ -674,16 +697,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                     # during force_publish, just generate
                     logger.info("Generating new est/com files for publication {}...".format(publication_id))
                     try:
-                        # calculate md5sum for existing files
-                        md5sums = []
-                        if os.path.exists(est_target_file_path):
-                            md5sums.append(calculate_checksum(est_target_file_path))
-                        else:
-                            md5sums.append("SKIP")
-                        if os.path.exists(com_target_file_path):
-                            md5sums.append(calculate_checksum(com_target_file_path))
-                        else:
-                            md5sums.append("SKIP")
+                        # calculate file fingerprints for existing files, so we can later
+                        # compare if they have changed
+                        pre_est = file_fingerprint(est_target_file_path)
+                        pre_com = file_fingerprint(com_target_file_path)
 
                         if use_xslt_processing:
                             generate_est_and_com_files_with_xslt(row,
@@ -705,11 +722,12 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         logger.exception("Failed to generate est/com files for publication {}!".format(publication_id))
                         continue
                     else:
-                        # only add files to change set if they actually changed
-                        if md5sums[0] == "SKIP" or md5sums[0] != calculate_checksum(est_target_file_path):
+                        # check if est and/or com files have changed
+                        if changed_by_size_or_hash(pre_est, est_target_file_path):
                             changes.add(est_target_file_path)
-                        if md5sums[1] == "SKIP" or com_source_file_path and md5sums[1] != calculate_checksum(com_target_file_path):
+                        if changed_by_size_or_hash(pre_com, com_target_file_path):
                             changes.add(com_target_file_path)
+
                 else:
                     # otherwise, check if this publication's files need to be re-generated
                     try:
@@ -723,16 +741,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         logger.warning("Error getting time_modified for target or source files for publication {}".format(publication_id))
                         logger.info("Generating new est/com files for publication {}...".format(publication_id))
                         try:
-                            # calculate md5sum for existing files
-                            md5sums = []
-                            if os.path.exists(est_target_file_path):
-                                md5sums.append(calculate_checksum(est_target_file_path))
-                            else:
-                                md5sums.append("SKIP")
-                            if os.path.exists(com_target_file_path):
-                                md5sums.append(calculate_checksum(com_target_file_path))
-                            else:
-                                md5sums.append("SKIP")
+                            # calculate file fingerprints for existing files, so we can later
+                            # compare if they have changed
+                            pre_est = file_fingerprint(est_target_file_path)
+                            pre_com = file_fingerprint(com_target_file_path)
 
                             if use_xslt_processing:
                                 generate_est_and_com_files_with_xslt(row,
@@ -754,10 +766,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                             logger.exception("Failed to generate est/com files for publication {}!".format(publication_id))
                             continue
                         else:
-                            # only add files to change set if they actually changed
-                            if md5sums[0] == "SKIP" or md5sums[0] != calculate_checksum(est_target_file_path):
+                            # check if est and/or com files have changed
+                            if changed_by_size_or_hash(pre_est, est_target_file_path):
                                 changes.add(est_target_file_path)
-                            if md5sums[1] == "SKIP" or com_source_file_path and md5sums[1] != calculate_checksum(com_target_file_path):
+                            if changed_by_size_or_hash(pre_com, com_target_file_path):
                                 changes.add(com_target_file_path)
                     else:
                         if est_target_mtime >= est_source_mtime and com_target_mtime >= com_source_mtime:
@@ -767,16 +779,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                             # If one or either is outdated, generate new ones
                             logger.info("Reading files for publication {} are outdated, generating new est/com files...".format(publication_id))
                             try:
-                                # calculate md5sum for existing files
-                                md5sums = []
-                                if os.path.exists(est_target_file_path):
-                                    md5sums.append(calculate_checksum(est_target_file_path))
-                                else:
-                                    md5sums.append("SKIP")
-                                if os.path.exists(com_target_file_path):
-                                    md5sums.append(calculate_checksum(com_target_file_path))
-                                else:
-                                    md5sums.append("SKIP")
+                                # calculate file fingerprints for existing files, so we can later
+                                # compare if they have changed
+                                pre_est = file_fingerprint(est_target_file_path)
+                                pre_com = file_fingerprint(com_target_file_path)
 
                                 if use_xslt_processing:
                                     generate_est_and_com_files_with_xslt(row,
@@ -798,10 +804,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                                 logger.exception("Failed to generate est/com files for publication {}!".format(publication_id))
                                 continue
                             else:
-                                # only add files to change set if they actually changed
-                                if md5sums[0] == "SKIP" or md5sums[0] != calculate_checksum(est_target_file_path):
+                                # check if est and/or com files have changed
+                                if changed_by_size_or_hash(pre_est, est_target_file_path):
                                     changes.add(est_target_file_path)
-                                if md5sums[1] == "SKIP" or com_source_file_path and md5sums[1] != calculate_checksum(com_target_file_path):
+                                if changed_by_size_or_hash(pre_com, com_target_file_path):
                                     changes.add(com_target_file_path)
 
                 # Process all variants belonging to this publication
@@ -818,7 +824,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                 # should only be one main variant per publication?
                 main_variant_info = connection.execute(main_variant_query).fetchone()
                 if main_variant_info is None:
-                    logger.warning("No main variant found for publication {}!".format(publication_id))
+                    logger.info("No main variant found for publication {}!".format(publication_id))
                 else:
                     main_variant_info = main_variant_info._asdict()
                     logger.debug(f"Main variant query result: {str(main_variant_info)}")
@@ -854,11 +860,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
 
                     # If any variants have changed, we need a CTeiDocument for the main variant to ProcessVariants() with
                     main_variant_target = os.path.join(file_root, "xml", "var", target_filename)
-                    # check current md5sum for main variant file
-                    if os.path.exists(main_variant_target):
-                        main_variant_md5 = calculate_checksum(main_variant_target)
-                    else:
-                        main_variant_md5 = "SKIP"
+
                     main_variant_doc = CTeiDocument()
                     main_variant_doc.Load(main_variant_source)
 
@@ -921,22 +923,26 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                                 else:
                                     # If no changes, don't generate CTeiDocument and don't make a new web XML file
                                     continue
-                    # check current md5sum for variant files
-                    variant_md5_sums = {}
-                    for path in variant_paths:
-                        if not os.path.exists(path):
-                            variant_md5_sums[path] = "SKIP"
-                        else:
-                            variant_md5_sums[path] = calculate_checksum(path)
-                    # lastly, actually process all generated CTeiDocument objects and create web XML files
-                    process_var_documents_and_generate_files(main_variant_doc, main_variant_target, variant_docs, variant_paths, row)
 
-                    # only add main variant file to change set if file actually changed
-                    if main_variant_md5 == "SKIP" or main_variant_md5 != calculate_checksum(main_variant_target):
+                    # calculate file fingerprints for existing main variant file and all
+                    # variant files, so we can later compare if they have changed
+                    pre_main_variant = file_fingerprint(main_variant_target)
+                    pre_variants = {path: file_fingerprint(path) for path in variant_paths}
+
+                    # lastly, actually process all generated CTeiDocument objects and create web XML files
+                    process_var_documents_and_generate_files(main_variant_doc,
+                                                             main_variant_target,
+                                                             variant_docs,
+                                                             variant_paths,
+                                                             row)
+
+                    # check if main variant has changed
+                    if changed_by_size_or_hash(pre_main_variant, main_variant_target):
                         changes.add(main_variant_target)
-                    # only add variant files to change set if their file actually changed
-                    for path, md5sum in variant_md5_sums.items():
-                        if md5sum == "SKIP" or md5sum != calculate_checksum(path):
+
+                    # check if each variant has changed
+                    for path, pre_fp in pre_variants.items():
+                        if changed_by_size_or_hash(pre_fp, path):
                             changes.add(path)
 
             # For each publication_manuscript belonging to this project, check the modification timestamp of its master file and compare it to the generated web XML file
@@ -972,11 +978,9 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                 if force_publish:
                     logger.info("Generating new ms file for publication_manuscript {}".format(manuscript_id))
                     try:
-                        # calculate md5sum for existing file
-                        if os.path.exists(target_file_path):
-                            md5sum = calculate_checksum(target_file_path)
-                        else:
-                            md5sum = "SKIP"
+                        # calculate file fingerprint for existing ms file, so we can later
+                        # compare if it has changed
+                        pre_ms = file_fingerprint(target_file_path)
 
                         if use_xslt_processing:
                             generate_ms_file_with_xslt(row,
@@ -991,9 +995,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                     except Exception:
                         continue
                     else:
-                        # only add to changes if file has actually changed
-                        if md5sum == "SKIP" or md5sum != calculate_checksum(target_file_path):
+                        # check if ms file has changed
+                        if changed_by_size_or_hash(pre_ms, target_file_path):
                             changes.add(target_file_path)
+
                 # otherwise, check if this file needs generating
                 else:
                     try:
@@ -1005,11 +1010,9 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         logger.warning("Error getting time_modified for target or source file for publication_manuscript {}".format(manuscript_id))
                         logger.info("Generating new file...")
                         try:
-                            # calculate md5sum for existing file
-                            if os.path.exists(target_file_path):
-                                md5sum = calculate_checksum(target_file_path)
-                            else:
-                                md5sum = "SKIP"
+                            # calculate file fingerprint for existing ms file, so we can later
+                            # compare if it has changed
+                            pre_ms = file_fingerprint(target_file_path)
 
                             if use_xslt_processing:
                                 generate_ms_file_with_xslt(row,
@@ -1024,8 +1027,8 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         except Exception:
                             continue
                         else:
-                            # only add to changes if file has actually changed
-                            if md5sum == "SKIP" or md5sum != calculate_checksum(target_file_path):
+                            # check if ms file has changed
+                            if changed_by_size_or_hash(pre_ms, target_file_path):
                                 changes.add(target_file_path)
                     else:
                         if target_mtime >= source_mtime:
@@ -1034,11 +1037,9 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         else:
                             logger.info("File {} is older than source file {}, generating new file...".format(target_file_path, source_file_path))
                             try:
-                                # calculate md5sum for existing file
-                                if os.path.exists(target_file_path):
-                                    md5sum = calculate_checksum(target_file_path)
-                                else:
-                                    md5sum = "SKIP"
+                                # calculate file fingerprint for existing ms file, so we can later
+                                # compare if it has changed
+                                pre_ms = file_fingerprint(target_file_path)
 
                                 if use_xslt_processing:
                                     generate_ms_file_with_xslt(row,
@@ -1053,8 +1054,8 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                             except Exception:
                                 continue
                             else:
-                                # only add to changes if file has actually changed
-                                if md5sum == "SKIP" or md5sum != calculate_checksum(target_file_path):
+                                # check if ms file has changed
+                                if changed_by_size_or_hash(pre_ms, target_file_path):
                                     changes.add(target_file_path)
 
             logger.debug("Changes made in publication script run: {}".format([c for c in changes]))
