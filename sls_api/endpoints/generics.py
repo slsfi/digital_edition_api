@@ -181,7 +181,8 @@ def changed_by_size_or_hash(pre: Tuple[Optional[int], Optional[str]], path: str)
         - If sizes are equal and file existed before → compute post-hash and
           compare with pre-hash to detect same-size modifications.
     """
-    pre_size, pre_md5 = pre
+    pre_size = pre[0]
+    pre_md5 = pre[1]
 
     try:
         post_size = os.path.getsize(path)
