@@ -1381,6 +1381,96 @@ def list_project_keywords(project):
         return create_error_response("Unexpected error: failed to retrieve project keywords.", 500)
 
 
+@event_tools.route("/<project>/keywords/types/")
+@project_permission_required
+def list_project_keyword_types(project):
+    """
+    List all unique keyword types in the specified project (NULL values
+    are excluded).
+    The types are alphabetically ordered using the project's collation.
+    (Note: keywords are named 'tags' in the database, and `type` refers
+    to the keyword type/category field.)
+
+    URL Path Parameters:
+
+    - project (str, required): The name of the project to retrieve
+      keyword types for (must be a valid project name).
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": array of strings or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an array of unique keyword type strings; `null`
+       on error.
+
+    Example Request:
+
+        GET /projectname/keywords/types/
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Retrieved 3 unique keyword types.",
+            "data": [
+                "filosofiska",
+                "historiska",
+                "vetenskapliga"
+            ]
+        }
+
+    Status Codes:
+
+    - 200 - OK: The keyword types are retrieved successfully.
+    - 400 - Bad Request: Invalid project name.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    tag_table = get_table("tag")
+
+    try:
+        with db_engine.connect() as connection:
+            collation_name = get_project_collation(project)
+
+            # Inner: get unique values in the `type` column, exclude NULLs
+            inner = (
+                select(tag_table.c.type)
+                .where(tag_table.c.project_id == project_id)
+                .where(tag_table.c.deleted < 1)
+                .where(tag_table.c.type.isnot(None))
+                .distinct()
+                .subquery()
+            )
+
+            # Outer: order those unique values with the collation
+            stmt = select(inner.c.type).order_by(collate(inner.c.type, collation_name))
+
+            # Return a flat list of the values
+            values = connection.execute(stmt).scalars().all()
+
+            return create_success_response(
+                message=f"Retrieved {len(values)} unique keyword types.",
+                data=values
+            )
+
+    except Exception:
+        logger.exception("Exception retrieving unique project keyword types.")
+        return create_error_response("Unexpected error: failed to retrieve project keyword types.", 500)
+
+
 @event_tools.route("/<project>/keywords/new/", methods=["POST"])
 @project_permission_required
 def add_new_keyword(project):
