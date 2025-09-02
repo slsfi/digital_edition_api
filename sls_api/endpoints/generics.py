@@ -216,7 +216,7 @@ def slugify_route(path):
     return path.lower()
 
 
-def slugify_id(path: str, language: str | None = None) -> str:
+def slugify_id(path: str, language: Optional[str] = None) -> str:
     """
     Generates a slug identifier from a file path by extracting numeric
     prefixes from path segments.
