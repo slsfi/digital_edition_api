@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.13-slim-bookworm
 
 # ensure we set UTF-8 as the "systemwide" encoding
 # this prevents python from mangling non-ASCII paths with surrogate-escape \udcc3 bytes
