@@ -2,12 +2,14 @@ import logging
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required
 from sqlalchemy import and_, cast, collate, select, text, Text
+from sqlalchemy.exc import NoResultFound, MultipleResultsFound
 from datetime import datetime
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
     project_permission_required, select_all_from_table, create_translation, create_translation_text, \
     get_translation_text_id, validate_int, create_error_response, create_success_response, \
     build_select_with_filters, get_project_collation
+from sls_api.exceptions import DeleteError
 
 
 event_tools = Blueprint("event_tools", __name__)
@@ -2378,11 +2380,8 @@ def add_new_event(project):
                 )
 
                 # Execute insert event query first to get an event ID
-                insert_ev_result = connection.execute(insert_ev_stmt).first()
-                if insert_ev_result is None:
-                    return create_error_response("Unexpected error: failed to insert new event in the database.", 500)
+                event_id = connection.execute(insert_ev_stmt).scalar_one()
 
-                event_id = insert_ev_result[0]
                 connection_values["event_id"] = event_id
                 occurrence_values["event_id"] = event_id
 
@@ -2400,13 +2399,8 @@ def add_new_event(project):
                     .returning(*event_occurrence_table.c)  # Return the inserted row
                 )
 
-                insert_conn_result = connection.execute(insert_ev_conn_stmt).first()
-                insert_occu_result = connection.execute(insert_ev_occu_stmt).first()
-
-                if insert_conn_result is None:
-                    return create_error_response("Unexpected error: failed to insert new event connection in the database.", 500)
-                if insert_occu_result is None:
-                    return create_error_response("Unexpected error: failed to insert new event occurrence in the database.", 500)
+                insert_conn_result = connection.execute(insert_ev_conn_stmt).mappings().one()
+                insert_occu_result = connection.execute(insert_ev_occu_stmt).mappings().one()
 
                 response_data = {
                     "event_id":                   event_id,
@@ -2435,6 +2429,10 @@ def add_new_event(project):
     except ValueError:
         logger.exception("Invalid query parameters for building select statement.")
         return create_error_response("Unexpected error: ValueError building select statement.", 500)
+    except NoResultFound:
+        return create_error_response("Unexpected error: insert returned no row.", 500)
+    except MultipleResultsFound:
+        return create_error_response("Unexpected error: insert returned multiple rows.", 500)
     except Exception:
         logger.exception("Exception creating new connection.")
         return create_error_response("Unexpected error: failed to create new connection.", 500)
@@ -2544,14 +2542,11 @@ def delete_event(project, event_id):
                     select(event_table.c.id)
                     .where(event_table.c.id == event_id)
                     .where(event_table.c.deleted == 0)
+                    .limit(1)
                 )
 
-                event_ids = connection.execute(event_exists_stmt).fetchall()
-
-                if len(event_ids) < 1:
-                    return create_error_response("Failed to delete connection: invalid event ID or an event for the connection does not exist.")
-                elif len(event_ids) > 1:
-                    return create_error_response("Failed to delete connection: event ID is referenced by multiple connection or occurrence rows. This may be legacy data and must be reviewed manually.")
+                if connection.execute(event_exists_stmt).first() is None:
+                    raise DeleteError("Failed to delete connection: invalid event ID, the event is already deleted, or an event for the connection does not exist.")
 
                 # Delete event
                 upd_ev_stmt = (
@@ -2561,11 +2556,13 @@ def delete_event(project, event_id):
                     .values(**upd_values)
                     .returning(*event_table.c)  # Return the updated row
                 )
-                upd_ev_row = connection.execute(upd_ev_stmt).first()
-
-                if upd_ev_row is None:
+                try:
+                    upd_ev_row = connection.execute(upd_ev_stmt).mappings().one()
+                except NoResultFound:
                     # No row was returned: invalid event_id
-                    return create_error_response("Failed to delete connection: invalid event ID or the event is already deleted.")
+                    raise DeleteError("Failed to delete connection: invalid event ID or the event is already deleted.")
+                except MultipleResultsFound:
+                    raise DeleteError("Failed to delete connection: multiple event rows found.")
 
                 # Delete event connection
                 upd_ev_conn_stmt = (
@@ -2575,11 +2572,13 @@ def delete_event(project, event_id):
                     .values(**upd_values)
                     .returning(*event_connection_table.c)  # Return the updated row
                 )
-                upd_ev_conn_row = connection.execute(upd_ev_conn_stmt).first()
-
-                if upd_ev_conn_row is None:
+                try:
+                    upd_ev_conn_row = connection.execute(upd_ev_conn_stmt).mappings().one()
+                except NoResultFound:
                     # No row was returned: invalid event_id
-                    return create_error_response("Failed to delete connection: invalid event ID or the event connection is already deleted.")
+                    raise DeleteError("Failed to delete connection: invalid event ID or the event connection is already deleted.")
+                except MultipleResultsFound:
+                    raise DeleteError("Failed to delete connection: multiple event connection rows found.")
 
                 # Delete event occurrence
                 upd_ev_occu_stmt = (
@@ -2589,11 +2588,13 @@ def delete_event(project, event_id):
                     .values(**upd_values)
                     .returning(*event_occurrence_table.c)  # Return the updated row
                 )
-                upd_ev_occu_row = connection.execute(upd_ev_occu_stmt).first()
-
-                if upd_ev_occu_row is None:
+                try:
+                    upd_ev_occu_row = connection.execute(upd_ev_occu_stmt).mappings().one()
+                except NoResultFound:
                     # No row was returned: invalid event_id
-                    return create_error_response("Failed to delete connection: invalid event ID or the event occurrence is already deleted.")
+                    raise DeleteError("Failed to delete connection: invalid event ID or the event occurrence is already deleted.")
+                except MultipleResultsFound:
+                    raise DeleteError("Failed to delete connection: multiple event occurrence rows found.")
 
                 response_data = {
                     "event_id":            upd_ev_row["id"],
@@ -2607,6 +2608,9 @@ def delete_event(project, event_id):
                     data=response_data
                 )
 
+    except DeleteError as e:
+        logger.exception("DeleteError while deleting event.")
+        return create_error_response(e.message, e.status)
     except Exception:
         logger.exception("Exception deleting event.")
         return create_error_response("Unexpected error: failed to delete the connection.", 500)
