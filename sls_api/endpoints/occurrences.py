@@ -1,5 +1,6 @@
 from flask import abort, Blueprint, jsonify
 import logging
+from operator import itemgetter
 import sqlalchemy
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name
@@ -345,6 +346,8 @@ def get_subject_occurrences(project=None, subject_id=None):
         subject = result.fetchone()
     connection.close()
 
+    subjects = sorted(subjects, key=itemgetter("last_name"))
+
     return jsonify(subjects)
 
 
@@ -422,6 +425,8 @@ def get_location_occurrences(project=None, location_id=None):
         connection_2.close()
         location = result.fetchone()
     connection.close()
+
+    locations = sorted(locations, key=itemgetter('name'))
 
     return jsonify(locations)
 
@@ -501,6 +506,8 @@ def get_tag_occurrences(project=None, tag_id=None):
         tag = result.fetchone()
 
     connection.close()
+
+    tags = sorted(tags, key=itemgetter("name"))
 
     return jsonify(tags)
 
