@@ -497,10 +497,12 @@ class FileResolver(etree.Resolver):
 
 
 def transform_xml(
-        xsl_file_path: str,
+        xsl_file_path: Optional[str],
         xml_file_path: str,
         params: Optional[Dict[str, Any]] = None,
-        use_saxon: bool = False
+        use_saxon: bool = False,
+        saxon_proc: Optional[PySaxonProcessor] = None,
+        xslt_exec: Optional[PyXsltExecutable] = None
 ) -> str:
     """
     Transform an XML document using an XSLT stylesheet with optional parameters.
@@ -508,13 +510,19 @@ def transform_xml(
     processor (default) or the Saxon XSLT 3.0 processor.
 
     Parameters:
-        xsl_file_path (str): File path to an XSLT stylesheet.
+        xsl_file_path (str or None): File path to an XSLT stylesheet. If None,
+            Saxon must be used and an compiled XSLT executable passed.
         xml_file_path (str): File path to the XML document which is to be
             transformed.
         params (dict or OrderedDict, optional): A dictionary with parameters
             for the XSLT stylesheet. Defaults to None.
         use_saxon (bool, optional): Whether to use the Saxon processor (instead
             of the lxml processor) or not. Defaults to False.
+        passed_saxon_proc (PySaxonProcessor, optional): A Saxon processor that
+            should be used instead of the global Saxon processor. Defaults to None.
+        passed_xslt_exec (PyXsltExecutable, optional): A compiled Saxon XSLT
+            executable that should be used instead of compiling `xsl_file_path`.
+            Defaults to None.
 
     Returns:
         String representation of the result document.
@@ -534,20 +542,31 @@ def transform_xml(
                 for key, val in params.items()
             }
 
-    if not os.path.exists(xsl_file_path):
-        return f"XSL file {xsl_file_path!r} not found!"
     if not os.path.exists(xml_file_path):
         return f"XML file {xml_file_path!r} not found!"
 
     if use_saxon:
         # Use the Saxon XSLT 3.0 processor.
-        xslt_exec: PyXsltExecutable = saxon_xslt_proc.compile_stylesheet(
-                stylesheet_file=xsl_file_path,
-                encoding="utf-8"
-        )
+        if saxon_proc is None:
+            return "Saxon XSLT processor not set!"
+
+        if xslt_exec is None and xsl_file_path is not None:
+            if not os.path.exists(xsl_file_path):
+                return f"XSL file {xsl_file_path!r} not found!"
+
+            xslt_exec: PyXsltExecutable = saxon_xslt_proc.compile_stylesheet(
+                    stylesheet_file=xsl_file_path,
+                    encoding="utf-8"
+            )
+        elif xslt_exec is None:
+            return "Neither XSL file nor Saxon XSLT executable passed to transformation!"
+
         xml_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc, xml_file_path)
         return xml_doc.transform_to_string(xslt_exec, params, format_output=False)
     else:
+        if not os.path.exists(xsl_file_path) or xsl_file_path is None:
+            return f"XSL file {xsl_file_path!r} not found!"
+
         # Use the lxml XSLT 1.0 processor.
         with io.open(xml_file_path, mode="rb") as xml_file:
             xml_contents = xml_file.read()
@@ -621,7 +640,8 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
                     xsl_file_path,
                     xml_file_path,
                     params=parameters,
-                    use_saxon=use_saxon_xslt
+                    use_saxon=use_saxon_xslt,
+                    saxon_proc=(saxon_proc if use_saxon_xslt else None)
             )
             if not use_saxon_xslt:
                 # The legacy XSLT stylesheets don't control newline characters
@@ -895,11 +915,13 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
         logger.info("Getting contents from file ...")
         if xsl_file_path is not None:
             try:
+                use_saxon_xslt = project_config.get("use_saxon_xslt", False)
                 content = transform_xml(
                         xsl_file_path,
                         xml_file_path,
                         params=parameters,
-                        use_saxon=project_config.get("use_saxon_xslt", False)
+                        use_saxon=use_saxon_xslt,
+                        saxon_proc=(saxon_proc if use_saxon_xslt else None)
                 )
             except Exception as e:
                 logger.exception("Error when parsing/transforming XML file")
