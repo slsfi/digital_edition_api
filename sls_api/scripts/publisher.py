@@ -599,7 +599,7 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
     if p_id is None or v_id is None or p_id < 1 or v_id < 1:
         logger.error(f"Unable to convert {publication_id} or {variant_id} into an integer.")
         return None
-    
+
     variant_table = get_table("publication_version")
 
     try:
@@ -618,10 +618,10 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
 
 def transform_and_save(
         text_type: str,
-        transform_data,
+        settings,
         saxon_proc: Optional[PySaxonProcessor] = None
 ) -> Optional[str]:
-    html_filepath = transform_data["html_filepath"]
+    html_filepath = settings["html_filepath"]
 
     # Calculate file fingerprint so we can determine if the file has
     # changed after generating a new HTML file
@@ -637,19 +637,19 @@ def transform_and_save(
         return None
 
     use_saxon_xslt: bool = (saxon_proc is not None and
-                      transform_data["saxon_xslt_exec"] is not None)
+                            settings["saxon_xslt_exec"] is not None)
 
     try:
         content = transform_xml(
-                xsl_file_path=(None if use_saxon_xslt else transform_data["xsl_filepath"]),
-                xml_file_path=transform_data["xml_filepath"],
-                params=transform_data["xslt_params"],
+                xsl_file_path=(None if use_saxon_xslt else settings["xsl_filepath"]),
+                xml_file_path=settings["xml_filepath"],
+                params=settings["xslt_params"],
                 use_saxon=use_saxon_xslt,
                 saxon_proc=saxon_proc,
-                xslt_exec=(transform_data["saxon_xslt_exec"] if use_saxon_xslt else None)
+                xslt_exec=(settings["saxon_xslt_exec"] if use_saxon_xslt else None)
         )
     except Exception:
-        logger.exception(f"Failed to transform {transform_data['xml_filepath']} ")
+        logger.exception(f"Failed to transform {settings['xml_filepath']} ")
         return None
 
     if not use_saxon_xslt:
@@ -676,10 +676,12 @@ def transform_and_save(
     return html_filepath if changed_by_size_or_hash(pre_sig, html_filepath) else None
 
 
-def prerender_xml_to_html(project_config,
-                          xml_filepath: str,
-                          saxon_proc: Optional[PySaxonProcessor],
-                          xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]]) -> List[str]:
+def prerender_xml_to_html(
+        project_config,
+        xml_filepath: str,
+        saxon_proc: Optional[PySaxonProcessor],
+        xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]]
+) -> List[str]:
     """
     Transforms the given XML file into HTML, saves the result file(s) and returns
     the file path(s) of the HTML file(s).
@@ -687,7 +689,7 @@ def prerender_xml_to_html(project_config,
     if not os.path.exists(xml_filepath):
         logger.error(f"Failed to prerender {xml_filepath}: source file does not exist")
         return []
-    
+
     # Parse filename
     file = os.path.basename(xml_filepath)
     filename = os.path.splitext(file)[0]
@@ -701,7 +703,7 @@ def prerender_xml_to_html(project_config,
     pub_id = ""
     text_type = ""
     type_id = ""
-    lang = ""
+    # lang = ""
 
     if any(t in filename_parts for t in ("com", "est", "ms", "var")):
         pub_id = filename_parts[1]
@@ -714,7 +716,7 @@ def prerender_xml_to_html(project_config,
             type_id = filename_parts[3]
     else:
         text_type = filename_parts[1]
-        lang = filename_parts[3]
+        # lang = filename_parts[3]
 
     # For com, est, ms and var texts we need to check if the text is divided
     # into chapters, so each chapter can be rendered into a separate HTML file
@@ -816,7 +818,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
     # Flag for prerendering XML to HTML
     prerender_xml: bool = project_settings.get("prerender_xml", False)
 
-    # Flag for 
+    # Flag for using the Saxon XSLT processor for prerender transformations
     use_saxon_for_prerender: bool = project_settings.get("use_saxon_xslt", False)
 
     # open DB connection for publication, comment, and manuscript data fetch
@@ -938,9 +940,10 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
         # the text types (est, com, ms) are keys and the compiled
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
-        xml_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = compile_xslt_stylesheets(project,
-                                                                                         xslt_proc)
-        
+        xml_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
+            compile_xslt_stylesheets(project, xslt_proc)
+        )
+
     if prerender_xml and use_saxon_for_prerender:
         # Compile the XSLT stylesheets used to transform the web XML to
         # HTML. and store
@@ -948,8 +951,9 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
         # the text types (est, com, ms, etc.) are keys and the compiled
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
-        html_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = compile_xslt_stylesheets(project,
-                                                                                          xslt_proc)
+        html_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
+            compile_xslt_stylesheets(project, xslt_proc)
+        )
 
     # Keep a list of changed files for later git commit
     changes = set()
@@ -1137,7 +1141,6 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                         if changed_by_size_or_hash(pre_com, com_target_file_path):
                             changes.add(com_target_file_path)
 
-
         if prerender_xml:
             # Prerender XML to HTML for established texts and comments
 
@@ -1151,7 +1154,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
                                                        saxon_proc,
                                                        html_xslt_execs)
                 html_changes.update(est_html_files)
-            
+
             # If force_publish and a comment source file exists, always render a
             # com HTML-file because the XSLT might have changed since last time
             # and there is no way of checking if. Otherwise, render com HTML if
@@ -1300,7 +1303,6 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
             for path, pre_fp in pre_variants.items():
                 if changed_by_size_or_hash(pre_fp, path):
                     changes.add(path)
-
 
     # For each publication_manuscript belonging to this project, check the modification timestamp of its master file and compare it to the generated web XML file
     for row in manuscript_info:
