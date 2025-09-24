@@ -1127,8 +1127,8 @@ def check_publication_mtimes_and_publish_files(
             compile_xslt_stylesheets(file_root, xslt_proc)
         )
 
-    # Keep a list of changed files for later git commit
-    changes = set()
+    # Keep a list of changed XML files for later git commit
+    xml_changes = set()
     # Keep a list of changed HTML files for later git commit
     html_changes = set()
 
@@ -1228,9 +1228,9 @@ def check_publication_mtimes_and_publish_files(
             else:
                 # check if est and/or com files have changed
                 if changed_by_size_or_hash(pre_est, est_target_file_path):
-                    changes.add(est_target_file_path)
+                    xml_changes.add(est_target_file_path)
                 if changed_by_size_or_hash(pre_com, com_target_file_path):
-                    changes.add(com_target_file_path)
+                    xml_changes.add(com_target_file_path)
 
         else:
             # otherwise, check if this publication's files need to be re-generated
@@ -1272,9 +1272,9 @@ def check_publication_mtimes_and_publish_files(
                 else:
                     # check if est and/or com files have changed
                     if changed_by_size_or_hash(pre_est, est_target_file_path):
-                        changes.add(est_target_file_path)
+                        xml_changes.add(est_target_file_path)
                     if changed_by_size_or_hash(pre_com, com_target_file_path):
-                        changes.add(com_target_file_path)
+                        xml_changes.add(com_target_file_path)
             else:
                 if est_target_mtime >= est_source_mtime and com_target_mtime >= com_source_mtime:
                     # If both the est and com files are newer than the source files, just continue to the next publication
@@ -1310,9 +1310,9 @@ def check_publication_mtimes_and_publish_files(
                     else:
                         # check if est and/or com files have changed
                         if changed_by_size_or_hash(pre_est, est_target_file_path):
-                            changes.add(est_target_file_path)
+                            xml_changes.add(est_target_file_path)
                         if changed_by_size_or_hash(pre_com, com_target_file_path):
-                            changes.add(com_target_file_path)
+                            xml_changes.add(com_target_file_path)
 
         if prerender_xml:
             # Prerender XML to HTML for established texts and comments
@@ -1323,7 +1323,7 @@ def check_publication_mtimes_and_publish_files(
             # web XML file.
             if (
                 force_publish or
-                est_target_file_path in changes or
+                est_target_file_path in xml_changes or
                 xml_to_html_xslt_modified_after_xml(
                     est_target_file_path, "est", file_root
                 )
@@ -1341,7 +1341,7 @@ def check_publication_mtimes_and_publish_files(
             # the com web XML file was changed.
             if (
                 (force_publish and comment_file) or
-                com_target_file_path in changes or
+                com_target_file_path in xml_changes or
                 (
                     comment_file and
                     xml_to_html_xslt_modified_after_xml(
@@ -1415,6 +1415,9 @@ def check_publication_mtimes_and_publish_files(
             # For each "other" variant, create a new CTeiDocument if needed, but if main_variant_updated is True, just make a new for all
             variant_docs = []
             variant_paths = []
+            # Build a list of all variants regardless of change status,
+            # so they can be prerendered to HTML if necessary
+            all_variant_paths = [main_variant_target]
             for variant in variants_info:
                 if variant is None:
                     continue
@@ -1439,6 +1442,8 @@ def check_publication_mtimes_and_publish_files(
                 if not os.path.exists(source_file_path):
                     logger.error("Source file {} for variant {} does not exist!".format(source_file_path, variant["id"]))
                     continue
+
+                all_variant_paths.append(target_file_path)
 
                 # in a force_publish, just load all variants for generation/processing
                 if force_publish:
@@ -1486,14 +1491,42 @@ def check_publication_mtimes_and_publish_files(
 
             # check if main variant has changed
             if changed_by_size_or_hash(pre_main_variant, main_variant_target):
-                changes.add(main_variant_target)
+                xml_changes.add(main_variant_target)
 
             # check if each variant has changed
             for path, pre_fp in pre_variants.items():
                 if changed_by_size_or_hash(pre_fp, path):
-                    changes.add(path)
+                    xml_changes.add(path)
+            
+            if prerender_xml:
+                # Prerender XML to HTML for variants
+                for xml_path in all_variant_paths:
+                    # If force_publish, always render var HTML-file
+                    # because the XSLT might have changed since last
+                    # time. Otherwise, render var HTML if the var web
+                    # XML file was changed or the XSLT is newer than the
+                    # web XML file.
+                    if (
+                        force_publish or
+                        xml_path in xml_changes or
+                        xml_to_html_xslt_modified_after_xml(
+                            xml_path, "var", file_root
+                        )
+                    ):
+                        # prerender the variant
+                        ms_html_file = prerender_xml_to_html(file_root,
+                                                              xml_path,
+                                                              saxon_proc,
+                                                              html_xslt_execs)
+                        html_changes.update(ms_html_file)
+
 
     # For each publication_manuscript belonging to this project, check the modification timestamp of its master file and compare it to the generated web XML file
+
+    # Build a list of all manuscripts regardless of change status,
+    # so they can be prerendered to HTML if necessary
+    all_ms_target_paths = []
+
     for row in manuscript_info:
         if row is None:
             continue
@@ -1522,6 +1555,8 @@ def check_publication_mtimes_and_publish_files(
             logger.warning("Source file {} for manuscript {} does not exist!".format(source_file_path, manuscript_id))
             continue
 
+        all_ms_target_paths.append(target_file_path)
+
         # in a force_publish, just generate all ms files
         if force_publish:
             logger.info("Generating new ms file for publication_manuscript {}".format(manuscript_id))
@@ -1545,7 +1580,7 @@ def check_publication_mtimes_and_publish_files(
             else:
                 # check if ms file has changed
                 if changed_by_size_or_hash(pre_ms, target_file_path):
-                    changes.add(target_file_path)
+                    xml_changes.add(target_file_path)
 
         # otherwise, check if this file needs generating
         else:
@@ -1577,7 +1612,7 @@ def check_publication_mtimes_and_publish_files(
                 else:
                     # check if ms file has changed
                     if changed_by_size_or_hash(pre_ms, target_file_path):
-                        changes.add(target_file_path)
+                        xml_changes.add(target_file_path)
             else:
                 if target_mtime >= source_mtime:
                     # If the target ms file is newer than the source, continue to the next publication_manuscript
@@ -1604,14 +1639,42 @@ def check_publication_mtimes_and_publish_files(
                     else:
                         # check if ms file has changed
                         if changed_by_size_or_hash(pre_ms, target_file_path):
-                            changes.add(target_file_path)
+                            xml_changes.add(target_file_path)
 
-    logger.debug("Changes made in publication script run: {}".format([c for c in changes]))
-    if len(changes) > 0 and not no_git:
+    if prerender_xml:
+        # Prerender XML to HTML for manuscripts
+        for xml_path in all_ms_target_paths:
+            # If force_publish, always render ms HTML-file
+            # because the XSLT might have changed since last
+            # time. Otherwise, render ms HTML if the ms web
+            # XML file was changed or the XSLT is newer than the
+            # web XML file.
+            if (
+                force_publish or
+                xml_path in xml_changes or
+                xml_to_html_xslt_modified_after_xml(
+                    xml_path, "ms", file_root
+                )
+            ):
+                # prerender the manuscript
+                ms_html_file = prerender_xml_to_html(file_root,
+                                                      xml_path,
+                                                      saxon_proc,
+                                                      html_xslt_execs)
+                html_changes.update(ms_html_file)
+
+    logger.info("XML changes made in publication script run: {}".format([c for c in xml_changes]))
+    if prerender_xml:
+        logger.info("HTML changes made in publication script run: {}".format([c for c in html_changes]))
+
+    # Merge the sets containing XML and HTML changes
+    all_changes = xml_changes.union(html_changes)
+
+    if len(all_changes) > 0 and not no_git:
         outputs = []
         # If there are changes, try to commit them to git
         try:
-            for change in changes:
+            for change in all_changes:
                 # Each changed file should be added, as there may be other activity in the git repo we don't want to commit
                 outputs.append(run_git_command(project, ["add", change]))
             outputs.append(run_git_command(project, ["commit", "--author", git_author, "-m", "Published new web files"]))
