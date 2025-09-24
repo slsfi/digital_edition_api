@@ -14,7 +14,7 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import changed_by_size_or_hash, \
     config, db_engine, file_fingerprint, get_project_id_from_name, \
-    get_collection_legacy_id, get_table, int_or_none, transform_xml
+    get_table, int_or_none, transform_xml
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -59,6 +59,9 @@ TEXT_TYPE_TO_HTML_XSL_MAP = {
     "fore": FORE_HTML_XSL_PATH_IN_FILE_ROOT,
     "inl": INTRO_HTML_XSL_PATH_IN_FILE_ROOT
 }
+
+# Initialize a cache for collection legacy ids for fast lookups
+collection_legacy_id_cache: Dict[int, str] = {}
 
 
 def get_comments_from_database(project, document_note_ids):
@@ -274,9 +277,12 @@ def compile_xslt_stylesheets(
     for type_key, xsl_path in xsl_map.items():
         xsl_full_path = os.path.join(project_file_root, xsl_path)
 
-        if os.path.exists(xsl_full_path) and xslt_proc is not None:
+        if os.path.isfile(xsl_full_path) and xslt_proc is not None:
             try:
-                xslt_execs[type_key] = xslt_proc.compile_stylesheet(stylesheet_file=xsl_full_path, encoding="utf-8")
+                xslt_execs[type_key] = xslt_proc.compile_stylesheet(
+                    stylesheet_file=xsl_full_path,
+                    encoding="utf-8"
+                )
             except Exception:
                 logger.exception(f"Failed to compile XSLT executable for '{type_key}' files. Make sure '{xsl_path}' exists and is valid in project root.")
                 xslt_execs[type_key] = None
@@ -578,6 +584,39 @@ def get_xml_chapter_ids(file_path: str) -> List[str]:
         raise
 
 
+def cached_get_collection_legacy_id(collection_id: str) -> Optional[str]:
+    c_id = int_or_none(collection_id)
+    if c_id is None or c_id < 1:
+        logger.error(f"Unable to convert {collection_id} into an integer.")
+        return None
+
+    if c_id in collection_legacy_id_cache:
+        return collection_legacy_id_cache.get(c_id)
+    
+    collection_table = get_table("publication_collection")
+
+    try:
+        with db_engine.connect() as connection:
+            statement = (
+                select(collection_table.c.legacy_id)
+                .where(collection_table.c.id == c_id)
+            )
+            legacy_id: Optional[str] = (
+                connection.execute(statement).scalar_one_or_none()
+            )
+
+            if legacy_id == "":
+                legacy_id = None
+            
+            # Add the legacy id to the cache
+            collection_legacy_id_cache[c_id] = legacy_id
+
+            return legacy_id
+    except Exception:
+        logger.exception(f"Failed to query 'publication_collection' table for 'legacy_id' of collection with 'id' {collection_id}")
+        return None
+
+
 def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
     """
     Return the `type` value for a publication variant.
@@ -690,6 +729,9 @@ def prerender_xml_to_html(
     transformation, if `saxon_proc` is an initialized PySaxonProcessor
     and `xslt_execs` is a dictionary of compiled Saxon XSLT stylesheets
     with text types as keys, Saxon performs the transformation.
+
+    `xml_filepath` must be the safe-joined file path to the XML file from
+    the project root.
     """
     if not os.path.isfile(xml_filepath):
         logger.error(f"Failed to prerender {xml_filepath}: source file does not exist")
@@ -747,7 +789,7 @@ def prerender_xml_to_html(
     # different HTML files are generated from it.
     changed_files = []
 
-    book_id = str(get_collection_legacy_id(coll_id) or coll_id)
+    book_id = cached_get_collection_legacy_id(coll_id) or coll_id
 
     var_type = (
         get_variant_type(pub_id, type_id)
@@ -851,7 +893,15 @@ def prerender_xml_to_html(
     return changed_files
 
 
-def check_publication_mtimes_and_publish_files(project: str, publication_ids: Union[tuple, None], git_author: str, no_git=False, force_publish=False, is_multilingual=False, use_xslt_processing=False):
+def check_publication_mtimes_and_publish_files(
+        project: str,
+        publication_ids: Union[tuple, None],
+        git_author: str,
+        no_git=False,
+        force_publish=False,
+        is_multilingual=False,
+        use_xslt_processing=False
+):
     update_success, result_str = update_files_in_git_repo(project)
     if not update_success:
         logger.error("Git update failed! Reason: {}".format(result_str))
@@ -879,6 +929,9 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
 
     # Flag for using the Saxon XSLT processor for prerender transformations
     use_saxon_for_prerender: bool = project_settings.get("use_saxon_xslt", False)
+
+    # Clear cache of collection legacy ids
+    collection_legacy_id_cache: Dict[int, str] = {}
 
     # open DB connection for publication, comment, and manuscript data fetch
     connection = db_engine.connect()
