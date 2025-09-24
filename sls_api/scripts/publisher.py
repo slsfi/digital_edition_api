@@ -26,6 +26,9 @@ logger.setLevel(logging.DEBUG)
 # list of projects in this API (useful for if we want to process all projects)
 projects = [project for project in config if isinstance(config[project], dict)]
 
+# Initialize a cache for collection legacy ids for fast lookups
+collection_legacy_id_cache: Dict[int, Optional[str]] = {}
+
 EST_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-est.xsl"
 COM_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-com.xsl"
 MS_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-ms.xsl"
@@ -60,8 +63,12 @@ TEXT_TYPE_TO_HTML_XSL_MAP = {
     "inl": INTRO_HTML_XSL_PATH_IN_FILE_ROOT
 }
 
-# Initialize a cache for collection legacy ids for fast lookups
-collection_legacy_id_cache: Dict[int, Optional[str]] = {}
+# Folder path from the project file root to the folder where prerendered
+# HTML output of collection texts should be saved. The original XML files
+# are located in the "documents" folder and the generated web XML files
+# in the "xml" folder. Hence "html/documents" (we might also have other
+# HTML than prerendered HTML from the XML files).
+PRERENDERED_HTML_PATH_IN_FILE_ROOT = "html/documents"
 
 
 def get_comments_from_database(project, document_note_ids):
@@ -826,8 +833,7 @@ def prerender_xml_to_html(
             )
             html_filename = f"{type_filename}{ch_filename_suffix}.html"
             html_filepath = safe_join(project_file_root,
-                                      "html",
-                                      "documents",
+                                      PRERENDERED_HTML_PATH_IN_FILE_ROOT,
                                       text_type,
                                       html_filename)
 
