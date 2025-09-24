@@ -3,8 +3,10 @@ import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_collection_published_status, get_content, get_xml_content, \
-    get_project_config, get_published_status, get_collection_legacy_id
+from sls_api.endpoints.generics import db_engine, \
+    get_collection_published_status, get_content, get_xml_content, \
+    get_xml_content, get_prerendered_content, get_project_config, \
+    get_published_status, get_collection_legacy_id
 
 text = Blueprint('text', __name__)
 logger = logging.getLogger("sls_api.text")
@@ -41,30 +43,44 @@ def get_text_by_type(project, text_type, text_id):
 @text.route("/<project>/text/<collection_id>/<publication_id>/inl/<lang>")
 def get_introduction(project, collection_id, publication_id, lang="swe"):
     """
-    Get introduction text for a given publication @TODO: remove publication_id, it is not needed.
+    Get introduction text for a given collection.
+
+    @TODO: remove publication_id, it is not needed or used.
+    @TODO: get original_filename from publication_collection_introduction
+           table? how handle language/version
     """
     config = get_project_config(project)
     if config is None:
-        return jsonify({"msg": "No such project."}), 400
-    else:
-        can_show, message = get_collection_published_status(project, collection_id)
-        if can_show:
-            logger.info("Getting XML for {} and transforming...".format(request.full_path))
-            version = "int" if config["show_internally_published"] else "ext"
-            # TODO get original_filename from publication_collection_introduction table? how handle language/version
-            filename = "{}_inl_{}_{}.xml".format(collection_id, lang, version)
-            xsl_file = "introduction.xsl"
-            content = get_content(project, "inl", filename, xsl_file, None)
-            data = {
-                "id": "{}_{}_inl".format(collection_id, publication_id),
-                "content": content.replace(" id=", " data-id=")
-            }
-            return jsonify(data), 200
-        else:
-            return jsonify({
-                "id": "{}_{}".format(collection_id, publication_id),
-                "error": message
-            }), 403
+        return jsonify({"msg": "No such project."}), 404
+
+    can_show, message = get_collection_published_status(project, collection_id)
+    if not can_show:
+        return jsonify({
+            "id": f"{collection_id}_{publication_id}_inl",
+            "error": message
+        }), 403
+
+    # logger.info("Getting XML for {} and transforming...".format(request.full_path))
+
+    version = "int" if config.get("show_internally_published") else "ext"
+    filename_stem = f"{collection_id}_inl_{lang}_{version}"
+    content = None
+
+    if config.get("prerender_xml", False):
+        filename = f"{filename_stem}.html"
+        content = get_prerendered_content(config, "inl", filename)
+
+    if content is None:
+        filename = f"{filename_stem}.xml"
+        xsl_file = "introduction.xsl"
+        content = get_content(project, "inl", filename, xsl_file, None)
+        content = content.replace(" id=", " data-id=")
+
+    data = {
+        "id": f"{collection_id}_{publication_id}_inl",
+        "content": content
+    }
+    return jsonify(data), 200
 
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/tit")

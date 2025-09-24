@@ -12,9 +12,9 @@ from subprocess import CalledProcessError
 from typing import Any, Dict, List, Optional, Union
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import changed_by_size_or_hash, \
-    config, db_engine, file_fingerprint, get_project_id_from_name, \
-    get_table, int_or_none, transform_xml
+from sls_api.endpoints.generics import config, db_engine, \
+    changed_by_size_or_hash, file_fingerprint, get_project_id_from_name, \
+    int_or_none, get_table, transform_xml, PRERENDERED_HTML_PATH_IN_FILE_ROOT
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -62,13 +62,6 @@ TEXT_TYPE_TO_HTML_XSL_MAP = {
     "fore": FORE_HTML_XSL_PATH_IN_FILE_ROOT,
     "inl": INTRO_HTML_XSL_PATH_IN_FILE_ROOT
 }
-
-# Folder path from the project root to the folder where prerendered
-# HTML output of collection texts should be saved. The original XML files
-# are located in the "documents" folder and the generated web XML files
-# in the "xml" folder. Hence "html/documents" (we might also have other
-# HTML than prerendered HTML from the XML files).
-PRERENDERED_HTML_PATH_IN_FILE_ROOT = "html/documents"
 
 
 def get_comments_from_database(project, document_note_ids):

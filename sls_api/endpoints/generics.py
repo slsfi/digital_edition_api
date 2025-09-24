@@ -40,6 +40,13 @@ FACSIMILE_IMAGE_SIZES = {
 # Default PostgreSQL collation for ordering
 DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
 
+# Folder path from the project root to the folder where prerendered
+# HTML output of collection texts are located. The original XML files
+# are located in the "documents" folder and the generated web XML files
+# in the "xml" folder. Hence "html/documents" (we might also have other
+# HTML than prerendered HTML from the XML files).
+PRERENDERED_HTML_PATH_IN_FILE_ROOT = "html/documents"
+
 metadata = MetaData()
 
 logger = logging.getLogger("sls_api.generics")
@@ -661,6 +668,41 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
         content = "File not found"
 
     return content
+
+
+def get_prerendered_content(
+        project_config,
+        text_type: str,
+        filename: str
+) -> Optional[str]:
+    """
+    Returns the prerenderd HTML content of the given file, or None if
+    the content is not available for some reason.
+    """
+    file_root = project_config.get("file_root")
+    if file_root is None:
+        return None
+
+    file_path = safe_join(file_root,
+                          PRERENDERED_HTML_PATH_IN_FILE_ROOT,
+                          text_type,
+                          filename)
+
+    if file_path is None:
+        logger.warning("safe_join returned None for path %r", filename)
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8-sig") as html_file:
+            return html_file.read()
+    except UnicodeDecodeError as e:
+        logger.exception("Decode error reading %s at pos %s", file_path, e.start)
+    except OSError as e:
+        logger.exception("OS error reading %s: %s", file_path, e)
+    except Exception:
+        logger.exception("Unexpected error when reading %s", file_path)
+
+    return None
 
 
 def update_publication_related_table(
