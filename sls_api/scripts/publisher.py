@@ -61,7 +61,7 @@ TEXT_TYPE_TO_HTML_XSL_MAP = {
 }
 
 # Initialize a cache for collection legacy ids for fast lookups
-collection_legacy_id_cache: Dict[int, str] = {}
+collection_legacy_id_cache: Dict[int, Optional[str]] = {}
 
 
 def get_comments_from_database(project, document_note_ids):
@@ -584,15 +584,21 @@ def get_xml_chapter_ids(file_path: str) -> List[str]:
         raise
 
 
+def clear_collection_legacy_id_cache():
+    collection_legacy_id_cache.clear()
+
+
 def cached_get_collection_legacy_id(collection_id: str) -> Optional[str]:
     c_id = int_or_none(collection_id)
     if c_id is None or c_id < 1:
         logger.error(f"Unable to convert {collection_id} into an integer.")
         return None
 
+    # Check if the collection id already exists in the cache,
+    # `collection_legacy_id_cache` is in the global scope
     if c_id in collection_legacy_id_cache:
         return collection_legacy_id_cache.get(c_id)
-    
+
     collection_table = get_table("publication_collection")
 
     try:
@@ -607,7 +613,7 @@ def cached_get_collection_legacy_id(collection_id: str) -> Optional[str]:
 
             if legacy_id == "":
                 legacy_id = None
-            
+
             # Add the legacy id to the cache
             collection_legacy_id_cache[c_id] = legacy_id
 
@@ -931,7 +937,7 @@ def check_publication_mtimes_and_publish_files(
     use_saxon_for_prerender: bool = project_settings.get("use_saxon_xslt", False)
 
     # Clear cache of collection legacy ids
-    collection_legacy_id_cache: Dict[int, str] = {}
+    clear_collection_legacy_id_cache()
 
     # open DB connection for publication, comment, and manuscript data fetch
     connection = db_engine.connect()
