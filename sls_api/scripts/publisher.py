@@ -969,9 +969,12 @@ def check_publication_mtimes_and_publish_files(
     project_id = get_project_id_from_name(project)
     project_settings = config.get(project, None)
 
-    # if publication_ids is a tuple of ints, we're (re)publishing a certain publication(s)
-    # explicitly set force_publish in this instance, so we force-generate files for publishing (this overrides mtime checks)
-    if isinstance(publication_ids, tuple):
+    # if publication_ids is a tuple of ints, we're (re)publishing a
+    # certain publication(s)
+    # explicitly set force_publish in this instance, so we force-generate
+    # files for publishing (this overrides mtime checks)
+    publish_certain_ids: bool = isinstance(publication_ids, tuple)
+    if publish_certain_ids:
         force_publish = True
 
     if project_id is None or project_settings is None:
@@ -1068,7 +1071,7 @@ def check_publication_mtimes_and_publish_files(
                         JOIN publication_collection pcol ON p.publication_collection_id = pcol.id \
                         WHERE pcol.project_id = :proj AND p.deleted != 1 AND pcol.deleted != 1 AND pm.deleted != 1 "
 
-    if force_publish and isinstance(publication_ids, tuple):
+    if force_publish and publish_certain_ids:
         # append publication.id checks if this is a forced (re)publication of certain publication(s)
         publication_query += " AND p.id IN :p_ids"
         publication_query = text(publication_query).bindparams(proj=project_id, p_ids=publication_ids)
@@ -1661,6 +1664,33 @@ def check_publication_mtimes_and_publish_files(
                                                      saxon_proc,
                                                      html_xslt_execs)
                 html_changes.update(ms_html_file)
+        
+        # Prerender XML to HTML for frontmatter pages (title, foreword
+        # and introduction). Since the frontmatter pages are not recorded
+        # in the database, we have to scan the folders of the frontmatter
+        # pages’ XML files. The frontmatter pages are prerendered if
+        # a) this is a force publication of all publications in the
+        # project, or b) the XSLT stylesheet of the frontmatter page type
+        # has been modified later than the XML file.
+        frontmatter_types = ["tit", "fore", "inl"]
+        for f_type in frontmatter_types:
+            xml_folder = safe_join(file_root, "xml", f_type)
+            xml_file_paths = [safe_join(xml_folder, e.name)
+                            for e in os.scandir(xml_folder)
+                            if e.is_file() and e.name.lower().endswith(".xml")]
+
+            for xml_path in xml_file_paths:
+                if (
+                    (force_publish and not publish_certain_ids) or
+                    xml_to_html_xslt_modified_after_xml(
+                        xml_path, f_type, file_root
+                    )
+                ):
+                    html_file = prerender_xml_to_html(file_root,
+                                                      xml_path,
+                                                      saxon_proc,
+                                                      html_xslt_execs)
+                    html_changes.update(html_file)
 
     logger.info("XML changes made in publication script run: {}".format([c for c in xml_changes]))
     if prerender_xml:
@@ -1695,7 +1725,7 @@ if __name__ == "__main__":
     parser.add_argument("--git_author", type=str, help="Author used for git commits (Default 'Publisher <is@sls.fi>')", default="Publisher <is@sls.fi>")
     parser.add_argument("--no_git", action="store_true", help="Don't run git commands as part of publishing.")
     parser.add_argument("--is_multilingual", action="store_true", help="The publication is multilingual and original_filename is found in translation_text")
-    parser.add_argument("--use_xslt_processing", action="store_true", help="XML files related to the publication are processed using project specific XSLT.")
+    parser.add_argument("--use_xslt_processing", action="store_true", help="XML files related to the publication are processed using project specific XSLT when generating web XML files.")
 
     args = parser.parse_args()
 
