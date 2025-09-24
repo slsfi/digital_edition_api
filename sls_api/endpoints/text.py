@@ -5,8 +5,8 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, \
     get_collection_published_status, get_content, get_xml_content, \
-    get_xml_content, get_prerendered_content, get_project_config, \
-    get_published_status, get_collection_legacy_id
+    get_prerendered_content, get_project_config, get_published_status, \
+    get_collection_legacy_id
 
 text = Blueprint('text', __name__)
 logger = logging.getLogger("sls_api.text")
