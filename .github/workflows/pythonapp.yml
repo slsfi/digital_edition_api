@@ -1,28 +1,74 @@
 name: Python application
 
-on: [push]
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  build:
-
+  lint:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python 3.13
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.13'
-        architecture: 'x64'
-    - name: Install dependencies
-      run: |
-        sudo apt update && sudo apt install -y build-essential git imagemagick libmariadb-dev libpq-dev pkg-config
-        python -m pip install --upgrade pip
-        pip install --upgrade -e .
-        pip install flake8
-    - name: Lint with flake8
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 sls_api --count --select=E9,F63,F7,F82 --show-source --statistics
-        # run full flake8 suite, ignore line-length errors in addition to defaults
-        flake8 sls_api --count --extend-ignore=E501 --show-source --statistics
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          architecture: 'x64'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update && sudo apt install -y build-essential git imagemagick libmariadb-dev libpq-dev pkg-config
+          python -m pip install --upgrade pip
+          pip install --upgrade -e .
+          pip install flake8
+
+      - name: Lint with flake8
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 sls_api --count --select=E9,F63,F7,F82 --show-source --statistics
+          # run full flake8 suite, ignore line-length errors in addition to defaults
+          flake8 sls_api --count --extend-ignore=E501 --show-source --statistics
+
+  build:
+    runs-on: ubuntu-latest
+    # wait for lint job to finish successfully before starting
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Github Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull metadata from Github
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{raw}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          file: Dockerfile
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
