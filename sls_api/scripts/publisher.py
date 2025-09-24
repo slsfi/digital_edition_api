@@ -1664,7 +1664,7 @@ def check_publication_mtimes_and_publish_files(
                                                      saxon_proc,
                                                      html_xslt_execs)
                 html_changes.update(ms_html_file)
-        
+
         # Prerender XML to HTML for frontmatter pages (title, foreword
         # and introduction). Since the frontmatter pages are not recorded
         # in the database, we have to scan the folders of the frontmatter
@@ -1676,8 +1676,8 @@ def check_publication_mtimes_and_publish_files(
         for f_type in frontmatter_types:
             xml_folder = safe_join(file_root, "xml", f_type)
             xml_file_paths = [safe_join(xml_folder, e.name)
-                            for e in os.scandir(xml_folder)
-                            if e.is_file() and e.name.lower().endswith(".xml")]
+                              for e in os.scandir(xml_folder)
+                              if e.is_file() and e.name.lower().endswith(".xml")]
 
             for xml_path in xml_file_paths:
                 if (
