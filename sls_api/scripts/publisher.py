@@ -1105,6 +1105,8 @@ def check_publication_mtimes_and_publish_files(
 
     if use_xslt_processing or (prerender_xml and use_saxon_for_prerender):
         # Initialise a Saxon processor and Saxon XSLT 3.0 processor
+        # Documentation for SaxonC's Python API:
+        # https://www.saxonica.com/saxon-c/doc12/html/saxonc.html
         saxon_proc: PySaxonProcessor = PySaxonProcessor(license=False)
         xslt_proc: PyXslt30Processor = saxon_proc.new_xslt30_processor()
 
