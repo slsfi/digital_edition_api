@@ -32,6 +32,12 @@ MS_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-ms.xsl"
 LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT = "xslt/comment_html_to_tei.xsl"
 COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT = "templates/comment.xml"
 
+TEXT_TYPE_TO_WEB_XML_XSL_MAP = {
+    "est": EST_WEB_XML_XSL_PATH_IN_FILE_ROOT,
+    "com": COM_WEB_XML_XSL_PATH_IN_FILE_ROOT,
+    "ms": MS_WEB_XML_XSL_PATH_IN_FILE_ROOT
+}
+
 EST_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/est.xsl"
 COM_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/com.xsl"
 MS_CHANGES_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/ms_changes.xsl"
@@ -240,7 +246,7 @@ def construct_notes_xml(comments: List[Dict[str, Any]], comment_positions: Dict[
 
 
 def compile_xslt_stylesheets(
-        project: str,
+        project_file_root: str,
         xslt_proc: Optional[PyXslt30Processor],
         xml_to_html_stylesheets: bool = False
 ) -> Dict[str, Optional[PyXsltExecutable]]:
@@ -260,28 +266,13 @@ def compile_xslt_stylesheets(
 
     if xml_to_html_stylesheets:
         # Stylesheets for web XML to HTML transformation
-        xsl_map = [
-            ("est", EST_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("com", COM_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("ms_changes", MS_CHANGES_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("ms_normalized", MS_NORM_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("var_base", VAR_BASE_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("var_other", VAR_OTHER_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("tit", TIT_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("fore", FORE_HTML_XSL_PATH_IN_FILE_ROOT),
-            ("inl", INTRO_HTML_XSL_PATH_IN_FILE_ROOT)
-        ]
+        xsl_map = TEXT_TYPE_TO_HTML_XSL_MAP
     else:
-        # Stylesheets for web XML transformation. Currently only
-        # est, com and ms types are supported.
-        xsl_map = [
-            ("est", EST_WEB_XML_XSL_PATH_IN_FILE_ROOT),
-            ("com", COM_WEB_XML_XSL_PATH_IN_FILE_ROOT),
-            ("ms", MS_WEB_XML_XSL_PATH_IN_FILE_ROOT)
-        ]
+        # Stylesheets for web XML transformation
+        xsl_map = TEXT_TYPE_TO_WEB_XML_XSL_MAP
 
-    for type_key, xsl_path in xsl_map:
-        xsl_full_path = os.path.join(config[project]["file_root"], xsl_path)
+    for type_key, xsl_path in xsl_map.items():
+        xsl_full_path = os.path.join(project_file_root, xsl_path)
 
         if os.path.exists(xsl_full_path) and xslt_proc is not None:
             try:
@@ -619,21 +610,22 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
 def transform_and_save(
         text_type: str,
         settings,
-        saxon_proc: Optional[PySaxonProcessor] = None
+        saxon_proc: Optional[PySaxonProcessor] = None,
+        target_format: str = "html"
 ) -> Optional[str]:
-    html_filepath = settings["html_filepath"]
+    output_filepath = settings["output_filepath"]
 
-    # Calculate file fingerprint so we can determine if the file has
-    # changed after generating a new HTML file
-    pre_sig = file_fingerprint(html_filepath)
+    # Calculate file fingerprint so we can determine if the output
+    # file has changed after generating a new file
+    pre_sig = file_fingerprint(output_filepath)
 
     try:
-        # Ensure the folder for the HTML output file exists
-        html_dirpath = os.path.dirname(html_filepath)
-        if html_dirpath:
-            os.makedirs(html_dirpath, exist_ok=True)
+        # Ensure the folder path for the output file exists
+        output_dirpath = os.path.dirname(output_filepath)
+        if output_dirpath:
+            os.makedirs(output_dirpath, exist_ok=True)
     except Exception:
-        logger.exception(f"Error making dirs for path {html_dirpath}")
+        logger.exception(f"Error making dirs for path {output_dirpath}")
         return None
 
     use_saxon_xslt: bool = (saxon_proc is not None and
@@ -641,18 +633,18 @@ def transform_and_save(
 
     try:
         content = transform_xml(
-                xsl_file_path=(None if use_saxon_xslt else settings["xsl_filepath"]),
-                xml_file_path=settings["xml_filepath"],
-                params=settings["xslt_params"],
-                use_saxon=use_saxon_xslt,
-                saxon_proc=saxon_proc,
-                xslt_exec=(settings["saxon_xslt_exec"] if use_saxon_xslt else None)
+            xsl_file_path=(None if use_saxon_xslt else settings["xsl_filepath"]),
+            xml_file_path=settings["xml_filepath"],
+            params=settings["xslt_params"],
+            use_saxon=use_saxon_xslt,
+            saxon_proc=saxon_proc,
+            xslt_exec=(settings["saxon_xslt_exec"] if use_saxon_xslt else None)
         )
     except Exception:
         logger.exception(f"Failed to transform {settings['xml_filepath']} ")
         return None
 
-    if not use_saxon_xslt:
+    if not use_saxon_xslt and target_format == "html":
         # The legacy XSLT stylesheets don't control newline characters
         # in the output, so we need to manually strip them
         content = content.replace('\r', '').replace('\n', '')
@@ -662,37 +654,46 @@ def transform_and_save(
         if text_type in ["est", "ms", "inl", "tit", "fore"]:
             content = content.replace(" id=", " data-id=")
 
-    # Save the transformed HTML
+    # Save the transformed content
     try:
-        with open(html_filepath, "w", encoding="utf-8") as outfile:
+        with open(output_filepath, "w", encoding="utf-8") as outfile:
             outfile.write(content)
     except PermissionError:
-        logger.exception(f"Permission error saving {html_filepath}")
+        logger.exception(f"Permission error saving {output_filepath}")
         return None
     except (OSError, Exception):
-        logger.exception(f"Error saving {html_filepath}")
+        logger.exception(f"Error saving {output_filepath}")
         return None
 
-    return html_filepath if changed_by_size_or_hash(pre_sig, html_filepath) else None
+    if changed_by_size_or_hash(pre_sig, output_filepath):
+        return output_filepath
+
+    return None
 
 
 def prerender_xml_to_html(
-        project_config,
+        project_file_root: str,
         xml_filepath: str,
         saxon_proc: Optional[PySaxonProcessor],
         xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]]
 ) -> List[str]:
     """
-    Transforms the given XML file into HTML, saves the result file(s) and returns
-    the file path(s) of the HTML file(s).
+    Transforms the given XML file into HTML, saves the result file(s) and
+    returns the file path(s) of the saved HTML file(s).
+
+    If `saxon_proc` and `xslt_execs` are None, lxml performs the
+    transformation, if `saxon_proc` is an initialized PySaxonProcessor
+    and `xslt_execs` is a dictionary of compiled Saxon XSLT stylesheets
+    with text types as keys, Saxon performs the transformation.
     """
-    if not os.path.exists(xml_filepath):
+    if not os.path.isfile(xml_filepath):
         logger.error(f"Failed to prerender {xml_filepath}: source file does not exist")
         return []
 
-    # Parse filename
-    file = os.path.basename(xml_filepath)
-    filename = os.path.splitext(file)[0]
+    # Parse filename to get collection id, publication id, text type,
+    # and text type id
+    file = os.path.basename(xml_filepath)  # filename with extension
+    filename = os.path.splitext(file)[0]   # filename without extension
     filename_parts = filename.split("_")
 
     if len(filename_parts) < 3:
@@ -703,7 +704,6 @@ def prerender_xml_to_html(
     pub_id = ""
     text_type = ""
     type_id = ""
-    # lang = ""
 
     if any(t in filename_parts for t in ("com", "est", "ms", "var")):
         pub_id = filename_parts[1]
@@ -716,41 +716,63 @@ def prerender_xml_to_html(
             type_id = filename_parts[3]
     else:
         text_type = filename_parts[1]
-        # lang = filename_parts[3]
 
-    # For com, est, ms and var texts we need to check if the text is divided
-    # into chapters, so each chapter can be rendered into a separate HTML file
+    # For com, est, ms and var texts we need to check if the text is
+    # divided into chapters, so each chapter can be rendered into a
+    # separate HTML file. Since we also need to render the full text
+    # we are treating it as a "chapter" with id None so it's processed
+    # in the loop further down.
     chapter_ids: List[Optional[str]] = [None]
     if text_type in ["com", "est", "ms", "var"]:
         # For com files the chapter ids need to be checked from the
         # corresponding est file
-        ch_source_file = xml_filepath.replace(file, file.replace("com", "est")) if text_type == "com" else xml_filepath
+        find_ch_file = (
+            xml_filepath.replace(file, file.replace("com", "est"))
+            if text_type == "com"
+            else xml_filepath
+        )
         try:
-            chapter_ids = chapter_ids + get_xml_chapter_ids(ch_source_file)
+            chapter_ids = chapter_ids + get_xml_chapter_ids(find_ch_file)
         except Exception:
             logger.error(f"Unable to prerender {xml_filepath}")
             return []
 
-    # Keep a list of generated HTML files that have changed
+    # Keep a list of generated HTML files that have changed. Though the
+    # source XML file is just one file, in some cases (like ms) several
+    # different HTML files are generated from it.
     changed_files = []
 
     book_id = str(get_collection_legacy_id(coll_id) or coll_id)
 
-    var_type = get_variant_type(pub_id, type_id) if text_type == "var" else None
+    var_type = (
+        get_variant_type(pub_id, type_id)
+        if text_type == "var"
+        else None
+    )
     if text_type == "var" and var_type is None:
         logger.error(f"Failed to prerender {xml_filepath}: unable to get variant type from database")
         return []
 
+    # Build a list of dictionaries with necessary information about each
+    # transformation that need to be carried out
     to_transform = []
 
     for ch_id in chapter_ids:
-        ch_filename_suffix = ('_' + ch_id) if ch_id is not None else ''
-        renderings = ["_changes", "_normalized"] if text_type == "ms" else [""]
+        ch_filename_suffix = f'_{ch_id}' if ch_id is not None else ''
+        text_type_versions = (
+            ["_changes", "_normalized"]
+            if text_type == "ms"
+            else [""]
+        )
 
-        for rend in renderings:
-            type_filename = filename.replace("_ms_", f"_ms{rend}_") if text_type == "ms" else filename
+        for type_version in text_type_versions:
+            type_filename = (
+                filename.replace("_ms_", f"_ms{type_version}_")
+                if text_type == "ms"
+                else filename
+            )
             html_filename = f"{type_filename}{ch_filename_suffix}.html"
-            html_filepath = safe_join(project_config["file_root"],
+            html_filepath = safe_join(project_file_root,
                                       "html",
                                       "documents",
                                       text_type,
@@ -764,26 +786,32 @@ def prerender_xml_to_html(
                 xslt_params["sectionId"] = ch_id
 
             if text_type == "com":
-                xslt_params["estDocument"] = f'file://{safe_join(config["file_root"], "xml", "est", file.replace("_com.xml", "_est.xml"))}'
+                xslt_params["estDocument"] = f'file://{safe_join(project_file_root,
+                                                                 "xml",
+                                                                 "est",
+                                                                 file.replace("_com.xml", "_est.xml"))}'
 
-            text_type_key = f"{text_type}{rend}" if text_type != "var" else (
-                "var_base" if var_type == 1 else "var_other"
+            text_type_key = (
+                f"{text_type}{type_version}"
+                if text_type != "var"
+                else ("var_base" if var_type == 1 else "var_other")
             )
             xsl_filepath = TEXT_TYPE_TO_HTML_XSL_MAP.get(text_type_key)
             saxon_xslt_exec = (xslt_execs or {}).get(text_type_key)
 
-            if saxon_proc is None and not os.path.exists(xsl_filepath):
+            if saxon_proc is None and not os.path.isfile(xsl_filepath):
                 logger.error(f"Failed to prerender {xml_filepath}: XSL file {xsl_filepath} does not exist")
                 return []
 
             to_transform.append({
-                "html_filepath": html_filepath,
+                "output_filepath": html_filepath,
                 "xml_filepath": xml_filepath,
                 "xsl_filepath": xsl_filepath,
                 "xslt_params": xslt_params,
                 "saxon_xslt_exec": saxon_xslt_exec
             })
 
+    # Perform a transformation for each dict in the list
     for t_data in to_transform:
         changed_file = transform_and_save(text_type, t_data, saxon_proc)
         if changed_file is not None:
@@ -941,7 +969,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
         xml_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
-            compile_xslt_stylesheets(project, xslt_proc)
+            compile_xslt_stylesheets(file_root, xslt_proc)
         )
 
     if prerender_xml and use_saxon_for_prerender:
@@ -952,7 +980,7 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
         html_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
-            compile_xslt_stylesheets(project, xslt_proc)
+            compile_xslt_stylesheets(file_root, xslt_proc)
         )
 
     # Keep a list of changed files for later git commit
@@ -1149,11 +1177,11 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
             # if. Otherwise, render est HTML if the est web XML file was changed.
             if force_publish or est_target_file_path in changes:
                 # prerender est
-                est_html_files = prerender_xml_to_html(project_settings,
-                                                       est_target_file_path,
-                                                       saxon_proc,
-                                                       html_xslt_execs)
-                html_changes.update(est_html_files)
+                est_html_file = prerender_xml_to_html(file_root,
+                                                      est_target_file_path,
+                                                      saxon_proc,
+                                                      html_xslt_execs)
+                html_changes.update(est_html_file)
 
             # If force_publish and a comment source file exists, always render a
             # com HTML-file because the XSLT might have changed since last time
@@ -1161,11 +1189,11 @@ def check_publication_mtimes_and_publish_files(project: str, publication_ids: Un
             # the com web XML file was changed.
             if (force_publish and comment_file) or com_target_file_path in changes:
                 # prerender com
-                com_html_files = prerender_xml_to_html(project_settings,
-                                                       com_target_file_path,
-                                                       saxon_proc,
-                                                       html_xslt_execs)
-                html_changes.update(com_html_files)
+                com_html_file = prerender_xml_to_html(file_root,
+                                                      com_target_file_path,
+                                                      saxon_proc,
+                                                      html_xslt_execs)
+                html_changes.update(com_html_file)
 
         # Process all variants belonging to this publication
         # publication_version with type=1 is the "main" variant, the others should have type=2 and be versions of that main variant
