@@ -63,7 +63,7 @@ TEXT_TYPE_TO_HTML_XSL_MAP = {
     "inl": INTRO_HTML_XSL_PATH_IN_FILE_ROOT
 }
 
-# Folder path from the project file root to the folder where prerendered
+# Folder path from the project root to the folder where prerendered
 # HTML output of collection texts should be saved. The original XML files
 # are located in the "documents" folder and the generated web XML files
 # in the "xml" folder. Hence "html/documents" (we might also have other
@@ -548,6 +548,54 @@ def generate_ms_file_with_xslt(publication_info: Optional[Dict[str, Any]],
     except Exception:
         logger.exception(f"Failed to handle manuscript file: {source_file_path}")
         raise
+
+
+def xml_to_html_xslt_modified_after_xml(
+        xml_filepath: str,
+        text_type: str,
+        file_root: str
+) -> bool:
+    """
+    Returns True if the XSLT files associated with the given text type
+    have been modified after the given XML file has been modified,
+    otherwise False. Also returns False if the XML or XSLT file paths
+    are invalid.
+
+    The XML file path must be a safe-joined full path including the
+    project root.
+    """
+    if not os.path.isfile(xml_filepath):
+        return False
+
+    if text_type == "ms":
+        xsl_text_types = ["ms_changes", "ms_normalized"]
+    elif text_type == "var":
+        xsl_text_types = ["var_base", "var_other"]
+    else:
+        xsl_text_types = [text_type]
+
+    try:
+        xml_mtime = os.path.getmtime(xml_filepath)
+
+        for xt in xsl_text_types:
+            xsl_file = TEXT_TYPE_TO_HTML_XSL_MAP.get(xt)
+            xsl_file = (
+                safe_join(file_root, xsl_file)
+                if xsl_file is not None
+                else None
+            )
+
+            if xsl_file is None:
+                return False
+
+            # Compare modification time of XML and XSLT files
+            if os.path.getmtime(xsl_file) > xml_mtime:
+                # XSLT file has been modified after the XML file
+                return True
+    except OSError:
+        return False    
+
+    return False
 
 
 def get_xml_chapter_ids(file_path: str) -> List[str]:
@@ -1269,9 +1317,15 @@ def check_publication_mtimes_and_publish_files(
             # Prerender XML to HTML for established texts and comments
 
             # If force_publish, always render an est HTML-file because the XSLT
-            # might have changed since last time and there is no way of checking
-            # if. Otherwise, render est HTML if the est web XML file was changed.
-            if force_publish or est_target_file_path in changes:
+            # might have changed since last time. Otherwise, render est HTML if
+            # the est web XML file was changed or the XSLT is newer than the
+            # web XML file.
+            if (force_publish or
+                est_target_file_path in changes or
+                xml_to_html_xslt_modified_after_xml(est_target_file_path,
+                                                    "est",
+                                                    file_root)
+            ):
                 # prerender est
                 est_html_file = prerender_xml_to_html(file_root,
                                                       est_target_file_path,
@@ -1283,7 +1337,13 @@ def check_publication_mtimes_and_publish_files(
             # com HTML-file because the XSLT might have changed since last time
             # and there is no way of checking if. Otherwise, render com HTML if
             # the com web XML file was changed.
-            if (force_publish and comment_file) or com_target_file_path in changes:
+            if ((force_publish and comment_file) or
+                com_target_file_path in changes or
+                (comment_file and
+                    xml_to_html_xslt_modified_after_xml(com_target_file_path,
+                                                        "com",
+                                                        file_root))
+            ):
                 # prerender com
                 com_html_file = prerender_xml_to_html(file_root,
                                                       com_target_file_path,
