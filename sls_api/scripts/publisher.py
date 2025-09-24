@@ -568,18 +568,19 @@ def get_xml_chapter_ids(file_path: str) -> List[str]:
         logger.exception(f"File not found error when trying to open {file_path}")
         raise
     except ET.ParseError:
-        logger.exception(f"Parse error trying to open {file_path}.")
+        logger.exception(f"Parse error trying to open {file_path}")
         raise
     except PermissionError:
-        logger.exception(f"Permission denied error when trying to open {file_path}.")
+        logger.exception(f"Permission denied error when trying to open {file_path}")
         raise
     except Exception:
-        logger.exception(f"Exception when parsing {file_path}.")
+        logger.exception(f"Exception when parsing {file_path}")
         raise
 
 
 def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
-    """Return the `type` value for a publication variant.
+    """
+    Return the `type` value for a publication variant.
 
     Looks up `publication_version` by (publication_id, id) with `deleted < 1`
     and returns the integer in column `type`. Returns None if the IDs are not
@@ -609,12 +610,14 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
 
 def transform_and_save(
         text_type: str,
-        settings,
+        output_filepath: str,
+        xml_filepath: str,
+        xsl_filepath: Optional[str],
+        xslt_params: Optional[Dict[str, str]] = None,
         saxon_proc: Optional[PySaxonProcessor] = None,
-        target_format: str = "html"
+        saxon_xslt_exec: Optional[PyXsltExecutable] = None,
+        output_format: str = "html"
 ) -> Optional[str]:
-    output_filepath = settings["output_filepath"]
-
     # Calculate file fingerprint so we can determine if the output
     # file has changed after generating a new file
     pre_sig = file_fingerprint(output_filepath)
@@ -629,22 +632,22 @@ def transform_and_save(
         return None
 
     use_saxon_xslt: bool = (saxon_proc is not None and
-                            settings["saxon_xslt_exec"] is not None)
+                            saxon_xslt_exec is not None)
 
     try:
         content = transform_xml(
-            xsl_file_path=(None if use_saxon_xslt else settings["xsl_filepath"]),
-            xml_file_path=settings["xml_filepath"],
-            params=settings["xslt_params"],
+            xsl_file_path=(None if use_saxon_xslt else xsl_filepath),
+            xml_file_path=xml_filepath,
+            params=xslt_params,
             use_saxon=use_saxon_xslt,
             saxon_proc=saxon_proc,
-            xslt_exec=(settings["saxon_xslt_exec"] if use_saxon_xslt else None)
+            xslt_exec=(saxon_xslt_exec if use_saxon_xslt else None)
         )
     except Exception:
-        logger.exception(f"Failed to transform {settings['xml_filepath']} ")
+        logger.exception(f"Failed to transform {xml_filepath} ")
         return None
 
-    if not use_saxon_xslt and target_format == "html":
+    if not use_saxon_xslt and output_format == "html":
         # The legacy XSLT stylesheets don't control newline characters
         # in the output, so we need to manually strip them
         content = content.replace('\r', '').replace('\n', '')
@@ -665,6 +668,8 @@ def transform_and_save(
         logger.exception(f"Error saving {output_filepath}")
         return None
 
+    # Check if the output file was modified. If it was, return the file
+    # path of the file, otherwise return None.
     if changed_by_size_or_hash(pre_sig, output_filepath):
         return output_filepath
 
@@ -778,6 +783,10 @@ def prerender_xml_to_html(
                                       text_type,
                                       html_filename)
 
+            if html_filepath is None:
+                logger.error(f"Failed to prerender {xml_filepath}: unable to form safe path for output file")
+                return []
+
             xslt_params = {
                 "bookId": book_id
             }
@@ -786,10 +795,11 @@ def prerender_xml_to_html(
                 xslt_params["sectionId"] = ch_id
 
             if text_type == "com":
-                xslt_params["estDocument"] = f'file://{safe_join(project_file_root,
-                                                                 "xml",
-                                                                 "est",
-                                                                 file.replace("_com.xml", "_est.xml"))}'
+                est_xml_path = safe_join(project_file_root,
+                                         "xml",
+                                         "est",
+                                         file.replace("_com.xml", "_est.xml"))
+                xslt_params["estDocument"] = f"file://{est_xml_path}"
 
             text_type_key = (
                 f"{text_type}{type_version}"
@@ -797,9 +807,23 @@ def prerender_xml_to_html(
                 else ("var_base" if var_type == 1 else "var_other")
             )
             xsl_filepath = TEXT_TYPE_TO_HTML_XSL_MAP.get(text_type_key)
+            xsl_filepath = (
+                safe_join(project_file_root, xsl_filepath)
+                if xsl_filepath is not None
+                else None
+            )
             saxon_xslt_exec = (xslt_execs or {}).get(text_type_key)
 
-            if saxon_proc is None and not os.path.isfile(xsl_filepath):
+            if saxon_proc is not None and saxon_xslt_exec is None:
+                logger.error(f"Failed to prerender {xml_filepath}: Saxon XSLT executable is None")
+                return []
+
+            if saxon_proc is None and (
+                xsl_filepath is None or (
+                    xsl_filepath is not None and
+                    not os.path.isfile(xsl_filepath)
+                )
+            ):
                 logger.error(f"Failed to prerender {xml_filepath}: XSL file {xsl_filepath} does not exist")
                 return []
 
@@ -813,7 +837,14 @@ def prerender_xml_to_html(
 
     # Perform a transformation for each dict in the list
     for t_data in to_transform:
-        changed_file = transform_and_save(text_type, t_data, saxon_proc)
+        changed_file = transform_and_save(text_type,
+                                          t_data["output_filepath"],
+                                          t_data["xml_filepath"],
+                                          t_data["xsl_filepath"],
+                                          t_data["xslt_params"],
+                                          saxon_proc,
+                                          t_data["saxon_xslt_exec"],
+                                          "html")
         if changed_file is not None:
             changed_files.append(changed_file)
 
