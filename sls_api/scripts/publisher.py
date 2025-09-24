@@ -593,7 +593,7 @@ def xml_to_html_xslt_modified_after_xml(
                 # XSLT file has been modified after the XML file
                 return True
     except OSError:
-        return False    
+        return False
 
     return False
 
@@ -1131,6 +1131,7 @@ def check_publication_mtimes_and_publish_files(
     changes = set()
     # Keep a list of changed HTML files for later git commit
     html_changes = set()
+
     # For each publication belonging to this project, check the modification timestamp of its master files and compare them to the generated web XML files
     for row in publication_info:
         if row is None:
@@ -1320,11 +1321,12 @@ def check_publication_mtimes_and_publish_files(
             # might have changed since last time. Otherwise, render est HTML if
             # the est web XML file was changed or the XSLT is newer than the
             # web XML file.
-            if (force_publish or
+            if (
+                force_publish or
                 est_target_file_path in changes or
-                xml_to_html_xslt_modified_after_xml(est_target_file_path,
-                                                    "est",
-                                                    file_root)
+                xml_to_html_xslt_modified_after_xml(
+                    est_target_file_path, "est", file_root
+                )
             ):
                 # prerender est
                 est_html_file = prerender_xml_to_html(file_root,
@@ -1337,12 +1339,15 @@ def check_publication_mtimes_and_publish_files(
             # com HTML-file because the XSLT might have changed since last time
             # and there is no way of checking if. Otherwise, render com HTML if
             # the com web XML file was changed.
-            if ((force_publish and comment_file) or
+            if (
+                (force_publish and comment_file) or
                 com_target_file_path in changes or
-                (comment_file and
-                    xml_to_html_xslt_modified_after_xml(com_target_file_path,
-                                                        "com",
-                                                        file_root))
+                (
+                    comment_file and
+                    xml_to_html_xslt_modified_after_xml(
+                        com_target_file_path, "com", file_root
+                    )
+                )
             ):
                 # prerender com
                 com_html_file = prerender_xml_to_html(file_root,
