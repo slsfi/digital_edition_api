@@ -1497,7 +1497,7 @@ def check_publication_mtimes_and_publish_files(
             for path, pre_fp in pre_variants.items():
                 if changed_by_size_or_hash(pre_fp, path):
                     xml_changes.add(path)
-            
+
             if prerender_xml:
                 # Prerender XML to HTML for variants
                 for xml_path in all_variant_paths:
@@ -1515,11 +1515,10 @@ def check_publication_mtimes_and_publish_files(
                     ):
                         # prerender the variant
                         ms_html_file = prerender_xml_to_html(file_root,
-                                                              xml_path,
-                                                              saxon_proc,
-                                                              html_xslt_execs)
+                                                             xml_path,
+                                                             saxon_proc,
+                                                             html_xslt_execs)
                         html_changes.update(ms_html_file)
-
 
     # For each publication_manuscript belonging to this project, check the modification timestamp of its master file and compare it to the generated web XML file
 
@@ -1658,9 +1657,9 @@ def check_publication_mtimes_and_publish_files(
             ):
                 # prerender the manuscript
                 ms_html_file = prerender_xml_to_html(file_root,
-                                                      xml_path,
-                                                      saxon_proc,
-                                                      html_xslt_execs)
+                                                     xml_path,
+                                                     saxon_proc,
+                                                     html_xslt_execs)
                 html_changes.update(ms_html_file)
 
     logger.info("XML changes made in publication script run: {}".format([c for c in xml_changes]))
