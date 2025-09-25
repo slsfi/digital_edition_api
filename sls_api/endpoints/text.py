@@ -7,7 +7,7 @@ from sls_api.endpoints.generics import db_engine, \
     get_collection_legacy_id, get_collection_published_status, \
     get_prerendered_html_content, get_project_config, get_published_status, \
     get_xml_content, get_transformed_xml_content_with_caching, \
-    is_valid_language
+    is_valid_language, get_frontmatter_page_content
 
 text = Blueprint('text', __name__)
 logger = logging.getLogger("sls_api.text")
@@ -54,43 +54,29 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
     if config is None:
         return jsonify({"msg": "No such project."}), 404
 
+    resp_id = f"{collection_id}_inl"
+
     can_show, message = get_collection_published_status(project, collection_id)
     if not can_show:
         return jsonify({
-            "id": f"{collection_id}_inl",
+            "id": resp_id,
             "error": message
         }), 403
 
     if not is_valid_language(lang):
         return jsonify({
-            "id": f"{collection_id}_inl",
+            "id": resp_id,
             "error": "Invalid language parameter."
         }), 400
 
-    version = "int" if config.get("show_internally_published") else "ext"
-    filename_stem = f"{collection_id}_inl_{lang}_{version}"
-    content = None
-    used_source = None
-
-    if config.get("prerender_xml", False):
-        html_filename = f"{filename_stem}.html"
-        content = get_prerendered_html_content(config, "inl", html_filename)
-        if content is not None:
-            used_source = "prerendered"
-
-    if content is None:
-        xml_filename = f"{filename_stem}.xml"
-        xsl_file = "introduction.xsl"
-        content = get_transformed_xml_content_with_caching(
-            project, "inl", xml_filename, xsl_file, None
-        )
-        content = content.replace(" id=", " data-id=")
-        used_source = "transformed"
-
+    content, used_source = get_frontmatter_page_content("inl",
+                                                        collection_id,
+                                                        lang,
+                                                        project,
+                                                        config)
     logger.info("Served %s introduction for %s", used_source, request.full_path)
-
     data = {
-        "id": f"{collection_id}_inl",
+        "id": resp_id,
         "content": content
     }
     return jsonify(data), 200
@@ -98,62 +84,82 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/tit")
 @text.route("/<project>/text/<collection_id>/<publication_id>/tit/<lang>")
-def get_title(project, collection_id, publication_id, lang="swe"):
+def get_title(project, collection_id, publication_id, lang="sv"):
     """
-    Get title page for a given publication @TODO: remove publication_id, it is not needed?
+    Get title page for a given collection.
+
+    @TODO: remove publication_id, it is not needed or used.
+    @TODO: get original_filename from publication_collection_title
+           table? how handle language/version
     """
     config = get_project_config(project)
     if config is None:
-        return jsonify({"msg": "No such project."}), 400
-    else:
-        can_show, message = get_collection_published_status(project, collection_id)
-        if can_show:
-            logger.info("Getting XML for {} and transforming...".format(request.full_path))
-            version = "int" if config["show_internally_published"] else "ext"
-            # TODO get original_filename from publication_collection_title table? how handle language/version
-            filename = "{}_tit_{}_{}.xml".format(collection_id, lang, version)
-            xsl_file = "title.xsl"
-            content = get_transformed_xml_content_with_caching(project, "tit", filename, xsl_file, None)
-            data = {
-                "id": "{}_{}_tit".format(collection_id, publication_id),
-                "content": content.replace(" id=", " data-id=")
-            }
-            return jsonify(data), 200
-        else:
-            return jsonify({
-                "id": "{}_{}".format(collection_id, publication_id),
-                "error": message
-            }), 403
+        return jsonify({"msg": "No such project."}), 404
+
+    resp_id = f"{collection_id}_tit"
+
+    can_show, message = get_collection_published_status(project, collection_id)
+    if not can_show:
+        return jsonify({
+            "id": resp_id,
+            "error": message
+        }), 403
+
+    if not is_valid_language(lang):
+        return jsonify({
+            "id": resp_id,
+            "error": "Invalid language parameter."
+        }), 400
+
+    content, used_source = get_frontmatter_page_content("tit",
+                                                        collection_id,
+                                                        lang,
+                                                        project,
+                                                        config)
+    logger.info("Served %s title page for %s", used_source, request.full_path)
+    data = {
+        "id": resp_id,
+        "content": content
+    }
+    return jsonify(data), 200
 
 
 @text.route("/<project>/text/<collection_id>/fore")
 @text.route("/<project>/text/<collection_id>/fore/<lang>")
 def get_foreword(project, collection_id, lang="sv"):
     """
-    Get foreword for a given collection
+    Get foreword for a given collection.
     """
     config = get_project_config(project)
     if config is None:
-        return jsonify({"msg": "No such project."}), 400
-    else:
-        can_show, message = get_collection_published_status(project, collection_id)
-        if can_show:
-            logger.info("Getting XML for {} and transforming...".format(request.full_path))
-            version = "int" if config["show_internally_published"] else "ext"
-            # TODO get original_filename from database table? how handle language/version
-            filename = "{}_fore_{}_{}.xml".format(collection_id, lang, version)
-            xsl_file = "foreword.xsl"
-            content = get_transformed_xml_content_with_caching(project, "fore", filename, xsl_file, None)
-            data = {
-                "id": "{}_fore".format(collection_id),
-                "content": content.replace(" id=", " data-id=")
-            }
-            return jsonify(data), 200
-        else:
-            return jsonify({
-                "id": "{}".format(collection_id),
-                "error": message
-            }), 403
+        return jsonify({"msg": "No such project."}), 404
+
+    resp_id = f"{collection_id}_fore"
+
+    can_show, message = get_collection_published_status(project, collection_id)
+    if not can_show:
+        return jsonify({
+            "id": resp_id,
+            "error": message
+        }), 403
+
+    if not is_valid_language(lang):
+        return jsonify({
+            "id": resp_id,
+            "error": "Invalid language parameter."
+        }), 400
+
+    content, used_source = get_frontmatter_page_content("fore",
+                                                        collection_id,
+                                                        lang,
+                                                        project,
+                                                        config)
+    logger.info("Served %s introduction for %s", used_source, request.full_path)
+    data = {
+        "id": resp_id,
+        "content": content
+    }
+    return jsonify(data), 200
 
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/est-i18n/<language>")

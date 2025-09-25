@@ -598,7 +598,7 @@ def transform_xml(
 
 def get_transformed_xml_content_with_caching(
         project: str,
-        folder: str,
+        text_type: str,
         xml_filename: str,
         xsl_filename: str,
         parameters
@@ -610,9 +610,9 @@ def get_transformed_xml_content_with_caching(
     project_config = get_project_config(project)
     if project_config is None:
         return "No such project."
-    xml_file_path = safe_join(project_config["file_root"], "xml", folder, xml_filename)
+    xml_file_path = safe_join(project_config["file_root"], "xml", text_type, xml_filename)
     xsl_file_path = safe_join(project_config["file_root"], "xslt", xsl_filename)
-    cache_folder = os.path.join("/tmp", "api_cache", project, folder)
+    cache_folder = os.path.join("/tmp", "api_cache", project, text_type)
     os.makedirs(cache_folder, exist_ok=True)
     if "ms" in xsl_filename:
         # xsl_filename is 'ms_changes.xsl' or 'ms_normalized.xsl'
@@ -713,6 +713,42 @@ def get_prerendered_html_content(
         logger.exception("Unexpected error when reading %s", file_path)
 
     return None
+
+
+def get_frontmatter_page_content(
+        page_type: str,
+        collection_id: str,
+        language: str,
+        project: str,
+        project_config
+) -> Tuple[str, str]:
+    version = "int" if project_config["show_internally_published"] else "ext"
+    filename_stem = f"{collection_id}_{page_type}_{language}_{version}"
+    content = None
+    used_source = None
+
+    if project_config.get("prerender_xml", False):
+        content = get_prerendered_html_content(
+            project_config, page_type, f"{filename_stem}.html"
+        )
+        if content is not None:
+            used_source = "prerendered"
+
+    if content is None:
+        if page_type == "tit":
+            xsl_file = "title.xsl"
+        elif page_type == "fore":
+            xsl_file = "foreword.xsl"
+        else:
+            xsl_file = "introduction.xsl"
+
+        content = get_transformed_xml_content_with_caching(
+            project, page_type, f"{filename_stem}.xml", xsl_file, None
+        )
+        content = content.replace(" id=", " data-id=")
+        used_source = "transformed"
+
+    return content, used_source
 
 
 def update_publication_related_table(
