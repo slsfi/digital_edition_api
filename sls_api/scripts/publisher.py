@@ -86,12 +86,12 @@ def get_comments_from_database(project, document_note_ids):
             return []
         return [comment._asdict() for comment in comments if comment is not None]
     else:
-        logger.warning(f"Project {project} lacks comments_database configuration.")
+        logger.warning("Project %s lacks comments_database configuration.", project)
         return []
 
 
 def get_letter_info_from_database(letter_id):
-    logger.info("Getting correspondence info for letter: {}".format(letter_id))
+    logger.info("Getting correspondence info for letter: %s", letter_id)
     if letter_id is None:
         return []
     letter = dict()
@@ -284,7 +284,7 @@ def compile_xslt_stylesheets(
                     encoding="utf-8"
                 )
             except Exception:
-                logger.exception(f"Failed to compile XSLT executable for '{type_key}' files. Make sure '{xsl_path}' exists and is valid in project root.")
+                logger.exception("Failed to compile XSLT executable for '%s' files. Make sure '%s' exists and is valid in project root.", type_key, xsl_path)
                 xslt_execs[type_key] = None
         else:
             xslt_execs[type_key] = None
@@ -308,7 +308,7 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
         est_document.Load(est_master_file_path, bRemoveDelSpans=True)
         est_document.PostProcessMainText()
     except Exception as ex:
-        logger.exception("Failed to handle est master file: {}".format(est_master_file_path))
+        logger.exception("Failed to handle est master file: %s", est_master_file_path)
         raise ex
 
     if publication_info is not None:
@@ -335,7 +335,7 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
                                             COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
 
         if not os.path.exists(com_master_file_path):
-            logger.info(f"Skipping com file generation: no comments file associated with publication and no template file exists at {COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT}")
+            logger.info("Skipping com file generation: no comments file associated with publication and no template file exists at %s", COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
             return
 
     # Get all documentnote IDs from the main master file (these are the IDs of the comments for this document)
@@ -369,7 +369,7 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
 
         com_document.Save(com_target_path)
     except Exception as ex:
-        logger.exception("Failed to handle com master file: {}".format(com_master_file_path))
+        logger.exception("Failed to handle com master file: %s", com_master_file_path)
         raise ex
 
 
@@ -385,7 +385,7 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
     Generates published est and com files using XSLT processing.
     """
     if xslt_execs["est"] is None:
-        logger.warning(f"XSLT executable for 'est' is missing. '{EST_WEB_XML_XSL_PATH_IN_FILE_ROOT}' is invalid or does not exist in project root.")
+        logger.warning("XSLT executable for 'est' is missing. '%s' is invalid or does not exist in project root.", EST_WEB_XML_XSL_PATH_IN_FILE_ROOT)
         # Don't raise an exception here in case the XSLT for est is
         # intentionally missing, for example if the project doesn't
         # have est files. This still allows com files to be processed.
@@ -412,7 +412,7 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
                                             output_filepath=est_target_file_path,
                                             parameters=est_params)
         except Exception:
-            logger.exception(f"Failed to handle est master file: {est_source_file_path}")
+            logger.exception("Failed to handle est master file: %s", est_source_file_path)
             raise
 
     if not publication_info["publication_comment_id"]:
@@ -422,7 +422,7 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
         return
 
     if xslt_execs["com"] is None:
-        logger.warning(f"XSLT executable for 'com' is missing. '{COM_WEB_XML_XSL_PATH_IN_FILE_ROOT}' is invalid or does not exist in project root. Comment file not generated.")
+        logger.warning("XSLT executable for 'com' is missing. '%s' is invalid or does not exist in project root. Comment file not generated.", COM_WEB_XML_XSL_PATH_IN_FILE_ROOT)
         # Don't raise an exception here so the est file can still be committed.
         return
 
@@ -466,7 +466,7 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
                                         output_filepath=com_target_file_path,
                                         parameters=com_params)
     except Exception:
-        logger.exception(f"Failed to handle com master file: {com_source_file_path}")
+        logger.exception("Failed to handle com master file: %s", com_source_file_path)
         raise
 
 
@@ -495,7 +495,7 @@ def generate_ms_file(master_file_path, target_file_path, publication_info):
         ms_document.Load(master_file_path)
         ms_document.PostProcessOtherText()
     except Exception as ex:
-        logger.exception("Failed to handle manuscript file: {}".format(master_file_path))
+        logger.exception("Failed to handle manuscript file: %s", master_file_path)
         raise ex
 
     if publication_info is not None:
@@ -514,7 +514,7 @@ def generate_ms_file_with_xslt(publication_info: Optional[Dict[str, Any]],
     """
     try:
         if xslt_execs["ms"] is None:
-            logger.error(f"XSLT executable for 'ms' is missing. '{MS_WEB_XML_XSL_PATH_IN_FILE_ROOT}' is invalid or does not exist in project root.")
+            logger.error("XSLT executable for 'ms' is missing. '%s' is invalid or does not exist in project root.", MS_WEB_XML_XSL_PATH_IN_FILE_ROOT)
             raise ValueError("XSLT executable for 'ms' is missing.")
 
         ms_document = SaxonXMLDocument(saxon_proc, xml_filepath=source_file_path)
@@ -539,7 +539,7 @@ def generate_ms_file_with_xslt(publication_info: Optional[Dict[str, Any]],
                                        output_filepath=target_file_path,
                                        parameters=ms_params)
     except Exception:
-        logger.exception(f"Failed to handle manuscript file: {source_file_path}")
+        logger.exception("Failed to handle manuscript file: %s", source_file_path)
         raise
 
 
@@ -618,17 +618,14 @@ def get_xml_chapter_ids(file_path: str) -> List[str]:
 
         return ch_ids
 
-    except FileNotFoundError:
-        logger.exception(f"File not found error when trying to open {file_path}")
-        raise
     except ET.ParseError:
-        logger.exception(f"Parse error trying to open {file_path}")
+        logger.exception("Parse error trying to open %s", file_path)
         raise
-    except PermissionError:
-        logger.exception(f"Permission denied error when trying to open {file_path}")
+    except OSError:
+        logger.exception("Error when trying to open %s", file_path)
         raise
     except Exception:
-        logger.exception(f"Exception when parsing {file_path}")
+        logger.exception("Unexpected error when opening/parsing %s", file_path)
         raise
 
 
@@ -639,7 +636,7 @@ def clear_collection_legacy_id_cache():
 def cached_get_collection_legacy_id(collection_id: str) -> Optional[str]:
     c_id = int_or_none(collection_id)
     if c_id is None or c_id < 1:
-        logger.error(f"Unable to convert {collection_id} into an integer.")
+        logger.error("Unable to convert %s into an integer.", collection_id)
         return None
 
     # Check if the collection id already exists in the cache,
@@ -667,7 +664,7 @@ def cached_get_collection_legacy_id(collection_id: str) -> Optional[str]:
 
             return legacy_id
     except Exception:
-        logger.exception(f"Failed to query 'publication_collection' table for 'legacy_id' of collection with 'id' {collection_id}")
+        logger.exception("Failed to query 'publication_collection' table for 'legacy_id' of collection with 'id' %s", collection_id)
         return None
 
 
@@ -682,7 +679,7 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
     p_id = int_or_none(publication_id)
     v_id = int_or_none(variant_id)
     if p_id is None or v_id is None or p_id < 1 or v_id < 1:
-        logger.error(f"Unable to convert {publication_id} or {variant_id} into an integer.")
+        logger.error("Unable to convert %s or %s into an integer.", publication_id, variant_id)
         return None
 
     variant_table = get_table("publication_version")
@@ -697,7 +694,7 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
             )
             return connection.execute(statement).scalar_one_or_none()
     except Exception:
-        logger.exception(f"Failed to query 'publication_version' table for 'id' {variant_id} and 'publication_id' {publication_id}")
+        logger.exception("Failed to query 'publication_version' table for 'id' %s and 'publication_id' %s", variant_id, publication_id)
         return None
 
 
@@ -721,7 +718,7 @@ def transform_and_save(
         if output_dirpath:
             os.makedirs(output_dirpath, exist_ok=True)
     except Exception:
-        logger.exception(f"Error making dirs for path {output_dirpath}")
+        logger.exception("Error making dirs for path %s", output_dirpath)
         return None
 
     use_saxon_xslt: bool = (saxon_proc is not None and
@@ -737,7 +734,7 @@ def transform_and_save(
             xslt_exec=(saxon_xslt_exec if use_saxon_xslt else None)
         )
     except Exception:
-        logger.exception(f"Failed to transform {xml_filepath} ")
+        logger.exception("Failed to transform %s", xml_filepath)
         return None
 
     if not use_saxon_xslt and output_format == "html":
@@ -754,11 +751,8 @@ def transform_and_save(
     try:
         with open(output_filepath, "w", encoding="utf-8") as outfile:
             outfile.write(content)
-    except PermissionError:
-        logger.exception(f"Permission error saving {output_filepath}")
-        return None
     except (OSError, Exception):
-        logger.exception(f"Error saving {output_filepath}")
+        logger.exception("Unexpected rrror saving %s", output_filepath)
         return None
 
     # Check if the output file was modified. If it was, return the file
@@ -788,7 +782,7 @@ def prerender_xml_to_html(
     the project root.
     """
     if not os.path.isfile(xml_filepath):
-        logger.error(f"Failed to prerender {xml_filepath}: source file does not exist")
+        logger.error("Failed to prerender %s: source file does not exist", xml_filepath)
         return []
 
     # Parse filename to get collection id, publication id, text type,
@@ -798,7 +792,7 @@ def prerender_xml_to_html(
     filename_parts = filename.split("_")
 
     if len(filename_parts) < 3:
-        logger.error(f"Failed to prerender {xml_filepath}: file name has invalid format")
+        logger.error("Failed to prerender %s: file name has invalid format", xml_filepath)
         return []
 
     coll_id = filename_parts[0]
@@ -812,7 +806,7 @@ def prerender_xml_to_html(
 
         if any(x in filename_parts for x in ("ms", "var")):
             if len(filename_parts) < 4:
-                logger.error(f"Failed to prerender {xml_filepath}: text type id missing from file name")
+                logger.error("Failed to prerender %s: text type id missing from file name", xml_filepath)
                 return []
             type_id = filename_parts[3]
     else:
@@ -835,7 +829,7 @@ def prerender_xml_to_html(
         try:
             chapter_ids = chapter_ids + get_xml_chapter_ids(find_ch_file)
         except Exception:
-            logger.error(f"Unable to prerender {xml_filepath}")
+            logger.error("Unable to prerender %s", xml_filepath)
             return []
 
     # Keep a list of generated HTML files that have changed. Though the
@@ -851,7 +845,7 @@ def prerender_xml_to_html(
         else None
     )
     if text_type == "var" and var_type is None:
-        logger.error(f"Failed to prerender {xml_filepath}: unable to get variant type from database")
+        logger.error("Failed to prerender %s: unable to get variant type from database", xml_filepath)
         return []
 
     # Build a list of dictionaries with necessary information about each
@@ -879,7 +873,7 @@ def prerender_xml_to_html(
                                       html_filename)
 
             if html_filepath is None:
-                logger.error(f"Failed to prerender {xml_filepath}: unable to form safe path for output file")
+                logger.error("Failed to prerender %s: unable to form safe path for output file", xml_filepath)
                 return []
 
             xslt_params = {
@@ -910,7 +904,7 @@ def prerender_xml_to_html(
             saxon_xslt_exec = (xslt_execs or {}).get(text_type_key)
 
             if saxon_proc is not None and saxon_xslt_exec is None:
-                logger.error(f"Failed to prerender {xml_filepath}: Saxon XSLT executable is None")
+                logger.error("Failed to prerender %s: Saxon XSLT executable is None", xml_filepath)
                 return []
 
             if saxon_proc is None and (
@@ -919,7 +913,7 @@ def prerender_xml_to_html(
                     not os.path.isfile(xsl_filepath)
                 )
             ):
-                logger.error(f"Failed to prerender {xml_filepath}: XSL file {xsl_filepath} does not exist")
+                logger.error("Failed to prerender %s: XSL file %s does not exist", xml_filepath, xsl_filepath)
                 return []
 
             to_transform.append({
@@ -957,7 +951,7 @@ def check_publication_mtimes_and_publish_files(
 ):
     update_success, result_str = update_files_in_git_repo(project)
     if not update_success:
-        logger.error("Git update failed! Reason: {}".format(result_str))
+        logger.error("Git update failed! Reason: %s", result_str)
         return False
     project_id = get_project_id_from_name(project)
     project_settings = config.get(project, None)
@@ -1138,7 +1132,7 @@ def check_publication_mtimes_and_publish_files(
         publication_id = row["p_id"]
         collection_id = row["c_id"]
         if not row["original_filename"]:
-            logger.info("Source file not set for publication {}".format(publication_id))
+            logger.info("Source file not set for publication %s", publication_id)
             continue
         est_target_filename = "{}_{}_est.xml".format(collection_id, publication_id)
         com_target_filename = est_target_filename.replace("_est.xml", "_com.xml")
@@ -1168,7 +1162,7 @@ def check_publication_mtimes_and_publish_files(
         row["com_original_filename"] = comment_file
 
         if os.path.isdir(est_source_file_path):
-            logger.warning("Source file {} for publication {} is a directory!".format(est_source_file_path, publication_id))
+            logger.warning("Source file %s for publication %s is a directory!", est_source_file_path, publication_id)
             continue
         if not os.path.exists(est_source_file_path):
             # TODO: if no est source file we skip generating variant files
@@ -1176,7 +1170,7 @@ def check_publication_mtimes_and_publish_files(
             # This is problematic because we could have projects that have
             # variants but no established texts. Currently we don’t, but in
             # the future we might.
-            logger.warning("Source file {} for publication {} does not exist!".format(est_source_file_path, publication_id))
+            logger.warning("Source file %s for publication %s does not exist!", est_source_file_path, publication_id)
             continue
 
         # Check comment file existence only if a comment is linked to the
@@ -1187,17 +1181,17 @@ def check_publication_mtimes_and_publish_files(
             com_source_file_path = os.path.join(file_root, comment_file)
 
             if os.path.isdir(com_source_file_path):
-                logger.warning("Source file {} for publication {} comment is a directory!".format(com_source_file_path, publication_id))
+                logger.warning("Source file %s for publication %s comment is a directory!", com_source_file_path, publication_id)
                 continue
             if not os.path.exists(com_source_file_path):
-                logger.warning("Source file {} for publication {} does not exist!".format(com_source_file_path, publication_id))
+                logger.warning("Source file %s for publication %s does not exist!", com_source_file_path, publication_id)
                 continue
         else:
             com_source_file_path = ""
 
         if force_publish:
             # during force_publish, just generate
-            logger.info("Generating new est/com files for publication {}...".format(publication_id))
+            logger.info("Generating new est/com files for publication %s...", publication_id)
             try:
                 # calculate file fingerprints for existing files, so we can later
                 # compare if they have changed
@@ -1221,7 +1215,7 @@ def check_publication_mtimes_and_publish_files(
                                                est_target_file_path,
                                                com_target_file_path)
             except Exception:
-                logger.exception("Failed to generate est/com files for publication {}!".format(publication_id))
+                logger.exception("Failed to generate est/com files for publication %s!", publication_id)
                 continue
             else:
                 # check if est and/or com files have changed
@@ -1240,8 +1234,8 @@ def check_publication_mtimes_and_publish_files(
             except OSError:
                 # If there is an error, the web XML files likely don't exist or are otherwise corrupt
                 # It is then easiest to just generate new ones
-                logger.warning("Error getting time_modified for target or source files for publication {}".format(publication_id))
-                logger.info("Generating new est/com files for publication {}...".format(publication_id))
+                logger.warning("Error getting time_modified for target or source files for publication %s", publication_id)
+                logger.info("Generating new est/com files for publication %s...", publication_id)
                 try:
                     # calculate file fingerprints for existing files, so we can later
                     # compare if they have changed
@@ -1265,7 +1259,7 @@ def check_publication_mtimes_and_publish_files(
                                                    est_target_file_path,
                                                    com_target_file_path)
                 except Exception:
-                    logger.exception("Failed to generate est/com files for publication {}!".format(publication_id))
+                    logger.exception("Failed to generate est/com files for publication %s!", publication_id)
                     continue
                 else:
                     # check if est and/or com files have changed
@@ -1279,7 +1273,7 @@ def check_publication_mtimes_and_publish_files(
                     continue
                 else:
                     # If one or either is outdated, generate new ones
-                    logger.info("Reading files for publication {} are outdated, generating new est/com files...".format(publication_id))
+                    logger.info("Reading files for publication %s are outdated, generating new est/com files...", publication_id)
                     try:
                         # calculate file fingerprints for existing files, so we can later
                         # compare if they have changed
@@ -1303,7 +1297,7 @@ def check_publication_mtimes_and_publish_files(
                                                        est_target_file_path,
                                                        com_target_file_path)
                     except Exception:
-                        logger.exception("Failed to generate est/com files for publication {}!".format(publication_id))
+                        logger.exception("Failed to generate est/com files for publication %s!", publication_id)
                         continue
                     else:
                         # check if est and/or com files have changed
@@ -1368,12 +1362,12 @@ def check_publication_mtimes_and_publish_files(
         # should only be one main variant per publication?
         main_variant_info = connection.execute(main_variant_query).fetchone()
         if main_variant_info is None:
-            logger.info("No main variant found for publication {}!".format(publication_id))
+            logger.info("No main variant found for publication %s!", publication_id)
             # close DB connection, as it's no longer needed
             connection.close()
         else:
             main_variant_info = main_variant_info._asdict()
-            logger.debug(f"Main variant query result: {str(main_variant_info)}")
+            logger.debug("Main variant query result: %s", main_variant_info)
 
             # fetch info for all "other" variants
             variants_query = variant_query.bindparams(pub_id=publication_id, vers_type=2)
@@ -1389,15 +1383,15 @@ def check_publication_mtimes_and_publish_files(
             main_variant_source = os.path.join(file_root, main_variant_info["original_filename"])
 
             if not main_variant_source:
-                logger.warning("Source file for main variant {} is not set.".format(main_variant_info["id"]))
+                logger.warning("Source file for main variant %s is not set.", main_variant_info["id"])
                 continue
 
             if os.path.isdir(main_variant_source):
-                logger.error("Source file {} for main variant {} (type=1) is a directory!".format(main_variant_source, main_variant_info["id"]))
+                logger.error("Source file %s for main variant %s (type=1) is a directory!", main_variant_source, main_variant_info["id"])
                 continue
 
             if not os.path.exists(main_variant_source):
-                logger.error("Source file {} for main variant {} (type=1) does not exist!".format(main_variant_source, main_variant_info["id"]))
+                logger.error("Source file %s for main variant %s (type=1) does not exist!", main_variant_source, main_variant_info["id"])
                 continue
 
             target_filename = "{}_{}_var_{}.xml".format(collection_id,
@@ -1428,24 +1422,24 @@ def check_publication_mtimes_and_publish_files(
 
                 source_filename = variant["original_filename"]
                 if not source_filename:
-                    logger.error("Source file for variant {} is not set.".format(variant["id"]))
+                    logger.error("Source file for variant %s is not set.", variant["id"])
                     continue
                 target_file_path = os.path.join(file_root, "xml", "var", target_filename)
                 # original_filename should be relative to the project root
                 source_file_path = os.path.join(file_root, source_filename)
 
                 if os.path.isdir(source_file_path):
-                    logger.error("Source file {} for variant {} is a directory!".format(source_file_path, variant["id"]))
+                    logger.error("Source file %s for variant %s is a directory!", source_file_path, variant["id"])
                     continue
                 if not os.path.exists(source_file_path):
-                    logger.error("Source file {} for variant {} does not exist!".format(source_file_path, variant["id"]))
+                    logger.error("Source file %s for variant %s does not exist!", source_file_path, variant["id"])
                     continue
 
                 all_variant_paths.append(target_file_path)
 
                 # in a force_publish, just load all variants for generation/processing
                 if force_publish:
-                    logger.info("Generating new var file for publication_version {}...".format(variant["id"]))
+                    logger.info("Generating new var file for publication_version %s...", variant["id"])
                     variant_doc = CTeiDocument()
                     variant_doc.Load(source_file_path)
                     variant_docs.append(variant_doc)
@@ -1458,7 +1452,7 @@ def check_publication_mtimes_and_publish_files(
                     except OSError:
                         # If there is an error, the web XML file likely doesn't exist or is otherwise corrupt
                         # It is then easiest to just generate a new one
-                        logger.warning("Error getting time_modified for target or source files for publication_version {}".format(variant["id"]))
+                        logger.warning("Error getting time_modified for target or source files for publication_version %s", variant["id"])
                         logger.info("Generating new file...")
                         variant_doc = CTeiDocument()
                         variant_doc.Load(source_file_path)
@@ -1466,7 +1460,7 @@ def check_publication_mtimes_and_publish_files(
                         variant_paths.append(target_file_path)
                     else:
                         if target_mtime < source_mtime:
-                            logger.info("File {} is older than source file {}, generating new file...".format(target_file_path, source_file_path))
+                            logger.info("File %s is older than source file %s, generating new file...", target_file_path, source_file_path)
                             variant_doc = CTeiDocument()
                             variant_doc.Load(source_file_path)
                             variant_docs.append(variant_doc)
@@ -1537,7 +1531,7 @@ def check_publication_mtimes_and_publish_files(
 
         source_filename = row["original_filename"]
         if not source_filename:
-            logger.info("Source file not set for manuscript {}".format(manuscript_id))
+            logger.info("Source file not set for manuscript %s", manuscript_id)
             continue
 
         target_file_path = os.path.join(file_root, "xml", "ms", target_filename)
@@ -1545,18 +1539,18 @@ def check_publication_mtimes_and_publish_files(
         source_file_path = os.path.join(file_root, source_filename)
 
         if os.path.isdir(source_file_path):
-            logger.warning("Source file {} for manuscript {} is a directory!".format(source_file_path, manuscript_id))
+            logger.warning("Source file %s for manuscript %s is a directory!", source_file_path, manuscript_id)
             continue
 
         if not os.path.exists(source_file_path):
-            logger.warning("Source file {} for manuscript {} does not exist!".format(source_file_path, manuscript_id))
+            logger.warning("Source file %s for manuscript %s does not exist!", source_file_path, manuscript_id)
             continue
 
         all_ms_target_paths.append(target_file_path)
 
         # in a force_publish, just generate all ms files
         if force_publish:
-            logger.info("Generating new ms file for publication_manuscript {}".format(manuscript_id))
+            logger.info("Generating new ms file for publication_manuscript %s", manuscript_id)
             try:
                 # calculate file fingerprint for existing ms file, so we can later
                 # compare if it has changed
@@ -1587,7 +1581,7 @@ def check_publication_mtimes_and_publish_files(
             except OSError:
                 # If there is an error, the web XML file likely doesn't exist or is otherwise corrupt
                 # It is then easiest to just generate a new one
-                logger.warning("Error getting time_modified for target or source file for publication_manuscript {}".format(manuscript_id))
+                logger.warning("Error getting time_modified for target or source file for publication_manuscript %s", manuscript_id)
                 logger.info("Generating new file...")
                 try:
                     # calculate file fingerprint for existing ms file, so we can later
@@ -1615,7 +1609,7 @@ def check_publication_mtimes_and_publish_files(
                     # If the target ms file is newer than the source, continue to the next publication_manuscript
                     continue
                 else:
-                    logger.info("File {} is older than source file {}, generating new file...".format(target_file_path, source_file_path))
+                    logger.info("File %s is older than source file %s, generating new file...", target_file_path, source_file_path)
                     try:
                         # calculate file fingerprint for existing ms file, so we can later
                         # compare if it has changed
@@ -1687,9 +1681,18 @@ def check_publication_mtimes_and_publish_files(
                                                       html_xslt_execs)
                     html_changes.update(html_file)
 
-    logger.info("XML changes made in publication script run: {}".format([c for c in xml_changes]))
+    if xml_changes:
+        sorted_xml_changes = sorted(xml_changes)
+        logger.info("XML changes made in publication script run (%d):\n%s", len(xml_changes), "\n".join(sorted_xml_changes))
+    else:
+        logger.info("No XML changes made in publication script run.")
+
     if prerender_xml:
-        logger.info("HTML changes made in publication script run: {}".format([c for c in html_changes]))
+        if html_changes:
+            sorted_html_changes = sorted(html_changes)
+            logger.info("HTML changes made in publication script run (%d):\n%s", len(html_changes), "\n".join(sorted_html_changes))
+        else:
+            logger.info("No HTML changes made in publication script run.")
 
     # Merge the sets containing XML and HTML changes
     all_changes = xml_changes.union(html_changes)
@@ -1705,7 +1708,7 @@ def check_publication_mtimes_and_publish_files(
             outputs.append(run_git_command(project, ["push"]))
         except CalledProcessError:
             logger.exception("Exception during git sync of webfile changes.")
-            logger.debug("Git outputs: {}".format("\n".join(outputs)))
+            logger.debug("Git outputs: %s", "\n".join(outputs))
 
 
 if __name__ == "__main__":
@@ -1725,7 +1728,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.list_projects:
-        logger.info(f"Projects with seemingly valid configuration: {', '.join(projects)}")
+        logger.info("Projects with seemingly valid configuration: %s", ", ".join(projects))
         sys.exit(0)
     else:
         if args.publication_ids is None:
@@ -1747,5 +1750,5 @@ if __name__ == "__main__":
                                                            is_multilingual=args.is_multilingual,
                                                            use_xslt_processing=args.use_xslt_processing)
             else:
-                logger.error(f"{args.project} is not in the API configuration or lacks 'comments_database' setting, aborting...")
+                logger.error("%s is not in the API configuration or lacks 'comments_database' setting, aborting...", args.project)
                 sys.exit(1)
