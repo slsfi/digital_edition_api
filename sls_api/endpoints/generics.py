@@ -596,7 +596,17 @@ def transform_xml(
         return str(result)
 
 
-def get_content(project, folder, xml_filename, xsl_filename, parameters):
+def get_transformed_xml_content_with_caching(
+        project: str,
+        folder: str,
+        xml_filename: str,
+        xsl_filename: str,
+        parameters
+) -> str:
+    """
+    Transforms the given XML file with the given XSLT stylesheet and returns
+    the result as a string. The result is cached.
+    """
     project_config = get_project_config(project)
     if project_config is None:
         return "No such project."
@@ -670,14 +680,14 @@ def get_content(project, folder, xml_filename, xsl_filename, parameters):
     return content
 
 
-def get_prerendered_content(
+def get_prerendered_html_content(
         project_config,
-        text_type: str,
-        filename: str
+        collection_text_type: str,
+        html_filename: str
 ) -> Optional[str]:
     """
-    Returns the prerenderd HTML content of the given file, or None if
-    the content is not available for some reason.
+    Returns the content of the given prerenderd HTML file, or None if
+    an error occurs.
     """
     file_root = project_config.get("file_root")
     if file_root is None:
@@ -685,11 +695,11 @@ def get_prerendered_content(
 
     file_path = safe_join(file_root,
                           PRERENDERED_HTML_PATH_IN_FILE_ROOT,
-                          text_type,
-                          filename)
+                          collection_text_type,
+                          html_filename)
 
     if file_path is None:
-        logger.warning("safe_join returned None for path %r", filename)
+        logger.warning("safe_join returned None for path %r", html_filename)
         return None
 
     try:
@@ -943,7 +953,20 @@ def get_translation_text_id(translation_id, table_name, field_name, language):
         return None
 
 
-def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
+def get_xml_content(
+        project: str,
+        folder: str,
+        xml_filename: str,
+        xsl_filename: Optional[str],
+        parameters
+) -> str:
+    """
+    Transforms the given XML file with the given XSLT stylesheet and
+    returns the result as a string. No caching of the result.
+
+    If the XSLT filename is `None`, the content of the XML file is
+    returned untransformed.
+    """
     project_config = get_project_config(project)
     if project_config is None:
         return "No such project."
@@ -953,8 +976,8 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
     else:
         xsl_file_path = None
 
-    if os.path.exists(xml_file_path):
-        logger.info("Getting contents from file ...")
+    if os.path.isfile(xml_file_path):
+        logger.info(f"Transforming {xml_file_path} with {xsl_filename}")
         if xsl_file_path is not None:
             try:
                 use_saxon_xslt = project_config.get("use_saxon_xslt", False)
@@ -971,7 +994,7 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
                 content += str(e)
         else:
             try:
-                with io.open(xml_file_path, encoding="UTF-8") as xml_file:
+                with open(xml_file_path, encoding="utf-8-sig") as xml_file:
                     content = xml_file.read()
             except Exception as e:
                 logger.exception("Error opening/reading XML file")
@@ -982,8 +1005,11 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
     return content
 
 
-# Recursive function for flattening the given json, i.e. turning it into a one dimensional array, which is stored in "flattened"
 def flatten_json(json, flattened):
+    """
+    Recursive function for flattening the given json, i.e. turning it into
+    a one dimensional array, which is stored in "flattened".
+    """
     if json is not None:
         if json.get('children') is not None:
             for i in range(len(json['children'])):
@@ -992,10 +1018,20 @@ def flatten_json(json, flattened):
                 flatten_json(json['children'][i], flattened)
 
 
-# Searches the given array of toc items for the first one that has an itemId value and a type value other than "subtitle" and "section_title"
 def get_first_valid_item_from_toc(flattened_toc):
+    """
+    Searches the given array of toc items for the first one that has an
+    `itemId` value and a type value other than `subtitle` and
+    `section_title`.
+    """
     for i in range(len(flattened_toc)):
-        if flattened_toc[i].get('itemId') is not None and flattened_toc[i].get('itemId') != '' and flattened_toc[i].get('type') is not None and flattened_toc[i].get('type') != 'subtitle' and flattened_toc[i].get('type') != 'section_title':
+        if (
+            flattened_toc[i].get('itemId') is not None and
+            flattened_toc[i].get('itemId') != '' and
+            flattened_toc[i].get('type') is not None and
+            flattened_toc[i].get('type') != 'subtitle' and
+            flattened_toc[i].get('type') != 'section_title'
+        ):
             return flattened_toc[i]
     return {}
 

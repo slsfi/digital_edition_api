@@ -4,9 +4,10 @@ import sqlalchemy
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, \
-    get_collection_published_status, get_content, get_xml_content, \
-    get_prerendered_content, get_project_config, get_published_status, \
-    get_collection_legacy_id
+    get_collection_legacy_id, get_collection_published_status, \
+    get_prerendered_html_content, get_project_config, get_published_status, \
+    get_xml_content, get_transformed_xml_content_with_caching, \
+    is_valid_language
 
 text = Blueprint('text', __name__)
 logger = logging.getLogger("sls_api.text")
@@ -41,7 +42,7 @@ def get_text_by_type(project, text_type, text_id):
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/inl")
 @text.route("/<project>/text/<collection_id>/<publication_id>/inl/<lang>")
-def get_introduction(project, collection_id, publication_id, lang="swe"):
+def get_introduction(project, collection_id, publication_id, lang="sv"):
     """
     Get introduction text for a given collection.
 
@@ -56,28 +57,40 @@ def get_introduction(project, collection_id, publication_id, lang="swe"):
     can_show, message = get_collection_published_status(project, collection_id)
     if not can_show:
         return jsonify({
-            "id": f"{collection_id}_{publication_id}_inl",
+            "id": f"{collection_id}_inl",
             "error": message
         }), 403
 
-    # logger.info("Getting XML for {} and transforming...".format(request.full_path))
+    if not is_valid_language(lang):
+        return jsonify({
+            "id": f"{collection_id}_inl",
+            "error": "Invalid language parameter."
+        }), 400
 
     version = "int" if config.get("show_internally_published") else "ext"
     filename_stem = f"{collection_id}_inl_{lang}_{version}"
     content = None
+    used_source = None
 
     if config.get("prerender_xml", False):
-        filename = f"{filename_stem}.html"
-        content = get_prerendered_content(config, "inl", filename)
+        html_filename = f"{filename_stem}.html"
+        content = get_prerendered_html_content(config, "inl", html_filename)
+        if content is not None:
+            used_source = "prerendered"
 
     if content is None:
-        filename = f"{filename_stem}.xml"
+        xml_filename = f"{filename_stem}.xml"
         xsl_file = "introduction.xsl"
-        content = get_content(project, "inl", filename, xsl_file, None)
+        content = get_transformed_xml_content_with_caching(
+            project, "inl", xml_filename, xsl_file, None
+        )
         content = content.replace(" id=", " data-id=")
+        used_source = "transformed"
+
+    logger.info("Served %s introduction for %s", used_source, request.full_path)
 
     data = {
-        "id": f"{collection_id}_{publication_id}_inl",
+        "id": f"{collection_id}_inl",
         "content": content
     }
     return jsonify(data), 200
@@ -100,7 +113,7 @@ def get_title(project, collection_id, publication_id, lang="swe"):
             # TODO get original_filename from publication_collection_title table? how handle language/version
             filename = "{}_tit_{}_{}.xml".format(collection_id, lang, version)
             xsl_file = "title.xsl"
-            content = get_content(project, "tit", filename, xsl_file, None)
+            content = get_transformed_xml_content_with_caching(project, "tit", filename, xsl_file, None)
             data = {
                 "id": "{}_{}_tit".format(collection_id, publication_id),
                 "content": content.replace(" id=", " data-id=")
@@ -130,7 +143,7 @@ def get_foreword(project, collection_id, lang="sv"):
             # TODO get original_filename from database table? how handle language/version
             filename = "{}_fore_{}_{}.xml".format(collection_id, lang, version)
             xsl_file = "foreword.xsl"
-            content = get_content(project, "fore", filename, xsl_file, None)
+            content = get_transformed_xml_content_with_caching(project, "fore", filename, xsl_file, None)
             data = {
                 "id": "{}_fore".format(collection_id),
                 "content": content.replace(" id=", " data-id=")
@@ -173,7 +186,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         if section_id is not None:
             xslt_params["sectionId"] = str(section_id)
 
-        content = get_content(project, "est", filename, xsl_file, xslt_params)
+        content = get_transformed_xml_content_with_caching(project, "est", filename, xsl_file, xslt_params)
 
         select = "SELECT language FROM publication WHERE id = :p_id"
         statement = sqlalchemy.sql.text(select).bindparams(p_id=publication_id)
@@ -240,7 +253,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
             if section_id is not None:
                 xslt_params["sectionId"] = str(section_id)
 
-            content = get_content(project, "com", filename, xsl_file, xslt_params)
+            content = get_transformed_xml_content_with_caching(project, "com", filename, xsl_file, xslt_params)
 
             data = {
                 "id": "{}_{}_com".format(collection_id, publication_id),
@@ -365,11 +378,11 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
             filename = f"{collection_id}_{publication_id}_ms_{manuscript['id']}.xml"
 
         # Apply transformations
-        manuscript["manuscript_changes"] = get_content(
+        manuscript["manuscript_changes"] = get_transformed_xml_content_with_caching(
             project, "ms", filename, "ms_changes.xsl", xslt_params
         ).replace(" id=", " data-id=")
 
-        manuscript["manuscript_normalized"] = get_content(
+        manuscript["manuscript_normalized"] = get_transformed_xml_content_with_caching(
             project, "ms", filename, "ms_normalized.xsl", xslt_params
         ).replace(" id=", " data-id=")
 
@@ -418,7 +431,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
             else:
                 filename = "{}_{}_var_{}.xml".format(collection_id, publication_id, variation["id"])
 
-            variation_info[index]["content"] = get_content(project, "var", filename, xsl_file, xslt_params)
+            variation_info[index]["content"] = get_transformed_xml_content_with_caching(project, "var", filename, xsl_file, xslt_params)
 
         data = {
             "id": "{}_{}_var".format(collection_id, publication_id),
