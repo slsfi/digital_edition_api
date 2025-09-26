@@ -1313,11 +1313,15 @@ def check_publication_mtimes_and_publish_files(
             # might have changed since last time. Otherwise, render est HTML if
             # the est web XML file was changed or the XSLT is newer than the
             # web XML file.
+            # * Note! Prerendering is currently not supported for multilingual
+            # * established texts.
             if (
-                force_publish or
-                est_target_file_path in xml_changes or
-                xml_to_html_xslt_modified_after_xml(
-                    est_target_file_path, "est", file_root
+                not is_multilingual and (
+                    force_publish or
+                    est_target_file_path in xml_changes or
+                    xml_to_html_xslt_modified_after_xml(
+                        est_target_file_path, "est", file_root
+                    )
                 )
             ):
                 # prerender est

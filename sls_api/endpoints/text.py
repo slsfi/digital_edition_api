@@ -5,7 +5,7 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, \
     get_collection_legacy_id, get_collection_published_status, \
-    get_prerendered_html_content, get_project_config, get_published_status, \
+    get_project_config, get_published_status, \
     get_xml_content, get_transformed_xml_content_with_caching, \
     is_valid_language, get_frontmatter_page_content
 
