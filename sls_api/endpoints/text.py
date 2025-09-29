@@ -313,7 +313,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
             xsl_path=xsl_path,
             xslt_parameters=xslt_params
         )
-        logger.info("Served single note from comments for %s", used_source, request.full_path)
+        logger.info("Served single note from comments for %s", request.full_path)
     else:
         if section_id is not None:
             xslt_params["sectionId"] = str(section_id)
