@@ -421,7 +421,11 @@ def cache_is_recent(source_file, xsl_file, cache_file):
     return True
 
 
-def get_published_status(project, collection_id, publication_id):
+def get_published_status(
+        project: str,
+        collection_id: str,
+        publication_id: Optional[str] = None
+) -> Tuple[bool, str]:
     """
     Returns info on if project, publication_collection, and publication are all published
     Returns two values:
@@ -433,15 +437,18 @@ def get_published_status(project, collection_id, publication_id):
     """
     project_config = get_project_config(project)
     if project_config is None:
-        return False, "No such project."
+        return False, f"The project '{project}' does not exist."
 
-    collection_id_int = int_or_none(collection_id)
-    if collection_id_int is None or collection_id_int < 1:
-        return False, "No such collection_id."
+    if project_config.get("file_root") is None:
+        return False, f"File root missing from project config."
 
-    publication_id_int = int_or_none(publication_id)
-    if publication_id_int is None or publication_id_int < 1:
-        return False, "No such publication_id."
+    c_id = int_or_none(collection_id)
+    if c_id is None or c_id < 1:
+        return False, "Invalid collection_id."
+
+    p_id = int_or_none(publication_id)
+    if publication_id is not None and (p_id is None or p_id < 1):
+        return False, "Invalid publication_id."
 
     connection = db_engine.connect()
     stmt = """SELECT project.published AS proj_pub, publication_collection.published AS col_pub, publication.published as pub
@@ -452,7 +459,7 @@ def get_published_status(project, collection_id, publication_id):
     AND publication.publication_collection_id = publication_collection.id
     AND project.name = :project AND publication_collection.id = :c_id AND (publication.id = :p_id OR split_part(publication.legacy_id, '_', 2) = :str_p_id)
     """
-    statement = text(stmt).bindparams(project=project, c_id=collection_id_int, p_id=publication_id_int, str_p_id=str(publication_id))
+    statement = text(stmt).bindparams(project=project, c_id=c_id, p_id=p_id, str_p_id=str(publication_id))
     result = connection.execute(statement)
     show_internal = project_config["show_internally_published"]
     can_show = False

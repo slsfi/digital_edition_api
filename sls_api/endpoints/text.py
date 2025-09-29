@@ -57,7 +57,7 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
 
     can_show, message = get_collection_published_status(project, collection_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     if not is_valid_language(lang):
         return jsonify({
@@ -94,7 +94,7 @@ def get_title(project, collection_id, publication_id, lang="sv"):
 
     can_show, message = get_collection_published_status(project, collection_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     if not is_valid_language(lang):
         return jsonify({
@@ -127,7 +127,7 @@ def get_foreword(project, collection_id, lang="sv"):
 
     can_show, message = get_collection_published_status(project, collection_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     if not is_valid_language(lang):
         return jsonify({
@@ -161,7 +161,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
 
     can_show, message = get_published_status(project, collection_id, publication_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     if language is not None and not is_valid_language(language):
         return jsonify({
@@ -234,7 +234,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         "content": content,
         "language": row["language"] or ""
     }
-    return jsonify(data), 200   
+    return jsonify(data), 200
 
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/com")
@@ -249,7 +249,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
 
     can_show, message = get_published_status(project, collection_id, publication_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     try:
         comment_table = get_table("publication_comment")
@@ -400,7 +400,7 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
 
     can_show, message = get_published_status(project, collection_id, publication_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     try:
         ms_table = get_table("publication_manuscript")
@@ -465,7 +465,7 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
                          used_source, manuscript["id"], request.full_path)
 
     logger.info("Served manuscripts for %s", request.full_path)
-    return jsonify({ "id": resp_id, "manuscripts": manuscripts_list }), 200
+    return jsonify({"id": resp_id, "manuscripts": manuscripts_list}), 200
 
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/var/")
@@ -480,7 +480,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
 
     can_show, message = get_published_status(project, collection_id, publication_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     try:
         var_table = get_table("publication_version")
@@ -536,10 +536,10 @@ def get_variant(project, collection_id, publication_id, section_id=None):
         )
         variant["content"] = content
         logger.debug("Fetched %s variant with id %s for %s",
-                        used_source, variant["id"], request.full_path)
+                     used_source, variant["id"], request.full_path)
 
     logger.info("Served variants for %s", request.full_path)
-    return jsonify({ "id": resp_id, "variations": variants_list }), 200
+    return jsonify({"id": resp_id, "variations": variants_list}), 200
 
 
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/inl")
@@ -560,7 +560,7 @@ def get_introduction_downloadable_format(project, format, collection_id, lang="s
 
     can_show, message = get_collection_published_status(project, collection_id)
     if not can_show:
-        return jsonify({ "id": resp_id, "error": message }), 403
+        return jsonify({"id": resp_id, "error": message}), 403
 
     logger.info("Getting XML for %s and transforming...", request.full_path)
     version = "int" if config["show_internally_published"] else "ext"
