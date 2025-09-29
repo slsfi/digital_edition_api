@@ -14,7 +14,8 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
     changed_by_size_or_hash, file_fingerprint, get_project_id_from_name, \
-    int_or_none, get_table, transform_xml, PRERENDERED_HTML_PATH_IN_FILE_ROOT
+    int_or_none, get_table, transform_xml, PRERENDERED_HTML_PATH_IN_PROJECT_ROOT, \
+    XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -29,38 +30,16 @@ projects = [project for project in config if isinstance(config[project], dict)]
 # Initialize a cache for collection legacy ids for fast lookups
 collection_legacy_id_cache: Dict[int, Optional[str]] = {}
 
-EST_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-est.xsl"
-COM_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-com.xsl"
-MS_WEB_XML_XSL_PATH_IN_FILE_ROOT = "xslt/publisher/generate-web-xml-ms.xsl"
 LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT = "xslt/comment_html_to_tei.xsl"
 COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT = "templates/comment.xml"
 
-TEXT_TYPE_TO_WEB_XML_XSL_MAP = {
-    "est": EST_WEB_XML_XSL_PATH_IN_FILE_ROOT,
-    "com": COM_WEB_XML_XSL_PATH_IN_FILE_ROOT,
-    "ms": MS_WEB_XML_XSL_PATH_IN_FILE_ROOT
-}
-
-EST_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/est.xsl"
-COM_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/com.xsl"
-MS_CHANGES_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/ms_changes.xsl"
-MS_NORM_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/ms_normalized.xsl"
-VAR_BASE_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/poem_variants_est.xsl"
-VAR_OTHER_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/poem_variants_other.xsl"
-TIT_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/title.xsl"
-FORE_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/foreword.xsl"
-INTRO_HTML_XSL_PATH_IN_FILE_ROOT = "xslt/introduction.xsl"
-
-TEXT_TYPE_TO_HTML_XSL_MAP = {
-    "est": EST_HTML_XSL_PATH_IN_FILE_ROOT,
-    "com": COM_HTML_XSL_PATH_IN_FILE_ROOT,
-    "ms_changes": MS_CHANGES_HTML_XSL_PATH_IN_FILE_ROOT,
-    "ms_normalized": MS_NORM_HTML_XSL_PATH_IN_FILE_ROOT,
-    "var_base": VAR_BASE_HTML_XSL_PATH_IN_FILE_ROOT,
-    "var_other": VAR_OTHER_HTML_XSL_PATH_IN_FILE_ROOT,
-    "tit": TIT_HTML_XSL_PATH_IN_FILE_ROOT,
-    "fore": FORE_HTML_XSL_PATH_IN_FILE_ROOT,
-    "inl": INTRO_HTML_XSL_PATH_IN_FILE_ROOT
+# Map of paths to XSLT stylesheets for web XML transformations for
+# different text types. The paths to the XSLT stylesheets are relative
+# to the project root.
+XSL_PATH_MAP_FOR_PUBLISHING = {
+    "com": "xslt/publisher/generate-web-xml-com.xsl",
+    "est": "xslt/publisher/generate-web-xml-est.xsl",
+    "ms": "xslt/publisher/generate-web-xml-ms.xsl"
 }
 
 
@@ -269,13 +248,13 @@ def compile_xslt_stylesheets(
 
     if xml_to_html_stylesheets:
         # Stylesheets for web XML to HTML transformation
-        xsl_map = TEXT_TYPE_TO_HTML_XSL_MAP
+        xsl_map = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS
     else:
         # Stylesheets for web XML transformation
-        xsl_map = TEXT_TYPE_TO_WEB_XML_XSL_MAP
+        xsl_map = XSL_PATH_MAP_FOR_PUBLISHING
 
     for type_key, xsl_path in xsl_map.items():
-        xsl_full_path = os.path.join(project_file_root, xsl_path)
+        xsl_full_path = safe_join(project_file_root, xsl_path)
 
         if os.path.isfile(xsl_full_path) and xslt_proc is not None:
             try:
@@ -385,7 +364,7 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
     Generates published est and com files using XSLT processing.
     """
     if xslt_execs["est"] is None:
-        logger.warning("XSLT executable for 'est' is missing. '%s' is invalid or does not exist in project root.", EST_WEB_XML_XSL_PATH_IN_FILE_ROOT)
+        logger.warning("XSLT executable for 'est' is missing. '%s' is invalid or does not exist in project root.", XSL_PATH_MAP_FOR_PUBLISHING.get("est"))
         # Don't raise an exception here in case the XSLT for est is
         # intentionally missing, for example if the project doesn't
         # have est files. This still allows com files to be processed.
@@ -422,7 +401,7 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
         return
 
     if xslt_execs["com"] is None:
-        logger.warning("XSLT executable for 'com' is missing. '%s' is invalid or does not exist in project root. Comment file not generated.", COM_WEB_XML_XSL_PATH_IN_FILE_ROOT)
+        logger.warning("XSLT executable for 'com' is missing. '%s' is invalid or does not exist in project root. Comment file not generated.", XSL_PATH_MAP_FOR_PUBLISHING.get("com"))
         # Don't raise an exception here so the est file can still be committed.
         return
 
@@ -477,7 +456,8 @@ def process_var_documents_and_generate_files(main_var_doc, main_var_path, var_do
     # First, compare the main variant against all other variants
     main_var_doc.ProcessVariants(var_docs)
     if publication_info is not None:
-        main_var_doc.SetMetadata(publication_info['original_publication_date'], publication_info['p_id'], publication_info['name'],
+        main_var_doc.SetMetadata(publication_info['original_publication_date'],
+                                 publication_info['p_id'], publication_info['name'],
                                  publication_info['genre'], 'com', publication_info['c_id'], publication_info['publication_group_id'])
     # Then save main variant web XML file
     main_var_doc.Save(main_var_path)
@@ -499,7 +479,8 @@ def generate_ms_file(master_file_path, target_file_path, publication_info):
         raise ex
 
     if publication_info is not None:
-        ms_document.SetMetadata(publication_info['original_publication_date'], publication_info['p_id'], publication_info['name'],
+        ms_document.SetMetadata(publication_info['original_publication_date'],
+                                publication_info['p_id'], publication_info['name'],
                                 publication_info['genre'], 'ms', publication_info['c_id'], publication_info['publication_group_id'])
     ms_document.Save(target_file_path)
 
@@ -514,7 +495,7 @@ def generate_ms_file_with_xslt(publication_info: Optional[Dict[str, Any]],
     """
     try:
         if xslt_execs["ms"] is None:
-            logger.error("XSLT executable for 'ms' is missing. '%s' is invalid or does not exist in project root.", MS_WEB_XML_XSL_PATH_IN_FILE_ROOT)
+            logger.error("XSLT executable for 'ms' is missing. '%s' is invalid or does not exist in project root.", XSL_PATH_MAP_FOR_PUBLISHING.get("ms"))
             raise ValueError("XSLT executable for 'ms' is missing.")
 
         ms_document = SaxonXMLDocument(saxon_proc, xml_filepath=source_file_path)
@@ -571,7 +552,7 @@ def xml_to_html_xslt_modified_after_xml(
         xml_mtime = os.path.getmtime(xml_filepath)
 
         for xt in xsl_text_types:
-            xsl_file = TEXT_TYPE_TO_HTML_XSL_MAP.get(xt)
+            xsl_file = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS.get(xt)
             xsl_file = (
                 safe_join(file_root, xsl_file)
                 if xsl_file is not None
@@ -868,7 +849,7 @@ def prerender_xml_to_html(
             )
             html_filename = f"{type_filename}{ch_filename_suffix}.html"
             html_filepath = safe_join(project_file_root,
-                                      PRERENDERED_HTML_PATH_IN_FILE_ROOT,
+                                      PRERENDERED_HTML_PATH_IN_PROJECT_ROOT,
                                       text_type,
                                       html_filename)
 
@@ -895,7 +876,7 @@ def prerender_xml_to_html(
                 if text_type != "var"
                 else ("var_base" if var_type == 1 else "var_other")
             )
-            xsl_filepath = TEXT_TYPE_TO_HTML_XSL_MAP.get(text_type_key)
+            xsl_filepath = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS.get(text_type_key)
             xsl_filepath = (
                 safe_join(project_file_root, xsl_filepath)
                 if xsl_filepath is not None
