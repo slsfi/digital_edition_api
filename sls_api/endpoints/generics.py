@@ -440,7 +440,7 @@ def get_published_status(
         return False, f"The project '{project}' does not exist."
 
     if project_config.get("file_root") is None:
-        return False, f"File root missing from project config."
+        return False, f"File root missing from '{project}' project config."
 
     c_id = int_or_none(collection_id)
     if c_id is None or c_id < 1:
@@ -498,7 +498,7 @@ def get_collection_published_status(project, collection_id):
     project_config = get_project_config(project)
     if project_config is None:
         return False, "No such project."
-    
+
     collection_id_int = int_or_none(collection_id)
     if collection_id_int is None or collection_id_int < 1:
         return False, "No such collection_id."
