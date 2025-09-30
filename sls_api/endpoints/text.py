@@ -77,10 +77,7 @@ def get_frontmatter(project, collection_id, text_type, lang="sv"):
         return jsonify({"id": resp_id, "error": "Invalid text type."}), 400
 
     if not is_valid_language(lang):
-        return jsonify({
-            "id": resp_id,
-            "error": "Invalid language."
-        }), 400
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, _ = get_published_status(project, collection_id)
     if not can_show:
@@ -111,10 +108,7 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
     resp_id = f"{collection_id}_{text_type}"
 
     if not is_valid_language(lang):
-        return jsonify({
-            "id": resp_id,
-            "error": "Invalid language parameter."
-        }), 400
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, _ = get_published_status(project, collection_id)
     if not can_show:
@@ -144,10 +138,7 @@ def get_title(project, collection_id, publication_id, lang="sv"):
     resp_id = f"{collection_id}_{text_type}"
 
     if not is_valid_language(lang):
-        return jsonify({
-            "id": resp_id,
-            "error": "Invalid language parameter."
-        }), 400
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, _ = get_published_status(project, collection_id)
     if not can_show:
@@ -173,10 +164,7 @@ def get_foreword(project, collection_id, lang="sv"):
     resp_id = f"{collection_id}_{text_type}"
 
     if not is_valid_language(lang):
-        return jsonify({
-            "id": resp_id,
-            "error": "Invalid language parameter."
-        }), 400
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, _ = get_published_status(project, collection_id)
     if not can_show:
@@ -203,10 +191,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
     resp_id = f"{collection_id}_{publication_id}_{text_type}"
 
     if language is not None and not is_valid_language(language):
-        return jsonify({
-            "id": resp_id,
-            "error": "Invalid language parameter."
-        }), 400
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, c_legacy_id = get_published_status(project,
                                                           collection_id,
@@ -219,11 +204,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
 
         with db_engine.connect() as connection:
             statement = (
-                select(
-                    publication_table.c.legacy_id,
-                    publication_table.c.original_filename,
-                    publication_table.c.language
-                )
+                select(publication_table.c.language)
                 .where(publication_table.c.id == int(publication_id))
                 .where(publication_table.c.deleted < 1)
             )
@@ -239,24 +220,14 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
     if row is None:
         return jsonify({"id": resp_id, "error": "Content does not exist."}), 404
 
-    # TODO: check projects if we really need to support this filename-by-legacy_id thing.
-    if (
-        row["original_filename"] is not None or
-        row["legacy_id"] is None or
-        language is not None
-    ):
-        filename_stem = (f"{collection_id}_{publication_id}"
-                         if language is None
-                         else f"{collection_id}_{publication_id}_{language}")
-    else:
-        filename_stem = f"{row['legacy_id']}"
-    filename_stem = f"{filename_stem}_{text_type}"
+    filename_stem = (f"{collection_id}_{publication_id}_{text_type}"
+                        if language is None
+                        else f"{collection_id}_{publication_id}_{language}_{text_type}")
     logger.debug("Reading text filename stem for publication %s is %s",
                  publication_id, filename_stem)
 
-    xslt_params = {
-        "bookId": str(c_legacy_id or collection_id)
-    }
+    xslt_params = {"bookId": str(c_legacy_id or collection_id)}
+
     if section_id is not None:
         xslt_params["sectionId"] = str(section_id)
 
@@ -281,10 +252,10 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
 @text.route("/<project>/text/<collection_id>/<publication_id>/com/<note_id>/<section_id>")
 def get_comments(project, collection_id, publication_id, note_id=None, section_id=None):
     """
-    Get comments file text for a given publication.
+    Get comments text for a given publication.
     """
-    text_type_key = "com"
-    resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
+    text_type = "com"
+    resp_id = f"{collection_id}_{publication_id}_{text_type}"
 
     can_show, message, c_legacy_id = get_published_status(project,
                                                           collection_id,
@@ -298,10 +269,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
 
         with db_engine.connect() as connection:
             statement = (
-                select(
-                    comment_table.c.legacy_id,
-                    comment_table.c.original_filename
-                )
+                select(comment_table.c.published)
                 .select_from(
                     comment_table.join(
                         publication_table,
@@ -314,7 +282,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
             )
             row = connection.execute(statement).mappings().first()
     except Exception:
-        logger.exception("Unexpected error getting comment data from the database for %s",
+        logger.exception("Unexpected error getting comment data for %s",
                          request.full_path)
         return jsonify({
             "id": resp_id,
@@ -323,11 +291,12 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
 
     if row is None:
         return jsonify({"id": resp_id, "error": "Content does not exist."}), 404
+    # TODO: Ideally we would here check that the published value of the comment
+    # record makes the comment showable. But we can't introduce a check like
+    # that for the moment because all projects don't necessarily have correct
+    # published values for their comments as it hasn't been enforced.
 
-    if row["legacy_id"] is not None and row["original_filename"] is None:
-        filename_stem = f"{row['legacy_id']}_{text_type_key}"
-    else:
-        filename_stem = f"{collection_id}_{publication_id}_{text_type_key}"
+    filename_stem = f"{collection_id}_{publication_id}_{text_type}"
     logger.debug("Comment filename stem for publication %s is %s",
                  publication_id, filename_stem)
 
@@ -345,7 +314,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
         xsl_path = "xslt/notes.xsl"
         content = get_transformed_xml_content_with_caching(
             project=project,
-            base_text_type=text_type_key,
+            base_text_type=text_type,
             xml_filename=f"{filename_stem}.xml",
             xsl_path=xsl_path,
             xslt_parameters=xslt_params
@@ -356,7 +325,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
             xslt_params["sectionId"] = str(section_id)
 
         content, used_source = get_prerendered_or_transformed_xml_content(
-            text_type=text_type_key,
+            text_type=text_type,
             filename_stem=filename_stem,
             project=project,
             config=config,
@@ -373,8 +342,8 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
     """
     Get a list of metadata of all manuscripts for a given publication.
     """
-    text_type_key = "ms"
-    resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
+    text_type = "ms"
+    resp_id = f"{collection_id}_{publication_id}_{text_type}"
 
     can_show, message, _ = get_published_status(project,
                                                 collection_id,
@@ -409,13 +378,14 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
             rows = connection.execute(statement).mappings().all()
             manuscripts_list = [dict(r) for r in rows]
     except Exception:
-        logger.exception("Unexpected error getting list of manuscripts from the database for %s",
+        logger.exception("Unexpected error getting list of manuscripts for %s",
                          request.full_path)
         return jsonify({
             "id": resp_id,
             "error": "Unexpected error getting list of manuscripts."
         }), 500
 
+    logger.info("Served manuscripts list for %s", request.full_path)
     data = {"id": resp_id, "manuscripts": manuscripts_list}
     return jsonify(data), 200
 
@@ -442,8 +412,8 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     manuscripts are returned but only the section of them marked with `section_id`
     (generally this case should not happen).
     """
-    text_type_key = "ms"
-    resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
+    text_type = "ms"
+    resp_id = f"{collection_id}_{publication_id}_{text_type}"
 
     can_show, message, c_legacy_id = get_published_status(project,
                                                           collection_id,
@@ -487,9 +457,12 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
             "error": "Unexpected error getting manuscript data."
         }), 500
 
-    xslt_params = {
-        "bookId": str(c_legacy_id or collection_id)
-    }
+    # TODO: Ideally we would here check that the published values of the
+    # manuscripts make them showable. But we can't introduce a check like
+    # that for the moment because all projects don't necessarily have correct
+    # published values for their manuscripts as it hasn't been enforced.
+
+    xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
     if section_id is not None:
         xslt_params['sectionId'] = str(section_id)
@@ -499,13 +472,10 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     for manuscript in manuscripts_list:
         ms_versions = ["changes", "normalized"]
         for ms_version in ms_versions:
-            if manuscript["original_filename"] is None and manuscript["legacy_id"]:
-                filename_stem = f"{manuscript['legacy_id']}"
-            else:
-                filename_stem = f"{collection_id}_{publication_id}_{text_type_key}_{ms_version}_{manuscript['id']}"
+            filename_stem = f"{collection_id}_{publication_id}_{text_type}_{ms_version}_{manuscript['id']}"
 
             content, used_source = get_prerendered_or_transformed_xml_content(
-                text_type=f"{text_type_key}_{ms_version}",
+                text_type=f"{text_type}_{ms_version}",
                 filename_stem=filename_stem,
                 project=project,
                 config=None,
@@ -526,8 +496,8 @@ def get_variant(project, collection_id, publication_id, section_id=None):
     Get all variants for a given publication, optionally specifying a
     section (chapter).
     """
-    text_type_key = "var"
-    resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
+    text_type = "var"
+    resp_id = f"{collection_id}_{publication_id}_{text_type}"
 
     can_show, message, c_legacy_id = get_published_status(project,
                                                           collection_id,
@@ -564,23 +534,22 @@ def get_variant(project, collection_id, publication_id, section_id=None):
             "error": "Unexpected error getting variant data."
         }), 500
 
-    xslt_params = {
-        "bookId": str(c_legacy_id or collection_id)
-    }
+    # TODO: Ideally we would here check that the published values of the
+    # variants make them showable. But we can't introduce a check like
+    # that for the moment because all projects don't necessarily have correct
+    # published values for their variants as it hasn't been enforced.
+
+    xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
     if section_id is not None:
         xslt_params["sectionId"] = str(section_id)
 
     for variant in variants_list:
         var_version = "base" if variant["type"] == 1 else "other"
-
-        if variant["original_filename"] is None and variant["legacy_id"] is not None:
-            filename_stem = f"{variant["legacy_id"]}"
-        else:
-            filename_stem = f"{collection_id}_{publication_id}_{text_type_key}_{variant['id']}"
+        filename_stem = f"{collection_id}_{publication_id}_{text_type}_{variant['id']}"
 
         content, used_source = get_prerendered_or_transformed_xml_content(
-            text_type=f"{text_type_key}_{var_version}",
+            text_type=f"{text_type}_{var_version}",
             filename_stem=filename_stem,
             project=project,
             config=None,
@@ -603,28 +572,34 @@ def get_introduction_downloadable_format(project, format, collection_id, lang="s
     @TODO: get original_filename from publication_collection_introduction
     table? how handle language/version
     """
-    text_type_key = "inl"
-    resp_id = f"{collection_id}_{text_type_key}"
+    valid_formats = ["txt", "xml"]
+    text_type = "inl"
+    resp_id = f"{collection_id}_{text_type}"
+
+    if format not in valid_formats:
+        return jsonify({"id": resp_id, "error": "Unsupported format."}), 400
+
+    if not is_valid_language(lang):
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, _ = get_published_status(project, collection_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
 
-    logger.info("Getting XML for %s and transforming...", request.full_path)
-
     config = get_project_config(project)
     version = "int" if config["show_internally_published"] else "ext"
-    filename = f"{collection_id}_inl_{lang}_{version}.xml"
+    xml_filename = f"{collection_id}_{text_type}_{lang}_{version}.xml"
+    xsl_filename = ("introduction_downloadable_txt.xsl"
+                    if format == "txt" else None)
 
-    if format == "xml":
-        xsl_file = None
-        content = get_xml_content(project, "inl", filename, xsl_file, None)
-        return jsonify({"id": resp_id, "content": content}), 200
-    else:
-        return jsonify({
-            "id": resp_id,
-            "error": f"Unsupported file format: {format}"
-        }), 400
+    content = get_xml_content(project,
+                              text_type,
+                              xml_filename,
+                              xsl_filename,
+                              None)
+    logger.info("Served downloadable introduction in %s format for %s",
+                format, request.full_path)
+    return jsonify({"id": resp_id, "content": content}), 200
 
 
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est-i18n/<language>")
@@ -634,20 +609,21 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
     """
     Get reading text in a downloadable format for a given publication.
     """
-    text_type_key = "est"
-    resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
+    valid_formats = ["txt", "xml"]
+    text_type = "est"
+    resp_id = f"{collection_id}_{publication_id}_{text_type}"
+
+    if format not in valid_formats:
+        return jsonify({"id": resp_id, "error": "Unsupported format."}), 400
+    
+    if language is not None and not is_valid_language(language):
+        return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
     can_show, message, c_legacy_id = get_published_status(project,
                                                           collection_id,
                                                           publication_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
-
-    if language is not None and not is_valid_language(language):
-        return jsonify({
-            "id": resp_id,
-            "error": "Invalid language parameter."
-        }), 400
 
     try:
         publication_table = get_table("publication")
@@ -670,32 +646,24 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
     if row is None:
         return jsonify({"id": resp_id, "error": "Content does not exist."}), 404
 
-    filename_stem = (f"{collection_id}_{publication_id}_{text_type_key}"
+    filename_stem = (f"{collection_id}_{publication_id}_{text_type}"
                      if language is None
-                     else f"{collection_id}_{publication_id}_{language}_{text_type_key}")
-    logger.debug("Reading text filename stem for publication %s is %s",
-                 publication_id, filename_stem)
+                     else f"{collection_id}_{publication_id}_{language}_{text_type}")
     xml_filename = f"{filename_stem}.xml"
+    xsl_filename = f"est_downloadable_{format}.xsl"
 
-    if format == "xml":
-        xsl_file = "est_downloadable_xml.xsl"
-    elif format == "txt":
-        xsl_file = "est_downloadable_txt.xsl"
-    else:
-        xsl_file = None
+    xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
-    xslt_params = {
-        "bookId": str(c_legacy_id or collection_id)
-    }
     if section_id is not None:
         xslt_params["sectionId"] = str(section_id)
 
     content = get_xml_content(project,
-                              text_type_key,
+                              text_type,
                               xml_filename,
-                              xsl_file,
+                              xsl_filename,
                               xslt_params)
-
+    logger.info("Served downloadable reading text in %s format for %s",
+                format, request.full_path)
     data = {
         "id": resp_id,
         "content": content,
@@ -710,8 +678,12 @@ def get_comments_downloadable_format(project, format, collection_id, publication
     """
     Get comments in a downloadable format for a given publication.
     """
+    valid_formats = ["txt", "xml"]
     text_type_key = "com"
     resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
+
+    if format not in valid_formats:
+        return jsonify({"id": resp_id, "error": "Unsupported format."}), 400
 
     can_show, message, c_legacy_id = get_published_status(project,
                                                           collection_id,
@@ -720,6 +692,7 @@ def get_comments_downloadable_format(project, format, collection_id, publication
         return jsonify({"id": resp_id, "error": message}), 403
 
     xml_filename = f"{collection_id}_{publication_id}_{text_type_key}.xml"
+    xsl_filename = f"com_downloadable_{format}.xsl"
 
     config = get_project_config(project)
     xslt_params = {
@@ -729,20 +702,15 @@ def get_comments_downloadable_format(project, format, collection_id, publication
                                            f"{collection_id}_{publication_id}_est.xml")}',
         "bookId": str(c_legacy_id or collection_id)
     }
+
     if section_id is not None:
         xslt_params["sectionId"] = str(section_id)
-
-    if format == "xml":
-        xsl_file = "com_downloadable_xml.xsl"
-    elif format == "txt":
-        xsl_file = "com_downloadable_txt.xsl"
-    else:
-        xsl_file = None
 
     content = get_xml_content(project,
                               text_type_key,
                               xml_filename,
-                              xsl_file,
+                              xsl_filename,
                               xslt_params)
-
+    logger.info("Served downloadable comments in %s format for %s",
+                format, request.full_path)
     return jsonify({"id": resp_id, "content": content}), 200
