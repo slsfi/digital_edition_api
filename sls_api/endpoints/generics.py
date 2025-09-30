@@ -15,7 +15,7 @@ import re
 from ruamel.yaml import YAML
 from sls_api.models import User
 from sqlalchemy import create_engine, Connection, MetaData, Table
-from sqlalchemy.sql import and_, select, text
+from sqlalchemy.sql import and_, func, or_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -425,114 +425,112 @@ def get_published_status(
         project: str,
         collection_id: str,
         publication_id: Optional[str] = None
-) -> Tuple[bool, str]:
+) -> Tuple[bool, str, Optional[str]]:
     """
-    Returns info on if project, publication_collection, and publication are all published
-    Returns two values:
-        - a boolean if the publication can be shown
-        - a message text why it can't be shown, if that is the case
+    Returns info on if project, publication_collection, and optionally
+    publication are all valid and published. Also validates that
+    collection_id and publication_id (if not None) can be converted to
+    integers.
 
-    Publications can be shown if they're externally published (published==2),
-    or if they're internally published (published==1) and show_internally_published is True
+    Returns three values:
+        - a boolean which is True if the following conditions are met:
+            - project name and config are valid
+            - collection_id and optional publication_id are valid and
+              can be converted to integers
+            - the collection/publication can be shown
+        - a message text why it can't be shown, or an empty string if
+          it can be
+        - legacy_id value of the collection
+
+    Collections/publications can be shown if they're externally
+    published (published==2), or if they're internally published
+    (published==1) and show_internally_published is True
     """
     project_config = get_project_config(project)
     if project_config is None:
-        return False, f"The project '{project}' does not exist."
+        return False, f"The project '{project}' does not exist.", None
 
     if project_config.get("file_root") is None:
-        return False, f"File root missing from '{project}' project config."
+        return False, f"File root missing from '{project}' project config.", None
 
     c_id = int_or_none(collection_id)
     if c_id is None or c_id < 1:
-        return False, "Invalid collection_id."
+        return False, "Invalid collection_id.", None
 
     p_id = int_or_none(publication_id)
     if publication_id is not None and (p_id is None or p_id < 1):
-        return False, "Invalid publication_id."
+        return False, "Invalid publication_id.", None
 
-    connection = db_engine.connect()
-    stmt = """SELECT project.published AS proj_pub, publication_collection.published AS col_pub, publication.published as pub
-    FROM project
-    JOIN publication_collection ON publication_collection.project_id = project.id
-    JOIN publication ON publication.publication_collection_id = publication_collection.id
-    WHERE project.id = publication_collection.project_id
-    AND publication.publication_collection_id = publication_collection.id
-    AND project.name = :project AND publication_collection.id = :c_id AND (publication.id = :p_id OR split_part(publication.legacy_id, '_', 2) = :str_p_id)
-    """
-    statement = text(stmt).bindparams(project=project, c_id=c_id, p_id=p_id, str_p_id=str(publication_id))
-    result = connection.execute(statement)
+    try:
+        project_table = get_table("project")
+        collection_table = get_table("publication_collection")
+        publication_table = get_table("publication")
+
+        with db_engine.connect() as connection:
+            cols = [
+                project_table.c.published.label("proj_pub"),
+                collection_table.c.published.label("col_pub"),
+                collection_table.c.legacy_id.label("col_legacy_id"),
+            ]
+
+            from_clause = project_table.join(
+                collection_table,
+                collection_table.c.project_id == project_table.c.id,
+            )
+
+            wheres = [
+                project_table.c.name == str(project),
+                collection_table.c.id == c_id,
+                project_table.c.deleted < 1,
+                collection_table.c.deleted < 1
+            ]
+
+            if publication_id is not None:
+                cols.append(publication_table.c.published.label("pub"))
+
+                from_clause = from_clause.join(
+                    publication_table,
+                    publication_table.c.publication_collection_id == collection_table.c.id
+                )
+
+                wheres += [
+                    publication_table.c.deleted < 1,
+                    or_(
+                        publication_table.c.id == p_id,
+                        func.split_part(publication_table.c.legacy_id, "_", 2) == str(publication_id)
+                    )
+                ]
+
+            statement = select(*cols).select_from(from_clause).where(*wheres)
+            row = connection.execute(statement).mappings().first()
+    except Exception:
+        message = "Unexpected error getting published status."
+        logger.exception(message)
+        return False, message, None
+
     show_internal = project_config["show_internally_published"]
     can_show = False
     message = ""
-    row = result.fetchone()
+    col_legacy_id = None
+
     if row is None:
-        message = "Content does not exist"
+        message = "Content does not exist."
     else:
-        if row.proj_pub is None or row.col_pub is None or row.pub is None:
-            status = -1
-        else:
-            status = min(row.proj_pub, row.col_pub, row.pub)
+        col_legacy_id = row["col_legacy_id"]
+        pub_values = [row["proj_pub"], row["col_pub"]]
+        if publication_id is not None:
+            pub_values.append(row["pub"])
+
+        status = -1 if any(v is None for v in pub_values) else min(pub_values)
+
         if status < 1:
-            message = "Content is not published"
+            message = "Content is not published."
         elif status == 1 and not show_internal:
-            message = "Content is not externally published"
+            message = "Content is not publicly available."
         else:
             can_show = True
-    connection.close()
-    return can_show, message
 
-
-def get_collection_published_status(project, collection_id):
-    """
-    @TODO: combine this function with get_published_status() above
-    since they basically do the same thing = with/without publication_id
-
-    Returns info on if project and publication_collection are published
-    Returns two values:
-        - a boolean if the collection can be shown
-        - a message text why it can't be shown, if that is the case
-
-    Collections can be shown if they're externally published (published==2),
-    or if they're internally published (published==1) and show_internally_published is True
-    """
-    project_config = get_project_config(project)
-    if project_config is None:
-        return False, "No such project."
-
-    collection_id_int = int_or_none(collection_id)
-    if collection_id_int is None or collection_id_int < 1:
-        return False, "No such collection_id."
-
-    connection = db_engine.connect()
-
-    # @TODO: getting project id here is a separate db query, modify the
-    # select below to use project name instead of id like in
-    # get_published_status()
-    project_id = get_project_id_from_name(project)
-
-    stmt = """SELECT project.published AS proj_pub, publication_collection.published AS col_pub
-    FROM project
-    JOIN publication_collection ON publication_collection.project_id = project.id
-    AND project.id = :project_id AND publication_collection.id = :c_id
-    """
-    statement = text(stmt).bindparams(project_id=project_id, c_id=collection_id)
-    result = connection.execute(statement)
-    show_internal = project_config["show_internally_published"]
-    can_show = False
-    message = ""
-    row = result.fetchone()
-    if row is None:
-        message = "Content does not exist"
-    else:
-        status = min(row.proj_pub, row.col_pub)
-        if status < 1:
-            message = "Content is not published"
-        elif status == 1 and not show_internal:
-            message = "Content is not externally published"
-        else:
-            can_show = True
-    connection.close()
-    return can_show, message
+    return can_show, message, col_legacy_id
 
 
 class FileResolver(etree.Resolver):
@@ -807,17 +805,17 @@ def get_prerendered_or_transformed_xml_content(
 
 
 def get_frontmatter_page_content(
-        text_type_key: str,
+        text_type: str,
         collection_id: str,
         language: str,
         project: str
 ) -> Tuple[str, str]:
     config = get_project_config(project)
     version = "int" if config["show_internally_published"] else "ext"
-    filename_stem = f"{collection_id}_{text_type_key}_{language}_{version}"
+    filename_stem = f"{collection_id}_{text_type}_{language}_{version}"
 
     return get_prerendered_or_transformed_xml_content(
-        text_type=text_type_key,
+        text_type=text_type,
         filename_stem=filename_stem,
         project=project,
         config=config
