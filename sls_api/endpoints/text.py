@@ -221,8 +221,8 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         return jsonify({"id": resp_id, "error": "Content does not exist."}), 404
 
     filename_stem = (f"{collection_id}_{publication_id}_{text_type}"
-                        if language is None
-                        else f"{collection_id}_{publication_id}_{language}_{text_type}")
+                     if language is None
+                     else f"{collection_id}_{publication_id}_{language}_{text_type}")
     logger.debug("Reading text filename stem for publication %s is %s",
                  publication_id, filename_stem)
 
@@ -615,7 +615,7 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
 
     if format not in valid_formats:
         return jsonify({"id": resp_id, "error": "Unsupported format."}), 400
-    
+
     if language is not None and not is_valid_language(language):
         return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
