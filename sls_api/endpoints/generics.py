@@ -14,8 +14,8 @@ import os
 import re
 from ruamel.yaml import YAML
 from sls_api.models import User
-from sqlalchemy import create_engine, Connection, MetaData, Table
-from sqlalchemy.sql import and_, func, or_, select, text
+from sqlalchemy import create_engine, Connection, MetaData, RowMapping, Table
+from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -495,10 +495,7 @@ def get_published_status(
 
                 wheres += [
                     publication_table.c.deleted < 1,
-                    or_(
-                        publication_table.c.id == p_id,
-                        func.split_part(publication_table.c.legacy_id, "_", 2) == str(publication_id)
-                    )
+                    publication_table.c.id == p_id
                 ]
 
             statement = select(*cols).select_from(from_clause).where(*wheres)
@@ -1454,3 +1451,44 @@ def lxml_escape_quotes_if_string(value: Any) -> Any:
         a string.
     """
     return etree.XSLT.strparam(value) if isinstance(value, str) else value
+
+
+def get_publication_language_row(publication_id: int) -> Optional[RowMapping]:
+    """
+    Return a RowMapping with key 'language' for the given publication,
+    excluding rows with deleted >= 1. Returns None if no row exists.
+    """
+    publication_table = get_table("publication")
+
+    with db_engine.connect() as connection:
+        statement = (
+            select(publication_table.c.language)
+            .where(publication_table.c.id == publication_id)
+            .where(publication_table.c.deleted < 1)
+        )
+        return connection.execute(statement).mappings().first()
+
+
+def get_comment_published_row(publication_id: int) -> Optional[RowMapping]:
+    """
+    Return a RowMapping with key 'published' for the comment linked to the
+    given publication, excluding rows with deleted >= 1. Returns None if
+    no row exists.
+    """
+    comment_table = get_table("publication_comment")
+    publication_table = get_table("publication")
+
+    with db_engine.connect() as connection:
+        statement = (
+            select(comment_table.c.published)
+            .select_from(
+                comment_table.join(
+                    publication_table,
+                    comment_table.c.id == publication_table.c.publication_comment_id,
+                )
+            )
+            .where(publication_table.c.id == publication_id)
+            .where(publication_table.c.deleted < 1)
+            .where(comment_table.c.deleted < 1)
+        )
+        return connection.execute(statement).mappings().first()

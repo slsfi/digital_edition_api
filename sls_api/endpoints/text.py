@@ -4,10 +4,17 @@ from sqlalchemy import select
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, \
-    get_project_config, get_published_status, get_table, \
-    get_xml_content, get_transformed_xml_content_with_caching, \
-    is_valid_language, get_frontmatter_page_content, \
-    get_prerendered_or_transformed_xml_content, int_or_none
+    get_comment_published_row, \
+    get_frontmatter_page_content, \
+    get_prerendered_or_transformed_xml_content, \
+    get_project_config, \
+    get_publication_language_row, \
+    get_published_status, \
+    get_table, \
+    get_transformed_xml_content_with_caching, \
+    get_xml_content, \
+    int_or_none, \
+    is_valid_language
 
 text = Blueprint('text', __name__)
 logger = logging.getLogger("sls_api.text")
@@ -17,8 +24,6 @@ logger = logging.getLogger("sls_api.text")
 
 @text.route("/<project>/text/<text_type>/<text_id>")
 def get_text_by_type(project, text_type, text_id):
-    logger.info("Getting text by type /%s/text/%s/%s", project, text_type, text_id)
-
     table = None
     if text_type == 'manuscript':
         table = get_table("publication_manuscript")
@@ -49,7 +54,8 @@ def get_text_by_type(project, text_type, text_id):
                          request.full_path)
         return jsonify({"error": "Unexpected error getting text by type."}), 500
 
-    return jsonify(results)
+    logger.info("Served text by type for %s", request.full_path)
+    return jsonify(results), 200
 
 
 @text.route("/<project>/frontmatter/<collection_id>/<text_type>")
@@ -200,15 +206,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        publication_table = get_table("publication")
-
-        with db_engine.connect() as connection:
-            statement = (
-                select(publication_table.c.language)
-                .where(publication_table.c.id == int(publication_id))
-                .where(publication_table.c.deleted < 1)
-            )
-            row = connection.execute(statement).mappings().first()
+        row = get_publication_language_row(int(publication_id))
     except Exception:
         logger.exception("Unexpected error getting publication data for %s",
                          request.full_path)
@@ -264,23 +262,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        comment_table = get_table("publication_comment")
-        publication_table = get_table("publication")
-
-        with db_engine.connect() as connection:
-            statement = (
-                select(comment_table.c.published)
-                .select_from(
-                    comment_table.join(
-                        publication_table,
-                        comment_table.c.id == publication_table.c.publication_comment_id,
-                    )
-                )
-                .where(publication_table.c.id == int(publication_id))
-                .where(publication_table.c.deleted < 1)
-                .where(comment_table.c.deleted < 1)
-            )
-            row = connection.execute(statement).mappings().first()
+        row = get_comment_published_row(int(publication_id))
     except Exception:
         logger.exception("Unexpected error getting comment data for %s",
                          request.full_path)
@@ -291,6 +273,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
 
     if row is None:
         return jsonify({"id": resp_id, "error": "Content does not exist."}), 404
+
     # TODO: Ideally we would here check that the published value of the comment
     # record makes the comment showable. But we can't introduce a check like
     # that for the moment because all projects don't necessarily have correct
@@ -626,15 +609,7 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        publication_table = get_table("publication")
-
-        with db_engine.connect() as connection:
-            statement = (
-                select(publication_table.c.language)
-                .where(publication_table.c.id == int(publication_id))
-                .where(publication_table.c.deleted < 1)
-            )
-            row = connection.execute(statement).mappings().first()
+        row = get_publication_language_row(int(publication_id))
     except Exception:
         logger.exception("Unexpected error getting publication data for %s",
                          request.full_path)
@@ -690,6 +665,19 @@ def get_comments_downloadable_format(project, format, collection_id, publication
                                                           publication_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
+
+    try:
+        row = get_comment_published_row(int(publication_id))
+    except Exception:
+        logger.exception("Unexpected error getting comment data for %s",
+                         request.full_path)
+        return jsonify({
+            "id": resp_id,
+            "error": "Unexpected error getting comment data."
+        }), 500
+
+    if row is None:
+        return jsonify({"id": resp_id, "error": "Content does not exist."}), 404
 
     xml_filename = f"{collection_id}_{publication_id}_{text_type_key}.xml"
     xsl_filename = f"com_downloadable_{format}.xsl"
