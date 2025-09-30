@@ -199,20 +199,20 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
     """
     Get reading text for a given publication.
     """
-    text_type_key = "est"
-    resp_id = f"{collection_id}_{publication_id}_{text_type_key}"
-
-    can_show, message, c_legacy_id = get_published_status(project,
-                                                          collection_id,
-                                                          publication_id)
-    if not can_show:
-        return jsonify({"id": resp_id, "error": message}), 403
+    text_type = "est"
+    resp_id = f"{collection_id}_{publication_id}_{text_type}"
 
     if language is not None and not is_valid_language(language):
         return jsonify({
             "id": resp_id,
             "error": "Invalid language parameter."
         }), 400
+
+    can_show, message, c_legacy_id = get_published_status(project,
+                                                          collection_id,
+                                                          publication_id)
+    if not can_show:
+        return jsonify({"id": resp_id, "error": message}), 403
 
     try:
         publication_table = get_table("publication")
@@ -250,7 +250,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
                          else f"{collection_id}_{publication_id}_{language}")
     else:
         filename_stem = f"{row['legacy_id']}"
-    filename_stem = f"{filename_stem}_{text_type_key}"
+    filename_stem = f"{filename_stem}_{text_type}"
     logger.debug("Reading text filename stem for publication %s is %s",
                  publication_id, filename_stem)
 
@@ -261,7 +261,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         xslt_params["sectionId"] = str(section_id)
 
     content, used_source = get_prerendered_or_transformed_xml_content(
-        text_type=text_type_key,
+        text_type=text_type,
         filename_stem=filename_stem,
         project=project,
         config=None,
@@ -415,7 +415,7 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
             "id": resp_id,
             "error": "Unexpected error getting list of manuscripts."
         }), 500
-    
+
     data = {"id": resp_id, "manuscripts": manuscripts_list}
     return jsonify(data), 200
 
@@ -648,7 +648,7 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
             "id": resp_id,
             "error": "Invalid language parameter."
         }), 400
-    
+
     try:
         publication_table = get_table("publication")
 
@@ -718,7 +718,7 @@ def get_comments_downloadable_format(project, format, collection_id, publication
                                                           publication_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
-    
+
     xml_filename = f"{collection_id}_{publication_id}_{text_type_key}.xml"
 
     config = get_project_config(project)
