@@ -719,12 +719,11 @@ def transform_and_save(
         return None
 
     if not use_saxon_xslt and output_format == "html":
-        # The legacy XSLT stylesheets don't control newline characters
-        # in the output, so we need to manually strip them
-        content = content.replace('\r', '').replace('\n', '')
-        # The legacy XSLT stylesheets also output @id where @data-id is
-        # required by the frontend, so replace them for applicable text
-        # types.
+        # The legacy XSLT stylesheets output @id where @data-id is
+        # required by the frontend, so replace them for applicable
+        # text types.
+        # TODO: fix this in all projects’ XSLT and then remove from here
+        # TODO: and from generics.py
         if text_type in ["est", "ms", "inl", "tit", "fore"]:
             content = content.replace(" id=", " data-id=")
 
@@ -857,9 +856,7 @@ def prerender_xml_to_html(
                 logger.error("Failed to prerender %s: unable to form safe path for output file", xml_filepath)
                 return []
 
-            xslt_params = {
-                "bookId": book_id
-            }
+            xslt_params = {"bookId": book_id}
 
             if ch_id is not None:
                 xslt_params["sectionId"] = ch_id

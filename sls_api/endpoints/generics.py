@@ -697,12 +697,11 @@ def get_transformed_xml_content_with_caching(
             )
 
             if not use_saxon_xslt:
-                # The legacy XSLT stylesheets don't control newline characters
-                # in the output, so we need to manually strip them
-                content = content.replace("\n", "").replace("\r", "")
-
-                # Also replace @id with @data-id
+                # The legacy XSLT stylesheets output @id where @data-id is
+                # required by the frontend, so replace them for applicable
+                # text types.
                 # TODO: fix this in all projects’ XSLT and then remove from here
+                # TODO: and from publisher.py
                 if base_text_type in ["est", "ms", "inl", "tit", "fore"]:
                     content = content.replace(" id=", " data-id=")
 
@@ -1081,7 +1080,7 @@ def get_xml_content(
         xsl_file_path = None
 
     if os.path.isfile(xml_file_path):
-        logger.info(f"Transforming {xml_file_path} with {xsl_filename}")
+        logger.info("Transforming %s with %s", xml_file_path, xsl_filename)
         if xsl_file_path is not None:
             try:
                 use_saxon_xslt = project_config.get("use_saxon_xslt", False)
