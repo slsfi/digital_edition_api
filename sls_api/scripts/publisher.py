@@ -24,12 +24,19 @@ from sls_api.endpoints.generics import config, db_engine, \
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
+from sls_api.logging_handlers import WarningErrorFlagHandler
 
-logging.getLogger().setLevel(logging.INFO)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+# Add handler to logger for flipping flags if errors/warnings occur,
+# so we can show a message at the end of the script run.
+logger_flags = WarningErrorFlagHandler()
+root_logger.addHandler(logger_flags)
+
 logger = logging.getLogger("publisher")
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
-# list of projects in this API (useful for if we want to process all projects)
+# List of projects in this API (useful for if we want to process all projects)
 projects = [project for project in config if isinstance(config[project], dict)]
 
 # Initialize a cache for collection legacy ids for fast lookups
@@ -46,6 +53,11 @@ XSL_PATH_MAP_FOR_PUBLISHING = {
     "est": "xslt/publisher/generate-web-xml-est.xsl",
     "ms": "xslt/publisher/generate-web-xml-ms.xsl"
 }
+
+
+def enable_debug_logging():
+    logging.getLogger().setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
 
 
 def get_comments_from_database(project, document_note_ids):
@@ -719,8 +731,8 @@ def transform_and_save(
             saxon_proc=saxon_proc,
             xslt_exec=(saxon_xslt_exec if use_saxon_xslt else None)
         )
-    except Exception:
-        logger.exception("Failed to transform %s", xml_filepath)
+    except Exception as e:
+        logger.exception("Failed to transform %s: %s", xml_filepath, e)
         return None
 
     if not use_saxon_xslt and output_format == "html":
@@ -1708,6 +1720,8 @@ def check_publication_mtimes_and_publish_files(
         frontmatter_types = ["tit", "fore", "inl"]
         for f_type in frontmatter_types:
             xml_folder = safe_join(file_root, "xml", f_type)
+            # Get file paths of all files with xml-extension in the front
+            # matter type folder
             xml_file_paths = [safe_join(xml_folder, e.name)
                               for e in os.scandir(xml_folder)
                               if e.is_file() and e.name.lower().endswith(".xml")]
@@ -1725,23 +1739,33 @@ def check_publication_mtimes_and_publish_files(
                                                       html_xslt_execs)
                     html_changes.update(html_file)
 
+    # Log a summary of warnings and errors
+    if logger_flags.had_warning and logger_flags.had_error:
+        logger.info("!!! There were WARNINGS and ERRORS during publisher script run !!!")
+    elif logger_flags.had_error:
+        logger.info("!!! There were ERRORS during publisher script run !!!")
+    elif logger_flags.had_warning:
+        logger.info("!!! There were WARNINGS during publisher script run !!!")
+
+    # Log a summary of changed XML-files.
     if xml_changes:
         sorted_xml_changes = sorted(xml_changes)
-        logger.info("XML changes made in publication script run (%d):\n%s", len(xml_changes), "\n".join(sorted_xml_changes))
+        logger.info("XML changes made in publisher script run (%d):\n%s", len(xml_changes), "\n".join(sorted_xml_changes))
     else:
-        logger.info("No XML changes made in publication script run.")
+        logger.info("No XML changes made in publisher script run.")
 
     if prerender_xml:
+        # Log a summary of changed HTML-files.
         if html_changes:
             sorted_html_changes = sorted(html_changes)
-            logger.info("HTML changes made in publication script run (%d):\n%s", len(html_changes), "\n".join(sorted_html_changes))
+            logger.info("HTML changes made in publisher script run (%d):\n%s", len(html_changes), "\n".join(sorted_html_changes))
         else:
-            logger.info("No HTML changes made in publication script run.")
+            logger.info("No HTML changes made in publisher script run.")
 
     # Merge the sets containing XML and HTML changes
     all_changes = xml_changes.union(html_changes)
 
-    if len(all_changes) > 0 and not no_git:
+    if not no_git and len(all_changes) > 0:
         outputs = []
         # If there are changes, try to commit them to git
         try:
@@ -1768,6 +1792,7 @@ if __name__ == "__main__":
     parser.add_argument("--no_git", action="store_true", help="Don't run git commands as part of publishing.")
     parser.add_argument("--is_multilingual", action="store_true", help="The publication is multilingual and original_filename is found in translation_text")
     parser.add_argument("--use_xslt_processing", action="store_true", help="XML files related to the publication are processed using project specific XSLT when generating web XML files.")
+    parser.add_argument("--debug_logging", action="store_true", help="Enable DEBUG logging (default is INFO).")
 
     args = parser.parse_args()
 
@@ -1775,6 +1800,9 @@ if __name__ == "__main__":
         logger.info("Projects with seemingly valid configuration: %s", ", ".join(projects))
         sys.exit(0)
     else:
+        if args.debug_logging:
+            enable_debug_logging()
+
         if args.publication_ids is None:
             ids = None
         elif len(args.publication_ids) == 0:
@@ -1782,6 +1810,7 @@ if __name__ == "__main__":
         else:
             # use a tuple rather than a list, to make SQLAlchemy happier more easily
             ids = tuple(args.publication_ids)
+
         if str(args.project).lower() == "all":
             for p in projects:
                 check_publication_mtimes_and_publish_files(p, ids, git_author=args.git_author,

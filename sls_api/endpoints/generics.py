@@ -154,7 +154,7 @@ def safe_checksum(path: str) -> str | None:
     Returns:
         str | None: The MD5 checksum string if the file exists, otherwise None.
     """
-    return calculate_checksum(path) if os.path.exists(path) else None
+    return calculate_checksum(path) if os.path.isfile(path) else None
 
 
 def file_fingerprint(path: str) -> Tuple[Optional[int], Optional[str]]:
@@ -735,7 +735,7 @@ def get_prerendered_html_content(
                           html_filename)
 
     if file_path is None:
-        logger.warning("safe_join returned None for path %r", html_filename)
+        logger.error("safe_join returned None for path %r", html_filename)
         return None
 
     try:
