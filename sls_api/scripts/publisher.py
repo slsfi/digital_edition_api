@@ -1155,32 +1155,47 @@ def check_publication_mtimes_and_publish_files(
     logger.info("Publications to process: %s", len(publication_rows))
     logger.info("Manuscripts to process: %s", len(manuscript_rows))
 
+    # ****** PUBLICATIONS ******
     # For each publication belonging to this project, check the
     # modification timestamp of its master files and compare them
-    # to the generated web XML files
-    for row in publication_rows:
+    # to the generated web XML files.
+    pub_count = len(publication_rows)
+    if pub_count:
+        logger.info("Processing reading texts, comments and variants of publications.")
+
+    for idx, row in enumerate(publication_rows, start=1):
         p_row = dict(row)
         publication_id = p_row["p_id"]
         collection_id = p_row["c_id"]
 
-        # ****** READING TEXT AND COMMENTS ******
-        logger.info("Processing reading text, comments and variants for publication %s: %s",
-                    publication_id, p_row["name"])
+        logger.info("(%s/%s) Processing publication %s: %s", idx, pub_count, publication_id, p_row["name"])
 
+        # ****** READING TEXT AND COMMENTS ******
+
+        # Resolve est source file path.
+
+        # TODO: if no est source file we skip generating comment and
+        # variant files for the publication, since they are processed
+        # in the same loop. This is problematic because we could have
+        # projects that have comments or variants but no reading texts.
+        # Currently we don’t, but theoretically we might.
         if not p_row["original_filename"]:
             logger.warning("Publication `original_filename` not set, skipping to next publication!")
             continue
-        est_target_filename = "{}_{}_est.xml".format(collection_id, publication_id)
-        com_target_filename = est_target_filename.replace("_est.xml", "_com.xml")
 
-        if is_multilingual:
-            language = p_row["language"]
-            est_target_filename = "{}_{}_{}_est.xml".format(collection_id, publication_id, language)
-
-        est_target_file_path = safe_join(file_root, "xml", "est", est_target_filename)
-        com_target_file_path = safe_join(file_root, "xml", "com", com_target_filename)
-        # original_filename should be relative to the project root
         est_source_file_path = safe_join(file_root, p_row["original_filename"])
+
+        if not est_source_file_path:
+            logger.error("Untrusted reading text source file path, skipping to next publication!")
+            continue
+        if os.path.isdir(est_source_file_path):
+            logger.error("Source file %s for reading text is a directory, skipping to next publication!", est_source_file_path)
+            continue
+        if not os.path.exists(est_source_file_path):
+            logger.error("Source file %s for reading text does not exist, skipping to next publication!", est_source_file_path)
+            continue
+
+        # Resolve com source file path.
 
         # Get comment filename if a comment is linked to the publication
         # in the database. Default to template comment file if no entry
@@ -1197,18 +1212,6 @@ def check_publication_mtimes_and_publish_files(
         # to called functions
         p_row["com_original_filename"] = comment_file
 
-        if os.path.isdir(est_source_file_path):
-            logger.error("Source file %s for reading text is a directory, skipping to next publication!", est_source_file_path)
-            continue
-        if not os.path.exists(est_source_file_path):
-            # TODO: if no est source file we skip generating variant files
-            # for the publication, since they are processed in the same loop.
-            # This is problematic because we could have projects that have
-            # variants but no established texts. Currently we don’t, but in
-            # the future we might.
-            logger.warning("Source file %s for reading text does not exist, skipping to next publication!", est_source_file_path)
-            continue
-
         # Check comment file existence only if a comment is linked to the
         # publication in the database. If no comment linked to the
         # publication, set comment source file path to empty string, so
@@ -1216,6 +1219,9 @@ def check_publication_mtimes_and_publish_files(
         if comment_file:
             com_source_file_path = safe_join(file_root, comment_file)
 
+            if not com_source_file_path:
+                logger.error("Untrusted comment source file path, skipping to next publication!")
+                continue
             if os.path.isdir(com_source_file_path):
                 logger.error("Source file %s for comment is a directory, skipping to next publication!", com_source_file_path)
                 continue
@@ -1224,6 +1230,19 @@ def check_publication_mtimes_and_publish_files(
                 continue
         else:
             com_source_file_path = ""
+
+        # Resolve est and com target file paths
+
+        est_target_filename = f"{collection_id}_{publication_id}_est.xml"
+        com_target_filename = f"{collection_id}_{publication_id}_com.xml"
+
+        if is_multilingual:
+            est_target_filename = f"{collection_id}_{publication_id}_{p_row['language']}_est.xml"
+
+        est_target_file_path = safe_join(file_root, "xml", "est", est_target_filename)
+        com_target_file_path = safe_join(file_root, "xml", "com", com_target_filename)
+
+        # Generate XML-files.
 
         if force_publish:
             # during force_publish, just generate
@@ -1568,17 +1587,22 @@ def check_publication_mtimes_and_publish_files(
     # ****** MANUSCRIPTS ******
     # For each publication_manuscript belonging to this project, check
     # the modification timestamp of its master file and compare it to
-    # the generated web XML file
+    # the generated web XML file.
+    ms_count = len(manuscript_rows)
+    if ms_count:
+        logger.info("Processing manuscripts.")
 
     # Build a list of all manuscripts regardless of change status,
     # so they can be prerendered to HTML if necessary
     all_ms_target_paths = []
 
-    for row in manuscript_rows:
+    for idx, row in enumerate(manuscript_rows, start=1):
         m_row = dict(row)
         collection_id = m_row["c_id"]
         publication_id = m_row["p_id"]
         manuscript_id = m_row["m_id"]
+
+        logger.info("(%s/%s) Processing manuscript %s: %s", idx, ms_count, manuscript_id, m_row["m_name"])
 
         if not m_row["original_filename"]:
             logger.error("`original_filename` is not set for manuscript %s, skipping to next manuscript!", manuscript_id)
@@ -1587,7 +1611,7 @@ def check_publication_mtimes_and_publish_files(
         source_file_path = safe_join(file_root, m_row["original_filename"])
 
         if not source_file_path:
-            logger.error("Untrusted source file path for manuscript %s, skipping to next manuscript!", manuscript_id)
+            logger.error("Untrusted source file path, skipping to next manuscript!")
             continue
         if os.path.isdir(source_file_path):
             logger.error("Source file %s for manuscript %s is a directory, skipping to next manuscript!", source_file_path, manuscript_id)
