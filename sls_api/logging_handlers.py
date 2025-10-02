@@ -1,5 +1,6 @@
 import logging
 
+
 class WarningErrorFlagHandler(logging.Handler):
     """
     A logging.Handler that flips boolean flags when warnings/errors occur.
