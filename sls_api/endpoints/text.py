@@ -233,7 +233,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         text_type=text_type,
         filename_stem=filename_stem,
         project=project,
-        config=None,
+        project_config=None,
         xslt_parameters=xslt_params
     )
     logger.info("Served %s reading text for %s", used_source, request.full_path)
@@ -311,7 +311,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
             text_type=text_type,
             filename_stem=filename_stem,
             project=project,
-            config=config,
+            project_config=config,
             xslt_parameters=xslt_params
         )
         logger.info("Served %s comments for %s", used_source, request.full_path)
@@ -461,7 +461,7 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
                 text_type=f"{text_type}_{ms_version}",
                 filename_stem=filename_stem,
                 project=project,
-                config=None,
+                project_config=None,
                 xslt_parameters=xslt_params
             )
             manuscript[f"manuscript_{ms_version}"] = content
@@ -535,7 +535,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
             text_type=f"{text_type}_{var_version}",
             filename_stem=filename_stem,
             project=project,
-            config=None,
+            project_config=None,
             xslt_parameters=xslt_params
         )
         variant["content"] = content

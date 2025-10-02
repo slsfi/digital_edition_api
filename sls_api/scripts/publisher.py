@@ -946,34 +946,35 @@ def check_publication_mtimes_and_publish_files(
 ):
     update_success, result_str = update_files_in_git_repo(project)
     if not update_success:
-        logger.error("Git update failed! Reason: %s", result_str)
+        logger.error("Git update failed, terminating script run. Reason: %s", result_str)
         return False
-    project_id = get_project_id_from_name(project)
-    project_settings = config.get(project, None)
 
-    # if publication_ids is a tuple of ints, we're (re)publishing a
-    # certain publication(s)
-    # explicitly set force_publish in this instance, so we force-generate
-    # files for publishing (this overrides mtime checks)
+    project_id = get_project_id_from_name(project)
+    project_config = config.get(project)
+
+    if project_id is None or project_config is None:
+        logger.error("Project id not specified or missing project config. Terminating script run.")
+        return False
+
+    file_root = project_config.get("file_root")
+
+    if file_root is None:
+        logger.error("`file_root` not set in project config. Terminating script run.")
+        return False
+
+    # If publication_ids is a tuple of ints, we're (re)publishing a
+    # certain publication(s).Explicitly set force_publish in this
+    # instance, so we force-generate files for publishing (this
+    # overrides mtime checks).
     publish_certain_ids: bool = isinstance(publication_ids, tuple)
     if publish_certain_ids:
         force_publish = True
 
-    if project_id is None or project_settings is None:
-        logger.error("Project id not specified or missing project config.")
-        return False
-
-    file_root = project_settings.get("file_root", None)
-
-    if file_root is None:
-        logger.error("'file_root' not set in project config.")
-        return False
-
     # Flag for prerendering XML to HTML
-    prerender_xml: bool = project_settings.get("prerender_xml", False)
+    prerender_xml: bool = project_config.get("prerender_xml", False)
 
     # Flag for using the Saxon XSLT processor for prerender transformations
-    use_saxon_for_prerender: bool = project_settings.get("use_saxon_xslt", False)
+    use_saxon_for_prerender: bool = project_config.get("use_saxon_xslt", False)
 
     if prerender_xml:
         xslt_proc_name = "Saxon" if use_saxon_for_prerender else "lxml"
@@ -1002,7 +1003,7 @@ def check_publication_mtimes_and_publish_files(
                 # (re)publication of certain publication(s)
                 shared_filters.append(p.c.id.in_(publication_ids))
 
-            # ----- publication query
+            # publication query
             if not is_multilingual:
                 pub_select = (
                     select(
@@ -1050,7 +1051,7 @@ def check_publication_mtimes_and_publish_files(
                 .order_by(p.c.publication_collection_id, p.c.id)
             )
 
-            # ----- comment query
+            # comment query
             comment_filters = [*shared_filters, pc.c.deleted != 1]
 
             com_stmt = (
@@ -1073,7 +1074,7 @@ def check_publication_mtimes_and_publish_files(
                 .order_by(p.c.publication_collection_id, p.c.id)
             )
 
-            # ----- manuscript query
+            # manuscript query
             manuscript_filters = [*shared_filters, pm.c.deleted != 1]
 
             ms_stmt = (
@@ -1105,7 +1106,7 @@ def check_publication_mtimes_and_publish_files(
             comment_rows = connection.execute(com_stmt).mappings().all()
     except Exception:
         logger.exception("Unexpected error getting publication, comment and manuscript data from the database. Terminating script run.")
-        sys.exit(1)
+        return False
 
     comment_filenames = {
         row["p_id"]: row["original_filename"] for row in comment_rows

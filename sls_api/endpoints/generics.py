@@ -111,12 +111,12 @@ def get_project_config(project_name):
 
 
 def get_project_collation(project_name: str) -> str:
-    config = get_project_config(project_name)
+    project_config = get_project_config(project_name)
 
-    if config is None or "collation" not in config:
+    if project_config is None or "collation" not in project_config:
         return DEFAULT_COLLATION
     else:
-        return config["collation"]
+        return project_config["collation"]
 
 
 def int_or_none(var):
@@ -755,18 +755,18 @@ def get_prerendered_or_transformed_xml_content(
         text_type: str,
         filename_stem: str,
         project: str,
-        config: Optional[Dict] = None,
+        project_config: Optional[Dict] = None,
         xslt_parameters: Optional[Dict] = None
 ) -> Tuple[str, str]:
     base_text_type = text_type.split("_")[0]
     content = None
     used_source = None
 
-    if config is None:
-        config = get_project_config(project)
-    file_root = config.get("file_root", "")
+    if project_config is None:
+        project_config = get_project_config(project)
+    file_root = project_config.get("file_root", "")
 
-    if config.get("prerender_xml", False):
+    if project_config.get("prerender_xml", False):
         # Get prerendered HTML
         html_filename = filename_stem
         if "sectionId" in xslt_parameters:
@@ -806,15 +806,15 @@ def get_frontmatter_page_content(
         language: str,
         project: str
 ) -> Tuple[str, str]:
-    config = get_project_config(project)
-    version = "int" if config["show_internally_published"] else "ext"
+    project_config = get_project_config(project)
+    version = "int" if project_config["show_internally_published"] else "ext"
     filename_stem = f"{collection_id}_{text_type}_{language}_{version}"
 
     return get_prerendered_or_transformed_xml_content(
         text_type=text_type,
         filename_stem=filename_stem,
         project=project,
-        config=config
+        project_config=project_config
     )
 
 
