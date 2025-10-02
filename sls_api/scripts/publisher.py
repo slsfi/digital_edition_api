@@ -974,11 +974,11 @@ def check_publication_mtimes_and_publish_files(
     # Get publication, comment and manuscript data from the database
     try:
         with db_engine.connect() as connection:
-            p     = get_table("publication")
-            pcol  = get_table("publication_collection")
-            pc    = get_table("publication_comment")
-            pm    = get_table("publication_manuscript")
-            tr    = get_table("translation_text")
+            p = get_table("publication")
+            pcol = get_table("publication_collection")
+            pc = get_table("publication_comment")
+            pm = get_table("publication_manuscript")
+            tr = get_table("translation_text")
 
             shared_filters = [
                 pcol.c.project_id == project_id,
@@ -1088,9 +1088,9 @@ def check_publication_mtimes_and_publish_files(
                           p.c.id, pm.c.sort_order, pm.c.id)
             )
 
-            publication_info = connection.execute(pub_stmt).mappings().all()
-            manuscript_info  = connection.execute(ms_stmt).mappings().all()
-            comment_rows     = connection.execute(com_stmt).mappings().all()
+            publication_rows = connection.execute(pub_stmt).mappings().all()
+            manuscript_rows = connection.execute(ms_stmt).mappings().all()
+            comment_rows = connection.execute(com_stmt).mappings().all()
     except Exception:
         logger.exception("Unexpected error getting publication, comment and manuscript data from the database. Terminating script run.")
         sys.exit(1)
@@ -1139,13 +1139,13 @@ def check_publication_mtimes_and_publish_files(
     # Keep a list of changed HTML files for later git commit
     html_changes = set()
 
-    logger.info("Publications to process: %s", len(publication_info))
-    logger.info("Manuscripts to process: %s", len(manuscript_info))
+    logger.info("Publications to process: %s", len(publication_rows))
+    logger.info("Manuscripts to process: %s", len(manuscript_rows))
 
     # For each publication belonging to this project, check the
     # modification timestamp of its master files and compare them
     # to the generated web XML files
-    for row in publication_info:
+    for row in publication_rows:
         row = dict(row)
         publication_id = row["p_id"]
         collection_id = row["c_id"]
@@ -1560,7 +1560,7 @@ def check_publication_mtimes_and_publish_files(
     # so they can be prerendered to HTML if necessary
     all_ms_target_paths = []
 
-    for row in manuscript_info:
+    for row in manuscript_rows:
         row = dict(row)
         collection_id = row["c_id"]
         publication_id = row["p_id"]
