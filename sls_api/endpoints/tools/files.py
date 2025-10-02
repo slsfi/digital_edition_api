@@ -1086,7 +1086,7 @@ def handle_collection_toc(project, collection_id, language=None):
         try:
             # Save new ToC as filepath.new
             with open(f"{filepath}.new", "w", encoding="utf-8") as outfile:
-                json.dump(request_data, outfile)
+                json.dump(request_data, outfile, ensure_ascii=False, indent=4)
         except Exception:
             logger.exception(f"Error saving file {filepath}.new.")
             # If saving file fails, remove it before returning an error
