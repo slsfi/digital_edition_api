@@ -570,7 +570,7 @@ def transform_xml(
     logger.debug("Transforming %s using %s", xml_file_path, xsl_file_path)
 
     if params is not None:
-        logger.debug("Parameters are %s", params)
+        logger.debug("Parameters are %r", params)
         if not isinstance(params, dict) and not isinstance(params, OrderedDict):
             raise Exception(f"Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {type(params)}")
 

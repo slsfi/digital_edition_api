@@ -6,15 +6,20 @@ from bs4 import BeautifulSoup
 from io import StringIO
 from lxml import etree as ET
 from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
-from sqlalchemy import create_engine, select
+from sqlalchemy import and_, create_engine, select
 from sqlalchemy.sql import text
 from subprocess import CalledProcessError
 from typing import Any, Dict, List, Optional, Union
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
-    changed_by_size_or_hash, file_fingerprint, get_project_id_from_name, \
-    int_or_none, get_table, transform_xml, PRERENDERED_HTML_PATH_IN_PROJECT_ROOT, \
+    changed_by_size_or_hash, \
+    file_fingerprint, \
+    get_project_id_from_name, \
+    get_table, \
+    int_or_none, \
+    transform_xml, \
+    PRERENDERED_HTML_PATH_IN_PROJECT_ROOT, \
     XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
@@ -809,7 +814,7 @@ def prerender_xml_to_html(
         try:
             chapter_ids = chapter_ids + get_xml_chapter_ids(find_ch_file)
         except Exception:
-            logger.error("Unable to prerender %s", xml_filepath)
+            logger.error("Failed to prerender %s: exception getting chapter ids.", xml_filepath)
             return []
 
     # Keep a list of generated HTML files that have changed. Though the
@@ -853,7 +858,7 @@ def prerender_xml_to_html(
                                       html_filename)
 
             if html_filepath is None:
-                logger.error("Failed to prerender %s: unable to form safe path for output file", xml_filepath)
+                logger.error("Failed to prerender %s: unable to form safe path for HTML-file", xml_filepath)
                 return []
 
             xslt_params = {"bookId": book_id}
@@ -958,109 +963,141 @@ def check_publication_mtimes_and_publish_files(
     # Flag for using the Saxon XSLT processor for prerender transformations
     use_saxon_for_prerender: bool = project_settings.get("use_saxon_xslt", False)
 
+    if prerender_xml:
+        xslt_proc_name = "Saxon" if use_saxon_for_prerender else "lxml"
+        logger.info("Prerendering enabled, using %s for transformations.",
+                    xslt_proc_name)
+
     # Clear cache of collection legacy ids
     clear_collection_legacy_id_cache()
 
-    # open DB connection for publication, comment, and manuscript data fetch
-    connection = db_engine.connect()
+    # Get publication, comment and manuscript data from the database
+    try:
+        with db_engine.connect() as connection:
+            p     = get_table("publication")
+            pcol  = get_table("publication_collection")
+            pc    = get_table("publication_comment")
+            pm    = get_table("publication_manuscript")
+            tr    = get_table("translation_text")
 
-    # publication info
-    publication_query = "SELECT \
-                        p.id as p_id, \
-                        p.publication_collection_id as c_id, \
-                        pcol.id as c_id, \
-                        p.original_filename as original_filename, \
-                        p.published as published, \
-                        p.original_publication_date as original_publication_date, \
-                        p.genre as genre, \
-                        p.language as language, \
-                        p.publication_group_id as publication_group_id, \
-                        p.publication_comment_id as publication_comment_id, \
-                        p.name as name \
-                        FROM publication p \
-                        JOIN publication_collection pcol ON p.publication_collection_id=pcol.id \
-                        WHERE pcol.project_id = :proj AND p.deleted != 1 AND pcol.deleted != 1 "
+            shared_filters = [
+                pcol.c.project_id == project_id,
+                p.c.deleted != 1,
+                pcol.c.deleted != 1
+            ]
+            if force_publish and publish_certain_ids:
+                # append publication id checks if this is a forced
+                # (re)publication of certain publication(s)
+                shared_filters.append(p.c.id.in_(publication_ids))
 
-    if is_multilingual:
-        # publication info
-        publication_query = "SELECT \
-                            p.id as p_id, \
-                            p.publication_collection_id as c_id, \
-                            pcol.id as c_id, \
-                            tr.text as original_filename, \
-                            p.published as published, \
-                            p.original_publication_date as original_publication_date, \
-                            p.genre as genre, \
-                            p.publication_group_id as publication_group_id, \
-                            p.publication_comment_id as publication_comment_id, \
-                            p.name as name, \
-                            tr.language as language \
-                            FROM publication p \
-                            JOIN publication_collection pcol ON p.publication_collection_id=pcol.id \
-                            JOIN translation_text tr ON p.translation_id = tr.translation_id and tr.field_name='original_filename' \
-                            WHERE pcol.project_id = :proj AND p.deleted != 1 AND pcol.deleted != 1 "
+            # ----- publication query
+            if not is_multilingual:
+                pub_select = (
+                    select(
+                        p.c.id.label("p_id"),
+                        p.c.publication_collection_id.label("c_id"),
+                        p.c.original_filename.label("original_filename"),
+                        p.c.published.label("published"),
+                        p.c.original_publication_date.label("original_publication_date"),
+                        p.c.genre.label("genre"),
+                        p.c.language.label("language"),
+                        p.c.publication_group_id.label("publication_group_id"),
+                        p.c.publication_comment_id.label("publication_comment_id"),
+                        p.c.name.label("name")
+                    )
+                    .select_from(
+                        p.join(pcol, p.c.publication_collection_id == pcol.c.id)
+                    )
+                )
+            else:
+                pub_select = (
+                    select(
+                        p.c.id.label("p_id"),
+                        p.c.publication_collection_id.label("c_id"),
+                        tr.c.text.label("original_filename"),
+                        p.c.published.label("published"),
+                        p.c.original_publication_date.label("original_publication_date"),
+                        p.c.genre.label("genre"),
+                        p.c.publication_group_id.label("publication_group_id"),
+                        p.c.publication_comment_id.label("publication_comment_id"),
+                        p.c.name.label("name"),
+                        tr.c.language.label("language")
+                    )
+                    .select_from(
+                        p.join(pcol, p.c.publication_collection_id == pcol.c.id)
+                        .join(
+                            tr,
+                            and_(p.c.translation_id == tr.c.translation_id,
+                                 tr.c.field_name == "original_filename")
+                        )
+                    )
+                )
+            pub_stmt = (
+                pub_select
+                .where(*shared_filters)
+                .order_by(p.c.publication_collection_id, p.c.id)
+            )
 
-    # publication_comment info, relating to "general comments" file for each publication
-    comment_query = "SELECT \
-                    p.id as p_id, \
-                    p.publication_collection_id as c_id, \
-                    pc.original_filename as original_filename, \
-                    pc.published as published, \
-                    p.original_publication_date as original_publication_date, \
-                    p.genre as genre, \
-                    p.publication_group_id as publication_group_id, \
-                    p.publication_comment_id as publication_comment_id, \
-                    p.name as name \
-                    FROM publication p \
-                    JOIN publication_collection pcol ON p.publication_collection_id = pcol.id \
-                    JOIN publication_comment pc ON p.publication_comment_id = pc.id \
-                    WHERE pcol.project_id = :proj AND p.deleted != 1 AND pcol.deleted != 1 AND pc.deleted != 1 "
+            # ----- comment query
+            comment_filters = [*shared_filters, pc.c.deleted != 1]
 
-    # publication_manuscript info
-    manuscript_query = "SELECT \
-                        pm.id as m_id, \
-                        p.id as p_id, \
-                        p.publication_collection_id as c_id, \
-                        pcol.id as c_id, \
-                        pm.original_filename as original_filename, \
-                        pm.published as published, \
-                        p.original_publication_date as original_publication_date, \
-                        p.genre as genre, \
-                        p.publication_group_id as publication_group_id, \
-                        p.publication_comment_id as publication_comment_id, \
-                        p.name as name, \
-                        pm.name as m_name, \
-                        pm.language as language \
-                        FROM publication_manuscript pm \
-                        JOIN publication p ON pm.publication_id = p.id \
-                        JOIN publication_collection pcol ON p.publication_collection_id = pcol.id \
-                        WHERE pcol.project_id = :proj AND p.deleted != 1 AND pcol.deleted != 1 AND pm.deleted != 1 "
+            com_stmt = (
+                select(
+                    p.c.id.label("p_id"),
+                    p.c.publication_collection_id.label("c_id"),
+                    pc.c.original_filename.label("original_filename"),
+                    pc.c.published.label("published"),
+                    p.c.original_publication_date.label("original_publication_date"),
+                    p.c.genre.label("genre"),
+                    p.c.publication_group_id.label("publication_group_id"),
+                    p.c.publication_comment_id.label("publication_comment_id"),
+                    p.c.name.label("name")
+                )
+                .select_from(
+                    p.join(pcol, p.c.publication_collection_id == pcol.c.id)
+                    .join(pc, p.c.publication_comment_id == pc.c.id)
+                )
+                .where(*comment_filters)
+                .order_by(p.c.publication_collection_id, p.c.id)
+            )
 
-    if force_publish and publish_certain_ids:
-        # append publication.id checks if this is a forced (re)publication of certain publication(s)
-        publication_query += " AND p.id IN :p_ids"
-        publication_query = text(publication_query).bindparams(proj=project_id, p_ids=publication_ids)
+            # ----- manuscript query
+            manuscript_filters = [*shared_filters, pm.c.deleted != 1]
 
-        comment_query += " AND p.id IN :p_ids"
-        comment_query = text(comment_query).bindparams(proj=project_id, p_ids=publication_ids)
+            ms_stmt = (
+                select(
+                    pm.c.id.label("m_id"),
+                    p.c.id.label("p_id"),
+                    p.c.publication_collection_id.label("c_id"),
+                    pm.c.original_filename.label("original_filename"),
+                    pm.c.published.label("published"),
+                    p.c.original_publication_date.label("original_publication_date"),
+                    p.c.genre.label("genre"),
+                    p.c.publication_group_id.label("publication_group_id"),
+                    p.c.publication_comment_id.label("publication_comment_id"),
+                    p.c.name.label("name"),
+                    pm.c.name.label("m_name"),
+                    pm.c.language.label("language")
+                )
+                .select_from(
+                    pm.join(p, pm.c.publication_id == p.c.id)
+                    .join(pcol, p.c.publication_collection_id == pcol.c.id)
+                )
+                .where(*manuscript_filters)
+                .order_by(p.c.publication_collection_id,
+                          p.c.id, pm.c.sort_order, pm.c.id)
+            )
 
-        manuscript_query += " AND p.id IN :p_ids"
-        manuscript_query = text(manuscript_query).bindparams(proj=project_id, p_ids=publication_ids)
-    else:
-        publication_query = text(publication_query).bindparams(proj=project_id)
-        comment_query = text(comment_query).bindparams(proj=project_id)
-        manuscript_query = text(manuscript_query).bindparams(proj=project_id)
+            publication_info = connection.execute(pub_stmt).mappings().all()
+            manuscript_info  = connection.execute(ms_stmt).mappings().all()
+            comment_rows     = connection.execute(com_stmt).mappings().all()
+    except Exception:
+        logger.exception("Unexpected error getting publication, comment and manuscript data from the database. Terminating script run.")
+        sys.exit(1)
 
-    publication_info = connection.execute(publication_query).fetchall()
-    manuscript_info = connection.execute(manuscript_query).fetchall()
-
-    # comment_filenames can just be a dict of publication.id to publication_comment.original_filename
-    comment_filenames = dict()
-    for row in connection.execute(comment_query):
-        comment_filenames[row.p_id] = row.original_filename
-
-    # close DB connection for now, it won't be needed for a while
-    connection.close()
+    comment_filenames = {
+        row["p_id"]: row["original_filename"] for row in comment_rows
+    }
 
     # Initialize variables for Saxon XSLT transformations
     saxon_proc: Optional[PySaxonProcessor] = None
@@ -1102,15 +1139,23 @@ def check_publication_mtimes_and_publish_files(
     # Keep a list of changed HTML files for later git commit
     html_changes = set()
 
-    # For each publication belonging to this project, check the modification timestamp of its master files and compare them to the generated web XML files
+    logger.info("Publications to process: %s", len(publication_info))
+    logger.info("Manuscripts to process: %s", len(manuscript_info))
+
+    # For each publication belonging to this project, check the
+    # modification timestamp of its master files and compare them
+    # to the generated web XML files
     for row in publication_info:
-        if row is None:
-            continue
-        row = row._asdict()
+        row = dict(row)
         publication_id = row["p_id"]
         collection_id = row["c_id"]
+
+        # ****** READING TEXT AND COMMENTS ******
+        logger.info("Processing reading text, comments and variants for publication %s: %s",
+                    publication_id, row["name"])
+
         if not row["original_filename"]:
-            logger.info("Source file not set for publication %s", publication_id)
+            logger.warning("Publication `original_filename` not set, skipping to next publication!")
             continue
         est_target_filename = "{}_{}_est.xml".format(collection_id, publication_id)
         com_target_filename = est_target_filename.replace("_est.xml", "_com.xml")
@@ -1119,10 +1164,10 @@ def check_publication_mtimes_and_publish_files(
             language = row["language"]
             est_target_filename = "{}_{}_{}_est.xml".format(collection_id, publication_id, language)
 
-        est_target_file_path = os.path.join(file_root, "xml", "est", est_target_filename)
-        com_target_file_path = os.path.join(file_root, "xml", "com", com_target_filename)
+        est_target_file_path = safe_join(file_root, "xml", "est", est_target_filename)
+        com_target_file_path = safe_join(file_root, "xml", "com", com_target_filename)
         # original_filename should be relative to the project root
-        est_source_file_path = os.path.join(file_root, row["original_filename"])
+        est_source_file_path = safe_join(file_root, row["original_filename"])
 
         # Get comment filename if a comment is linked to the publication
         # in the database. Default to template comment file if no entry
@@ -1140,7 +1185,7 @@ def check_publication_mtimes_and_publish_files(
         row["com_original_filename"] = comment_file
 
         if os.path.isdir(est_source_file_path):
-            logger.warning("Source file %s for publication %s is a directory!", est_source_file_path, publication_id)
+            logger.warning("Source file %s for reading text is a directory, skipping to next publication!", est_source_file_path)
             continue
         if not os.path.exists(est_source_file_path):
             # TODO: if no est source file we skip generating variant files
@@ -1148,7 +1193,7 @@ def check_publication_mtimes_and_publish_files(
             # This is problematic because we could have projects that have
             # variants but no established texts. Currently we don’t, but in
             # the future we might.
-            logger.warning("Source file %s for publication %s does not exist!", est_source_file_path, publication_id)
+            logger.warning("Source file %s for reading text does not exist, skipping to next publication!", est_source_file_path)
             continue
 
         # Check comment file existence only if a comment is linked to the
@@ -1159,17 +1204,17 @@ def check_publication_mtimes_and_publish_files(
             com_source_file_path = os.path.join(file_root, comment_file)
 
             if os.path.isdir(com_source_file_path):
-                logger.warning("Source file %s for publication %s comment is a directory!", com_source_file_path, publication_id)
+                logger.warning("Source file %s for comment is a directory, skipping to next publication!", com_source_file_path)
                 continue
             if not os.path.exists(com_source_file_path):
-                logger.warning("Source file %s for publication %s does not exist!", com_source_file_path, publication_id)
+                logger.warning("Source file %s for comment does not exist, skipping to next publication!", com_source_file_path)
                 continue
         else:
             com_source_file_path = ""
 
         if force_publish:
             # during force_publish, just generate
-            logger.info("Generating new est/com files for publication %s...", publication_id)
+            logger.debug("Generating new est/com XML-files.")
             try:
                 # calculate file fingerprints for existing files, so we can later
                 # compare if they have changed
@@ -1193,7 +1238,7 @@ def check_publication_mtimes_and_publish_files(
                                                est_target_file_path,
                                                com_target_file_path)
             except Exception:
-                logger.exception("Failed to generate est/com files for publication %s!", publication_id)
+                logger.exception("Failed to generate reading text and comments files, skipping to next publication!")
                 continue
             else:
                 # check if est and/or com files have changed
@@ -1212,8 +1257,8 @@ def check_publication_mtimes_and_publish_files(
             except OSError:
                 # If there is an error, the web XML files likely don't exist or are otherwise corrupt
                 # It is then easiest to just generate new ones
-                logger.warning("Error getting time_modified for target or source files for publication %s", publication_id)
-                logger.info("Generating new est/com files for publication %s...", publication_id)
+                logger.warning("Error getting time_modified for target or source files.")
+                logger.info("Generating new est/com XML-files.")
                 try:
                     # calculate file fingerprints for existing files, so we can later
                     # compare if they have changed
@@ -1237,7 +1282,7 @@ def check_publication_mtimes_and_publish_files(
                                                    est_target_file_path,
                                                    com_target_file_path)
                 except Exception:
-                    logger.exception("Failed to generate est/com files for publication %s!", publication_id)
+                    logger.exception("Failed to generate reading text and comments files, skipping to next publication!")
                     continue
                 else:
                     # check if est and/or com files have changed
@@ -1251,7 +1296,7 @@ def check_publication_mtimes_and_publish_files(
                     continue
                 else:
                     # If one or either is outdated, generate new ones
-                    logger.info("Reading files for publication %s are outdated, generating new est/com files...", publication_id)
+                    logger.debug("XML-files are outdated, generating new reading text and comments files.")
                     try:
                         # calculate file fingerprints for existing files, so we can later
                         # compare if they have changed
@@ -1275,7 +1320,7 @@ def check_publication_mtimes_and_publish_files(
                                                        est_target_file_path,
                                                        com_target_file_path)
                     except Exception:
-                        logger.exception("Failed to generate est/com files for publication %s!", publication_id)
+                        logger.exception("Failed to generate reading text and comments files, skipping to next publication!")
                         continue
                     else:
                         # check if est and/or com files have changed
@@ -1303,6 +1348,7 @@ def check_publication_mtimes_and_publish_files(
                 )
             ):
                 # prerender est
+                logger.debug("Prerendering HTML for reading text.")
                 est_html_file = prerender_xml_to_html(file_root,
                                                       est_target_file_path,
                                                       saxon_proc,
@@ -1324,186 +1370,198 @@ def check_publication_mtimes_and_publish_files(
                 )
             ):
                 # prerender com
+                logger.debug("Prerendering HTML for comments.")
                 com_html_file = prerender_xml_to_html(file_root,
                                                       com_target_file_path,
                                                       saxon_proc,
                                                       html_xslt_execs)
                 html_changes.update(com_html_file)
 
+        # ****** VARIANTS ******
         # Process all variants belonging to this publication
-        # publication_version with type=1 is the "main" variant, the others should have type=2 and be versions of that main variant
-        variant_query = text("SELECT id, original_filename "
-                             "FROM publication_version "
-                             "WHERE publication_version.publication_id = :pub_id AND publication_version.type = :vers_type AND publication_version.deleted != 1")
+        # publication_version with type=1 is the "main" variant, the others
+        # should have type=2 and be versions of that main variant
+        try:
+            with db_engine.connect() as connection:
+                var_table = get_table("publication_version")
+                variants_stmt = (
+                    select(
+                        var_table.c.id,
+                        var_table.c.original_filename,
+                        var_table.c.type
+                    )
+                    .where(var_table.c.publication_id == publication_id)
+                    .where(var_table.c.deleted != 1)
+                    .where(var_table.c.type.in_([1, 2]))
+                    .order_by(
+                        var_table.c.type,
+                        var_table.c.sort_order,
+                        var_table.c.id
+                    )
+                )
+                variants_info = connection.execute(variants_stmt).mappings().all()
+        except Exception:
+            logger.exception("Unexpected error getting publication variants data, skipping to next publication!")
+            continue
 
-        # open new DB connection for variant data fetch
-        connection = db_engine.connect()
+        if not variants_info:
+            logger.debug("No variants found for the publication, skipping to next publication!")
+            continue
 
-        # fetch info for "main" variant
-        main_variant_query = variant_query.bindparams(pub_id=publication_id, vers_type=1)
-        # should only be one main variant per publication?
-        main_variant_info = connection.execute(main_variant_query).fetchone()
-        if main_variant_info is None:
-            logger.info("No main variant found for publication %s!", publication_id)
-            # close DB connection, as it's no longer needed
-            connection.close()
-        else:
-            main_variant_info = main_variant_info._asdict()
-            logger.debug("Main variant query result: %s", main_variant_info)
+        variants_info = [dict(v) for v in variants_info]
+        type1_variants = [v for v in variants_info if int(v.get("type", -1)) == 1]
 
-            # fetch info for all "other" variants
-            variants_query = variant_query.bindparams(pub_id=publication_id, vers_type=2)
-            variants_info = connection.execute(variants_query).fetchall()
+        if not type1_variants:
+            logger.error("No main variant found for the publication, skipping to next publication!")
+            continue
+        elif len(type1_variants) > 1:
+            logger.error("Multiple main variants found for the publication (variant ids %s), skipping to next publication!", ", ".join(str(v.get("id")) for v in type1_variants))
+            continue
 
-            # close DB connection, as it's no longer needed
-            connection.close()
+        main_variant = type1_variants[0]
+        other_variants = [v for v in variants_info if int(v.get("type", -1)) == 2]
 
-            # compile info and generate files if needed
-            if main_variant_info["original_filename"] is None:
+        if main_variant["original_filename"] is None:
+            logger.error("`original_filename` is not set for main variant %s, skipping to next publication!", main_variant["id"])
+            continue
+
+        main_variant_source = safe_join(file_root, main_variant["original_filename"])
+
+        if not main_variant_source:
+            logger.error("Untrusted source file path for main variant %s, skipping to next publication!", main_variant["id"])
+            continue
+        if os.path.isdir(main_variant_source):
+            logger.error("Source file %s for main variant %s is a directory, skipping to next publication!", main_variant_source, main_variant["id"])
+            continue
+        if not os.path.exists(main_variant_source):
+            logger.error("Source file %s for main variant %s does not exist, skipping to next publication!", main_variant_source, main_variant["id"])
+            continue
+
+        target_filename = f"{collection_id}_{publication_id}_var_{main_variant['id']}.xml"
+
+        # If any variants have changed, we need a CTeiDocument for the
+        # main variant to ProcessVariants() with
+        main_variant_target = safe_join(file_root, "xml", "var", target_filename)
+
+        main_variant_doc = CTeiDocument()
+        main_variant_doc.Load(main_variant_source)
+
+        # For each "other" variant, create a new CTeiDocument if needed,
+        # but if main_variant_updated is True, just make a new for all
+        variant_docs = []
+        variant_paths = []
+        # Build a list of all variants regardless of change status,
+        # so they can be prerendered to HTML if necessary
+        all_variant_paths = [main_variant_target]
+
+        for variant in other_variants:
+            if not variant["original_filename"]:
+                logger.error("`original_filename` is not set for variant %s, skipping to next variant!", variant["id"])
                 continue
 
-            main_variant_source = os.path.join(file_root, main_variant_info["original_filename"])
+            source_file_path = safe_join(file_root, variant["original_filename"])
 
-            if not main_variant_source:
-                logger.warning("Source file for main variant %s is not set.", main_variant_info["id"])
+            if not source_file_path:
+                logger.error("Untrusted source file path for variant %s, skipping to next variant!", variant["id"])
+                continue
+            if os.path.isdir(source_file_path):
+                logger.error("Source file %s for variant %s is a directory, skipping to next variant!", source_file_path, variant["id"])
+                continue
+            if not os.path.exists(source_file_path):
+                logger.error("Source file %s for variant %s does not exist, skipping to next variant!", source_file_path, variant["id"])
                 continue
 
-            if os.path.isdir(main_variant_source):
-                logger.error("Source file %s for main variant %s (type=1) is a directory!", main_variant_source, main_variant_info["id"])
-                continue
+            target_filename = f"{collection_id}_{publication_id}_var_{variant['id']}.xml"
+            target_file_path = safe_join(file_root, "xml", "var", target_filename)
 
-            if not os.path.exists(main_variant_source):
-                logger.error("Source file %s for main variant %s (type=1) does not exist!", main_variant_source, main_variant_info["id"])
-                continue
+            all_variant_paths.append(target_file_path)
 
-            target_filename = "{}_{}_var_{}.xml".format(collection_id,
-                                                        publication_id,
-                                                        main_variant_info["id"])
-
-            # If any variants have changed, we need a CTeiDocument for the main variant to ProcessVariants() with
-            main_variant_target = os.path.join(file_root, "xml", "var", target_filename)
-
-            main_variant_doc = CTeiDocument()
-            main_variant_doc.Load(main_variant_source)
-
-            # For each "other" variant, create a new CTeiDocument if needed, but if main_variant_updated is True, just make a new for all
-            variant_docs = []
-            variant_paths = []
-            # Build a list of all variants regardless of change status,
-            # so they can be prerendered to HTML if necessary
-            all_variant_paths = [main_variant_target]
-            for variant in variants_info:
-                if variant is None:
-                    continue
-                variant = variant._asdict()
-                target_filename = "{}_{}_var_{}.xml".format(collection_id,
-                                                            publication_id,
-                                                            variant["id"])
-                if variant["original_filename"] is None:
-                    continue
-
-                source_filename = variant["original_filename"]
-                if not source_filename:
-                    logger.error("Source file for variant %s is not set.", variant["id"])
-                    continue
-                target_file_path = os.path.join(file_root, "xml", "var", target_filename)
-                # original_filename should be relative to the project root
-                source_file_path = os.path.join(file_root, source_filename)
-
-                if os.path.isdir(source_file_path):
-                    logger.error("Source file %s for variant %s is a directory!", source_file_path, variant["id"])
-                    continue
-                if not os.path.exists(source_file_path):
-                    logger.error("Source file %s for variant %s does not exist!", source_file_path, variant["id"])
-                    continue
-
-                all_variant_paths.append(target_file_path)
-
-                # in a force_publish, just load all variants for generation/processing
-                if force_publish:
-                    logger.info("Generating new var file for publication_version %s...", variant["id"])
+            # in a force_publish, just load all variants for generation/processing
+            if force_publish:
+                logger.debug("Generating new var XML-file for variant %s.", variant["id"])
+                variant_doc = CTeiDocument()
+                variant_doc.Load(source_file_path)
+                variant_docs.append(variant_doc)
+                variant_paths.append(target_file_path)
+            # otherwise, check which ones need to be updated and load only those
+            else:
+                try:
+                    target_mtime = os.path.getmtime(target_file_path)
+                    source_mtime = os.path.getmtime(source_file_path)
+                except OSError:
+                    # If there is an error, the web XML file likely doesn't exist or is otherwise corrupt
+                    # It is then easiest to just generate a new one
+                    logger.warning("Error getting time_modified for target or source files for variant %s, generating new var XML-file.", variant["id"])
                     variant_doc = CTeiDocument()
                     variant_doc.Load(source_file_path)
                     variant_docs.append(variant_doc)
                     variant_paths.append(target_file_path)
-                # otherwise, check which ones need to be updated and load only those
                 else:
-                    try:
-                        target_mtime = os.path.getmtime(target_file_path)
-                        source_mtime = os.path.getmtime(source_file_path)
-                    except OSError:
-                        # If there is an error, the web XML file likely doesn't exist or is otherwise corrupt
-                        # It is then easiest to just generate a new one
-                        logger.warning("Error getting time_modified for target or source files for publication_version %s", variant["id"])
-                        logger.info("Generating new file...")
+                    if target_mtime < source_mtime:
+                        logger.debug("File %s is older than source file %s, generating new file.", target_file_path, source_file_path)
                         variant_doc = CTeiDocument()
                         variant_doc.Load(source_file_path)
                         variant_docs.append(variant_doc)
                         variant_paths.append(target_file_path)
                     else:
-                        if target_mtime < source_mtime:
-                            logger.info("File %s is older than source file %s, generating new file...", target_file_path, source_file_path)
-                            variant_doc = CTeiDocument()
-                            variant_doc.Load(source_file_path)
-                            variant_docs.append(variant_doc)
-                            variant_paths.append(target_file_path)
-                        else:
-                            # If no changes, don't generate CTeiDocument and don't make a new web XML file
-                            continue
+                        # If no changes, don't generate CTeiDocument and don't make a new web XML file
+                        continue
 
-            # calculate file fingerprints for existing main variant file and all
-            # variant files, so we can later compare if they have changed
-            pre_main_variant = file_fingerprint(main_variant_target)
-            pre_variants = {path: file_fingerprint(path) for path in variant_paths}
+        # calculate file fingerprints for existing main variant file and all
+        # variant files, so we can later compare if they have changed
+        pre_main_variant = file_fingerprint(main_variant_target)
+        pre_variants = {path: file_fingerprint(path) for path in variant_paths}
 
-            # lastly, actually process all generated CTeiDocument objects and create web XML files
-            process_var_documents_and_generate_files(main_variant_doc,
-                                                     main_variant_target,
-                                                     variant_docs,
-                                                     variant_paths,
-                                                     row)
+        # lastly, actually process all generated CTeiDocument objects and create web XML files
+        process_var_documents_and_generate_files(main_variant_doc,
+                                                 main_variant_target,
+                                                 variant_docs,
+                                                 variant_paths,
+                                                 row)
 
-            # check if main variant has changed
-            if changed_by_size_or_hash(pre_main_variant, main_variant_target):
-                xml_changes.add(main_variant_target)
+        # check if main variant has changed
+        if changed_by_size_or_hash(pre_main_variant, main_variant_target):
+            xml_changes.add(main_variant_target)
 
-            # check if each variant has changed
-            for path, pre_fp in pre_variants.items():
-                if changed_by_size_or_hash(pre_fp, path):
-                    xml_changes.add(path)
+        # check if each variant has changed
+        for path, pre_fp in pre_variants.items():
+            if changed_by_size_or_hash(pre_fp, path):
+                xml_changes.add(path)
 
-            if prerender_xml:
-                # Prerender XML to HTML for variants
-                for xml_path in all_variant_paths:
-                    # If force_publish, always render var HTML-file
-                    # because the XSLT might have changed since last
-                    # time. Otherwise, render var HTML if the var web
-                    # XML file was changed or the XSLT is newer than the
-                    # web XML file.
-                    if (
-                        force_publish or
-                        xml_path in xml_changes or
-                        xml_to_html_xslt_modified_after_xml(
-                            xml_path, "var", file_root
-                        )
-                    ):
-                        # prerender the variant
-                        ms_html_file = prerender_xml_to_html(file_root,
-                                                             xml_path,
-                                                             saxon_proc,
-                                                             html_xslt_execs)
-                        html_changes.update(ms_html_file)
+        if prerender_xml:
+            # Prerender XML to HTML for variants
+            for xml_path in all_variant_paths:
+                # If force_publish, always render var HTML-file
+                # because the XSLT might have changed since last
+                # time. Otherwise, render var HTML if the var web
+                # XML file was changed or the XSLT is newer than the
+                # web XML file.
+                if (
+                    force_publish or
+                    xml_path in xml_changes or
+                    xml_to_html_xslt_modified_after_xml(
+                        xml_path, "var", file_root
+                    )
+                ):
+                    # prerender the variant
+                    logger.debug("Prerendering HTML for variant %s.", xml_path)
+                    var_html_file = prerender_xml_to_html(file_root,
+                                                          xml_path,
+                                                          saxon_proc,
+                                                          html_xslt_execs)
+                    html_changes.update(var_html_file)
 
-    # For each publication_manuscript belonging to this project, check the modification timestamp of its master file and compare it to the generated web XML file
+    # ****** MANUSCRIPTS ******
+    # For each publication_manuscript belonging to this project, check
+    # the modification timestamp of its master file and compare it to
+    # the generated web XML file
 
     # Build a list of all manuscripts regardless of change status,
     # so they can be prerendered to HTML if necessary
     all_ms_target_paths = []
 
     for row in manuscript_info:
-        if row is None:
-            continue
-        row = row._asdict()
+        row = dict(row)
         collection_id = row["c_id"]
         publication_id = row["p_id"]
         manuscript_id = row["m_id"]
