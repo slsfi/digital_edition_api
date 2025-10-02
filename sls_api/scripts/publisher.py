@@ -315,8 +315,8 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
     # If com_master_file_path doesn't exist, use COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT.
     # If the template file doesn't exist either, don't generate a comments file for this document.
     if not os.path.exists(com_master_file_path):
-        com_master_file_path = os.path.join(config[project]["file_root"],
-                                            COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+        com_master_file_path = safe_join(config[project]["file_root"],
+                                         COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
 
         if not os.path.exists(com_master_file_path):
             logger.info("Skipping com file generation: no comments file associated with publication and no template file exists at %s", COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
@@ -335,8 +335,8 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
 
         # if com_xsl_path is invalid or not given, try using COMMENTS_XSL_PATH_IN_FILE_ROOT
         if com_xsl_path is None or not os.path.exists(com_xsl_path):
-            com_xsl_path = os.path.join(config[project]["file_root"],
-                                        LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT)
+            com_xsl_path = safe_join(config[project]["file_root"],
+                                     LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT)
 
         # process comments and save
         com_document.ProcessCommments(comments, est_document, com_xsl_path)
@@ -430,8 +430,8 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
     # If com_source_file_path doesn't exist, use
     # COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT
     if not os.path.exists(com_source_file_path):
-        com_source_file_path = os.path.join(config[project]["file_root"],
-                                            COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+        com_source_file_path = safe_join(config[project]["file_root"],
+                                         COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
 
     try:
         com_document = SaxonXMLDocument(saxon_proc, xml_filepath=com_source_file_path)
@@ -1146,28 +1146,28 @@ def check_publication_mtimes_and_publish_files(
     # modification timestamp of its master files and compare them
     # to the generated web XML files
     for row in publication_rows:
-        row = dict(row)
-        publication_id = row["p_id"]
-        collection_id = row["c_id"]
+        p_row = dict(row)
+        publication_id = p_row["p_id"]
+        collection_id = p_row["c_id"]
 
         # ****** READING TEXT AND COMMENTS ******
         logger.info("Processing reading text, comments and variants for publication %s: %s",
-                    publication_id, row["name"])
+                    publication_id, p_row["name"])
 
-        if not row["original_filename"]:
+        if not p_row["original_filename"]:
             logger.warning("Publication `original_filename` not set, skipping to next publication!")
             continue
         est_target_filename = "{}_{}_est.xml".format(collection_id, publication_id)
         com_target_filename = est_target_filename.replace("_est.xml", "_com.xml")
 
         if is_multilingual:
-            language = row["language"]
+            language = p_row["language"]
             est_target_filename = "{}_{}_{}_est.xml".format(collection_id, publication_id, language)
 
         est_target_file_path = safe_join(file_root, "xml", "est", est_target_filename)
         com_target_file_path = safe_join(file_root, "xml", "com", com_target_filename)
         # original_filename should be relative to the project root
-        est_source_file_path = safe_join(file_root, row["original_filename"])
+        est_source_file_path = safe_join(file_root, p_row["original_filename"])
 
         # Get comment filename if a comment is linked to the publication
         # in the database. Default to template comment file if no entry
@@ -1175,17 +1175,17 @@ def check_publication_mtimes_and_publish_files(
         # publication. If no comment linked to the publication, set
         # comment file to None, so we can skip the generation of a
         # comment web file.
-        if row["publication_comment_id"]:
+        if p_row["publication_comment_id"]:
             comment_file = comment_filenames.get(publication_id, COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
         else:
             comment_file = None
 
         # Add the comment filename to the row dict so it can be passed
         # to called functions
-        row["com_original_filename"] = comment_file
+        p_row["com_original_filename"] = comment_file
 
         if os.path.isdir(est_source_file_path):
-            logger.warning("Source file %s for reading text is a directory, skipping to next publication!", est_source_file_path)
+            logger.error("Source file %s for reading text is a directory, skipping to next publication!", est_source_file_path)
             continue
         if not os.path.exists(est_source_file_path):
             # TODO: if no est source file we skip generating variant files
@@ -1201,13 +1201,13 @@ def check_publication_mtimes_and_publish_files(
         # publication, set comment source file path to empty string, so
         # we can skip the generation of a comment web file.
         if comment_file:
-            com_source_file_path = os.path.join(file_root, comment_file)
+            com_source_file_path = safe_join(file_root, comment_file)
 
             if os.path.isdir(com_source_file_path):
-                logger.warning("Source file %s for comment is a directory, skipping to next publication!", com_source_file_path)
+                logger.error("Source file %s for comment is a directory, skipping to next publication!", com_source_file_path)
                 continue
             if not os.path.exists(com_source_file_path):
-                logger.warning("Source file %s for comment does not exist, skipping to next publication!", com_source_file_path)
+                logger.error("Source file %s for comment does not exist, skipping to next publication!", com_source_file_path)
                 continue
         else:
             com_source_file_path = ""
@@ -1222,7 +1222,7 @@ def check_publication_mtimes_and_publish_files(
                 pre_com = file_fingerprint(com_target_file_path)
 
                 if use_xslt_processing:
-                    generate_est_and_com_files_with_xslt(row,
+                    generate_est_and_com_files_with_xslt(p_row,
                                                          project,
                                                          est_source_file_path,
                                                          com_source_file_path,
@@ -1231,7 +1231,7 @@ def check_publication_mtimes_and_publish_files(
                                                          saxon_proc,
                                                          xml_xslt_execs)
                 else:
-                    generate_est_and_com_files(row,
+                    generate_est_and_com_files(p_row,
                                                project,
                                                est_source_file_path,
                                                com_source_file_path,
@@ -1257,8 +1257,7 @@ def check_publication_mtimes_and_publish_files(
             except OSError:
                 # If there is an error, the web XML files likely don't exist or are otherwise corrupt
                 # It is then easiest to just generate new ones
-                logger.warning("Error getting time_modified for target or source files.")
-                logger.info("Generating new est/com XML-files.")
+                logger.warning("Error getting time_modified for target or source files for reading text or comments, generating new est/com XML-files.")
                 try:
                     # calculate file fingerprints for existing files, so we can later
                     # compare if they have changed
@@ -1266,7 +1265,7 @@ def check_publication_mtimes_and_publish_files(
                     pre_com = file_fingerprint(com_target_file_path)
 
                     if use_xslt_processing:
-                        generate_est_and_com_files_with_xslt(row,
+                        generate_est_and_com_files_with_xslt(p_row,
                                                              project,
                                                              est_source_file_path,
                                                              com_source_file_path,
@@ -1275,14 +1274,14 @@ def check_publication_mtimes_and_publish_files(
                                                              saxon_proc,
                                                              xml_xslt_execs)
                     else:
-                        generate_est_and_com_files(row,
+                        generate_est_and_com_files(p_row,
                                                    project,
                                                    est_source_file_path,
                                                    com_source_file_path,
                                                    est_target_file_path,
                                                    com_target_file_path)
                 except Exception:
-                    logger.exception("Failed to generate reading text and comments files, skipping to next publication!")
+                    logger.exception("Unexpected error generating reading text and comments files, skipping to next publication!")
                     continue
                 else:
                     # check if est and/or com files have changed
@@ -1304,7 +1303,7 @@ def check_publication_mtimes_and_publish_files(
                         pre_com = file_fingerprint(com_target_file_path)
 
                         if use_xslt_processing:
-                            generate_est_and_com_files_with_xslt(row,
+                            generate_est_and_com_files_with_xslt(p_row,
                                                                  project,
                                                                  est_source_file_path,
                                                                  com_source_file_path,
@@ -1313,14 +1312,14 @@ def check_publication_mtimes_and_publish_files(
                                                                  saxon_proc,
                                                                  xml_xslt_execs)
                         else:
-                            generate_est_and_com_files(row,
+                            generate_est_and_com_files(p_row,
                                                        project,
                                                        est_source_file_path,
                                                        com_source_file_path,
                                                        est_target_file_path,
                                                        com_target_file_path)
                     except Exception:
-                        logger.exception("Failed to generate reading text and comments files, skipping to next publication!")
+                        logger.exception("Unexpected error generating reading text and comments files, skipping to next publication!")
                         continue
                     else:
                         # check if est and/or com files have changed
@@ -1330,7 +1329,7 @@ def check_publication_mtimes_and_publish_files(
                             xml_changes.add(com_target_file_path)
 
         if prerender_xml:
-            # Prerender XML to HTML for established texts and comments
+            # * Prerender XML to HTML for established texts and comments
 
             # If force_publish, always render an est HTML-file because the XSLT
             # might have changed since last time. Otherwise, render est HTML if
@@ -1455,30 +1454,32 @@ def check_publication_mtimes_and_publish_files(
         all_variant_paths = [main_variant_target]
 
         for variant in other_variants:
+            variant_id = variant["id"]
+
             if not variant["original_filename"]:
-                logger.error("`original_filename` is not set for variant %s, skipping to next variant!", variant["id"])
+                logger.error("`original_filename` is not set for variant %s, skipping to next variant!", variant_id)
                 continue
 
             source_file_path = safe_join(file_root, variant["original_filename"])
 
             if not source_file_path:
-                logger.error("Untrusted source file path for variant %s, skipping to next variant!", variant["id"])
+                logger.error("Untrusted source file path for variant %s, skipping to next variant!", variant_id)
                 continue
             if os.path.isdir(source_file_path):
-                logger.error("Source file %s for variant %s is a directory, skipping to next variant!", source_file_path, variant["id"])
+                logger.error("Source file %s for variant %s is a directory, skipping to next variant!", source_file_path, variant_id)
                 continue
             if not os.path.exists(source_file_path):
-                logger.error("Source file %s for variant %s does not exist, skipping to next variant!", source_file_path, variant["id"])
+                logger.error("Source file %s for variant %s does not exist, skipping to next variant!", source_file_path, variant_id)
                 continue
 
-            target_filename = f"{collection_id}_{publication_id}_var_{variant['id']}.xml"
+            target_filename = f"{collection_id}_{publication_id}_var_{variant_id}.xml"
             target_file_path = safe_join(file_root, "xml", "var", target_filename)
 
             all_variant_paths.append(target_file_path)
 
             # in a force_publish, just load all variants for generation/processing
             if force_publish:
-                logger.debug("Generating new var XML-file for variant %s.", variant["id"])
+                logger.debug("Generating new var XML-file for variant %s.", variant_id)
                 variant_doc = CTeiDocument()
                 variant_doc.Load(source_file_path)
                 variant_docs.append(variant_doc)
@@ -1491,7 +1492,7 @@ def check_publication_mtimes_and_publish_files(
                 except OSError:
                     # If there is an error, the web XML file likely doesn't exist or is otherwise corrupt
                     # It is then easiest to just generate a new one
-                    logger.warning("Error getting time_modified for target or source files for variant %s, generating new var XML-file.", variant["id"])
+                    logger.warning("Error getting time_modified for target or source files for variant %s, generating new var XML-file.", variant_id)
                     variant_doc = CTeiDocument()
                     variant_doc.Load(source_file_path)
                     variant_docs.append(variant_doc)
@@ -1517,7 +1518,7 @@ def check_publication_mtimes_and_publish_files(
                                                  main_variant_target,
                                                  variant_docs,
                                                  variant_paths,
-                                                 row)
+                                                 p_row)
 
         # check if main variant has changed
         if changed_by_size_or_hash(pre_main_variant, main_variant_target):
@@ -1529,7 +1530,7 @@ def check_publication_mtimes_and_publish_files(
                 xml_changes.add(path)
 
         if prerender_xml:
-            # Prerender XML to HTML for variants
+            # * Prerender XML to HTML for variants
             for xml_path in all_variant_paths:
                 # If force_publish, always render var HTML-file
                 # because the XSLT might have changed since last
@@ -1543,7 +1544,7 @@ def check_publication_mtimes_and_publish_files(
                         xml_path, "var", file_root
                     )
                 ):
-                    # prerender the variant
+                    # prerender var
                     logger.debug("Prerendering HTML for variant %s.", xml_path)
                     var_html_file = prerender_xml_to_html(file_root,
                                                           xml_path,
@@ -1561,43 +1562,42 @@ def check_publication_mtimes_and_publish_files(
     all_ms_target_paths = []
 
     for row in manuscript_rows:
-        row = dict(row)
-        collection_id = row["c_id"]
-        publication_id = row["p_id"]
-        manuscript_id = row["m_id"]
-        target_filename = "{}_{}_ms_{}.xml".format(collection_id,
-                                                   publication_id,
-                                                   manuscript_id)
+        m_row = dict(row)
+        collection_id = m_row["c_id"]
+        publication_id = m_row["p_id"]
+        manuscript_id = m_row["m_id"]
 
-        source_filename = row["original_filename"]
-        if not source_filename:
-            logger.info("Source file not set for manuscript %s", manuscript_id)
+        if not m_row["original_filename"]:
+            logger.error("`original_filename` is not set for manuscript %s, skipping to next manuscript!", manuscript_id)
             continue
 
-        target_file_path = os.path.join(file_root, "xml", "ms", target_filename)
-        # original_filename should be relative to the project root
-        source_file_path = os.path.join(file_root, source_filename)
+        source_file_path = safe_join(file_root, m_row["original_filename"])
 
+        if not source_file_path:
+            logger.error("Untrusted source file path for manuscript %s, skipping to next manuscript!", manuscript_id)
+            continue
         if os.path.isdir(source_file_path):
-            logger.warning("Source file %s for manuscript %s is a directory!", source_file_path, manuscript_id)
+            logger.error("Source file %s for manuscript %s is a directory, skipping to next manuscript!", source_file_path, manuscript_id)
+            continue
+        if not os.path.exists(source_file_path):
+            logger.error("Source file %s for manuscript %s does not exist, skipping to next manuscript!", source_file_path, manuscript_id)
             continue
 
-        if not os.path.exists(source_file_path):
-            logger.warning("Source file %s for manuscript %s does not exist!", source_file_path, manuscript_id)
-            continue
+        target_filename = f"{collection_id}_{publication_id}_ms_{manuscript_id}.xml"
+        target_file_path = safe_join(file_root, "xml", "ms", target_filename)
 
         all_ms_target_paths.append(target_file_path)
 
         # in a force_publish, just generate all ms files
         if force_publish:
-            logger.info("Generating new ms file for publication_manuscript %s", manuscript_id)
+            logger.debug("Generating new ms XML-file for manuscript %s.", manuscript_id)
             try:
                 # calculate file fingerprint for existing ms file, so we can later
                 # compare if it has changed
                 pre_ms = file_fingerprint(target_file_path)
 
                 if use_xslt_processing:
-                    generate_ms_file_with_xslt(row,
+                    generate_ms_file_with_xslt(m_row,
                                                source_file_path,
                                                target_file_path,
                                                saxon_proc,
@@ -1605,14 +1605,14 @@ def check_publication_mtimes_and_publish_files(
                 else:
                     generate_ms_file(source_file_path,
                                      target_file_path,
-                                     row)
+                                     m_row)
             except Exception:
+                logger.exception("Unexpected error generating new ms XML-file for manuscript %s, skipping to next manuscript!", manuscript_id)
                 continue
             else:
                 # check if ms file has changed
                 if changed_by_size_or_hash(pre_ms, target_file_path):
                     xml_changes.add(target_file_path)
-
         # otherwise, check if this file needs generating
         else:
             try:
@@ -1621,15 +1621,14 @@ def check_publication_mtimes_and_publish_files(
             except OSError:
                 # If there is an error, the web XML file likely doesn't exist or is otherwise corrupt
                 # It is then easiest to just generate a new one
-                logger.warning("Error getting time_modified for target or source file for publication_manuscript %s", manuscript_id)
-                logger.info("Generating new file...")
+                logger.warning("Error getting time_modified for target or source file for manuscript %s, generating new ms XML-file.", manuscript_id)
                 try:
                     # calculate file fingerprint for existing ms file, so we can later
                     # compare if it has changed
                     pre_ms = file_fingerprint(target_file_path)
 
                     if use_xslt_processing:
-                        generate_ms_file_with_xslt(row,
+                        generate_ms_file_with_xslt(m_row,
                                                    source_file_path,
                                                    target_file_path,
                                                    saxon_proc,
@@ -1637,26 +1636,24 @@ def check_publication_mtimes_and_publish_files(
                     else:
                         generate_ms_file(source_file_path,
                                          target_file_path,
-                                         row)
+                                         m_row)
                 except Exception:
+                    logger.exception("Unexpected error generating new ms XML-file for manuscript %s, skipping to next manuscript!", manuscript_id)
                     continue
                 else:
                     # check if ms file has changed
                     if changed_by_size_or_hash(pre_ms, target_file_path):
                         xml_changes.add(target_file_path)
             else:
-                if target_mtime >= source_mtime:
-                    # If the target ms file is newer than the source, continue to the next publication_manuscript
-                    continue
-                else:
-                    logger.info("File %s is older than source file %s, generating new file...", target_file_path, source_file_path)
+                if target_mtime < source_mtime:
+                    logger.debug("File %s is older than source file %s, generating new file.", target_file_path, source_file_path)
                     try:
                         # calculate file fingerprint for existing ms file, so we can later
                         # compare if it has changed
                         pre_ms = file_fingerprint(target_file_path)
 
                         if use_xslt_processing:
-                            generate_ms_file_with_xslt(row,
+                            generate_ms_file_with_xslt(m_row,
                                                        source_file_path,
                                                        target_file_path,
                                                        saxon_proc,
@@ -1664,16 +1661,21 @@ def check_publication_mtimes_and_publish_files(
                         else:
                             generate_ms_file(source_file_path,
                                              target_file_path,
-                                             row)
+                                             m_row)
                     except Exception:
+                        logger.exception("Unexpected error generating new ms XML-file for manuscript %s, skipping to next manuscript!", manuscript_id)
                         continue
                     else:
                         # check if ms file has changed
                         if changed_by_size_or_hash(pre_ms, target_file_path):
                             xml_changes.add(target_file_path)
+                else:
+                    # If the target ms file is newer than the source,
+                    # continue to the next manuscript
+                    continue
 
     if prerender_xml:
-        # Prerender XML to HTML for manuscripts
+        # * Prerender XML to HTML for manuscripts
         for xml_path in all_ms_target_paths:
             # If force_publish, always render ms HTML-file
             # because the XSLT might have changed since last
@@ -1687,20 +1689,22 @@ def check_publication_mtimes_and_publish_files(
                     xml_path, "ms", file_root
                 )
             ):
-                # prerender the manuscript
+                # prerender ms
+                logger.debug("Prerendering HTML for manuscript %s.", xml_path)
                 ms_html_file = prerender_xml_to_html(file_root,
                                                      xml_path,
                                                      saxon_proc,
                                                      html_xslt_execs)
                 html_changes.update(ms_html_file)
 
-        # Prerender XML to HTML for frontmatter pages (title, foreword
-        # and introduction). Since the frontmatter pages are not recorded
-        # in the database, we have to scan the folders of the frontmatter
-        # pages’ XML files. The frontmatter pages are prerendered if
-        # a) this is a force publication of all publications in the
-        # project, or b) the XSLT stylesheet of the frontmatter page type
-        # has been modified later than the XML file.
+        # * Prerender XML to HTML for front matter pages (title page,
+        # * foreword and introduction).
+        # Since the front matter pages are not recorded in the database,
+        # we have to scan the folders of the front matter pages’ XML files.
+        # The front matter pages are prerendered if:
+        # a) this is a force publication of all publications in the project
+        # b) the XSLT stylesheet of the front matter page type has been
+        #    modified later than the XML file.
         frontmatter_types = ["tit", "fore", "inl"]
         for f_type in frontmatter_types:
             xml_folder = safe_join(file_root, "xml", f_type)
