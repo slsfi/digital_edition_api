@@ -971,12 +971,12 @@ def check_publication_mtimes_and_publish_files(
         force_publish = True
 
     # Flag for prerendering XML to HTML
-    prerender_xml: bool = project_config.get("prerender_xml", False)
+    prerender_html: bool = project_config.get("prerender_html", False)
 
     # Flag for using the Saxon XSLT processor for prerender transformations
     use_saxon_for_prerender: bool = project_config.get("use_saxon_xslt", False)
 
-    if prerender_xml:
+    if prerender_html:
         xslt_proc_name = "Saxon" if use_saxon_for_prerender else "lxml"
         logger.info("Prerendering enabled, using %s for transformations.",
                     xslt_proc_name)
@@ -1118,7 +1118,7 @@ def check_publication_mtimes_and_publish_files(
     xml_xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]] = None
     html_xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]] = None
 
-    if use_xslt_processing or (prerender_xml and use_saxon_for_prerender):
+    if use_xslt_processing or (prerender_html and use_saxon_for_prerender):
         # Initialise a Saxon processor and Saxon XSLT 3.0 processor
         # Documentation for SaxonC's Python API:
         # https://www.saxonica.com/saxon-c/doc12/html/saxonc.html
@@ -1136,7 +1136,7 @@ def check_publication_mtimes_and_publish_files(
             compile_xslt_stylesheets(file_root, xslt_proc)
         )
 
-    if prerender_xml and use_saxon_for_prerender:
+    if prerender_html and use_saxon_for_prerender:
         # Compile the XSLT stylesheets used to transform the web XML to
         # HTML. and store
         # The compiled Saxon stylesheets are stored in a dictionary where
@@ -1360,7 +1360,7 @@ def check_publication_mtimes_and_publish_files(
                         if changed_by_size_or_hash(pre_com, com_target_file_path):
                             xml_changes.add(com_target_file_path)
 
-        if prerender_xml:
+        if prerender_html:
             # * Prerender XML to HTML for established texts and comments
 
             # If force_publish, always render an est HTML-file because the XSLT
@@ -1563,7 +1563,7 @@ def check_publication_mtimes_and_publish_files(
             if changed_by_size_or_hash(pre_fp, path):
                 xml_changes.add(path)
 
-        if prerender_xml:
+        if prerender_html:
             # * Prerender XML to HTML for variants
             for xml_path in all_variant_paths:
                 # If force_publish, always render var HTML-file
@@ -1713,7 +1713,7 @@ def check_publication_mtimes_and_publish_files(
                     # continue to the next manuscript
                     continue
 
-    if prerender_xml:
+    if prerender_html:
         # * Prerender XML to HTML for manuscripts
         if all_ms_target_paths:
             logger.info("Prerendering HTML for manuscripts.")
@@ -1779,7 +1779,7 @@ def check_publication_mtimes_and_publish_files(
     else:
         logger.info("No XML changes made in publisher script run.")
 
-    if prerender_xml:
+    if prerender_html:
         # Log a summary of changed HTML-files.
         if html_changes:
             sorted_html_changes = sorted(html_changes)

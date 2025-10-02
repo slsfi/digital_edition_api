@@ -766,7 +766,7 @@ def get_prerendered_or_transformed_xml_content(
         project_config = get_project_config(project)
     file_root = project_config.get("file_root", "")
 
-    if project_config.get("prerender_xml", False):
+    if project_config.get("prerender_html", False):
         # Get prerendered HTML
         html_filename = filename_stem
         if "sectionId" in xslt_parameters:

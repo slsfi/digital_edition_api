@@ -41,10 +41,10 @@ parland:
     # Boolean indicating if prerendering of XML to HTML is enabled for the
     # project. If it is, the publisher script generates HTML files as well
     # as web XML files when it runs, and the API endpoints serve the
-    # prerendered HTML files (as a fallback, the HTML is transformed from
-    # XML if the prerendered HTML files are missing or can’t be read).
+    # prerendered HTML files (as a fallback, the HTML is transformed on the
+    # fly from XML if the prerendered HTML files are missing or can’t be read).
     # Defaults to `False`.
-    prerender_xml: False
+    prerender_html: False
     # PostgreSQL collation to use, defaults to the generic Swedish
     # collation as defined by ICU (International Components for Unicode)
     # library.
@@ -81,10 +81,10 @@ topelius:
     # Boolean indicating if prerendering of XML to HTML is enabled for the
     # project. If it is, the publisher script generates HTML files as well
     # as web XML files when it runs, and the API endpoints serve the
-    # prerendered HTML files (as a fallback, the HTML is transformed from
-    # XML if the prerendered HTML files are missing or can’t be read).
+    # prerendered HTML files (as a fallback, the HTML is transformed on the
+    # fly from XML if the prerendered HTML files are missing or can’t be read).
     # Defaults to `False`.
-    prerender_xml: False
+    prerender_html: False
     # PostgreSQL collation to use, defaults to the generic Swedish
     # collation as defined by ICU (International Components for Unicode)
     # library.
