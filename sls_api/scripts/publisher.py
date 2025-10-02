@@ -1430,17 +1430,19 @@ def check_publication_mtimes_and_publish_files(
                         var_table.c.id
                     )
                 )
-                variants_info = connection.execute(variants_stmt).mappings().all()
+                variant_rows = connection.execute(variants_stmt).mappings().all()
         except Exception:
             logger.exception("Unexpected error getting publication variants data, skipping to next publication!")
             continue
 
-        if not variants_info:
+        if not variant_rows:
             logger.debug("No variants found for the publication, skipping to next publication!")
             continue
+        else:
+            logger.debug("Processing %s variants of the publication.", len(variant_rows))
 
-        variants_info = [dict(v) for v in variants_info]
-        type1_variants = [v for v in variants_info if int(v.get("type", -1)) == 1]
+        variant_rows = [dict(v) for v in variant_rows]
+        type1_variants = [v for v in variant_rows if int(v.get("type", -1)) == 1]
 
         if not type1_variants:
             logger.error("No main variant found for the publication, skipping to next publication!")
@@ -1450,7 +1452,7 @@ def check_publication_mtimes_and_publish_files(
             continue
 
         main_variant = type1_variants[0]
-        other_variants = [v for v in variants_info if int(v.get("type", -1)) == 2]
+        other_variants = [v for v in variant_rows if int(v.get("type", -1)) == 2]
 
         if main_variant["original_filename"] is None:
             logger.error("`original_filename` is not set for main variant %s, skipping to next publication!", main_variant["id"])
@@ -1713,6 +1715,9 @@ def check_publication_mtimes_and_publish_files(
 
     if prerender_xml:
         # * Prerender XML to HTML for manuscripts
+        if all_ms_target_paths:
+            logger.info("Prerendering HTML for manuscripts.")
+
         for xml_path in all_ms_target_paths:
             # If force_publish, always render ms HTML-file
             # because the XSLT might have changed since last
@@ -1734,15 +1739,17 @@ def check_publication_mtimes_and_publish_files(
                                                      html_xslt_execs)
                 html_changes.update(ms_html_file)
 
-        # * Prerender XML to HTML for front matter pages (title page,
+        # * Prerender XML to HTML for front matter texts (title page,
         # * foreword and introduction).
-        # Since the front matter pages are not recorded in the database,
-        # we have to scan the folders of the front matter pages’ XML files.
-        # The front matter pages are prerendered if:
+        # Since the front matter texts are not recorded in the database,
+        # we have to scan the folders of the front matter texts’ XML files.
+        # The front matter texts are prerendered if:
         # a) this is a force publication of all publications in the project
-        # b) the XSLT stylesheet of the front matter page type has been
+        # b) the XSLT stylesheet of the front matter text type has been
         #    modified later than the XML file.
+        logger.info("Prerendering HTML for front matter texts.")
         frontmatter_types = ["tit", "fore", "inl"]
+
         for f_type in frontmatter_types:
             xml_folder = safe_join(file_root, "xml", f_type)
             # Get file paths of all files with xml-extension in the front
@@ -1758,19 +1765,12 @@ def check_publication_mtimes_and_publish_files(
                         xml_path, f_type, file_root
                     )
                 ):
+                    logger.debug("Prerendering HTML for front matter text %s.", xml_path)
                     html_file = prerender_xml_to_html(file_root,
                                                       xml_path,
                                                       saxon_proc,
                                                       html_xslt_execs)
                     html_changes.update(html_file)
-
-    # Log a summary of warnings and errors
-    if logger_flags.had_warning and logger_flags.had_error:
-        logger.info("!!! There were WARNINGS and ERRORS during publisher script run !!!")
-    elif logger_flags.had_error:
-        logger.info("!!! There were ERRORS during publisher script run !!!")
-    elif logger_flags.had_warning:
-        logger.info("!!! There were WARNINGS during publisher script run !!!")
 
     # Log a summary of changed XML-files.
     if xml_changes:
@@ -1786,6 +1786,14 @@ def check_publication_mtimes_and_publish_files(
             logger.info("HTML changes made in publisher script run (%d):\n%s", len(html_changes), "\n".join(sorted_html_changes))
         else:
             logger.info("No HTML changes made in publisher script run.")
+
+    # Log a summary of warnings and errors
+    if logger_flags.had_warning and logger_flags.had_error:
+        logger.info("*** There were WARNINGS and ERRORS during publisher script run! ***")
+    elif logger_flags.had_error:
+        logger.info("*** There were ERRORS during publisher script run! ***")
+    elif logger_flags.had_warning:
+        logger.info("*** There were WARNINGS during publisher script run! ***")
 
     # Merge the sets containing XML and HTML changes
     all_changes = xml_changes.union(html_changes)
@@ -1828,13 +1836,9 @@ if __name__ == "__main__":
         if args.debug_logging:
             enable_debug_logging()
 
-        if args.publication_ids is None:
-            ids = None
-        elif len(args.publication_ids) == 0:
-            ids = None
-        else:
-            # use a tuple rather than a list, to make SQLAlchemy happier more easily
-            ids = tuple(args.publication_ids)
+        # use a tuple rather than a list for publication ids,
+        # to make SQLAlchemy happier more easily
+        ids = tuple(args.publication_ids) if args.publication_ids else None
 
         if str(args.project).lower() == "all":
             for p in projects:
