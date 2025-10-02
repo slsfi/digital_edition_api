@@ -56,7 +56,7 @@ XSL_PATH_MAP_FOR_PUBLISHING = {
 
 
 def enable_debug_logging():
-    logging.getLogger().setLevel(logging.DEBUG)
+    root_logger.setLevel(logging.DEBUG)
     logger.setLevel(logging.DEBUG)
 
 
