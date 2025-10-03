@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from io import StringIO
 from lxml import etree as ET
 from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
-from sqlalchemy import and_, create_engine, select
+from sqlalchemy import and_, case, create_engine, func, select
 from sqlalchemy.sql import text
 from subprocess import CalledProcessError
 from typing import Any, Dict, List, Optional, Union
@@ -86,96 +86,92 @@ def get_comments_from_database(project, document_note_ids):
         return []
 
 
-def get_letter_info_from_database(letter_id):
-    logger.info("Getting correspondence info for letter: %s", letter_id)
-    if letter_id is None:
-        return []
-    letter = dict()
-    # Get Sender
-    sender = get_letter_person(letter_id, 'avsändare')
-    if sender is not None:
-        letter['sender'] = sender.full_name
-        letter['sender_id'] = sender.id
-    else:
-        letter['sender'] = ''
-        letter['sender_id'] = ''
-    # Get Reciever
-    reciever = get_letter_person(letter_id, 'mottagare')
-    if reciever is not None:
-        letter['reciever'] = reciever.full_name
-        letter['reciever_id'] = reciever.id
-    else:
-        letter['reciever'] = ''
-        letter['reciever_id'] = ''
-    # Get Sender Location
-    sender_location = get_letter_location(letter_id, 'avsändarort')
-    if sender_location is not None:
-        letter['sender_location'] = sender_location.name
-        letter['sender_location_id'] = sender_location.id
-    else:
-        letter['sender_location'] = ''
-        letter['sender_location_id'] = ''
-    # Get Reciever Location
-    reciever_location = get_letter_location(letter_id, 'mottagarort')
-    if reciever_location is not None:
-        letter['reciever_location'] = reciever_location.name
-        letter['reciever_location_id'] = reciever_location.id
-    else:
-        letter['reciever_location'] = ''
-        letter['reciever_location_id'] = ''
-    # Get Title and Status
-    title = get_letter_info(letter_id)
-    if title is not None:
-        letter['title'] = title.title
-        letter['title_id'] = title.id
-    else:
-        letter['title'] = ''
-        letter['title_id'] = ''
-    return letter
+def get_letter_info_from_database(letter_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """
+    Fetch correspondence metadata for a single letter in one database
+    round trip.
 
+    Limitations: as in the previous implementation, if a letter has
+    multiple senders or receivers, the information of only one of them
+    will be included in the result.
+    """
+    if letter_id is None or letter_id == "":
+        return None
 
-def get_letter_info(letter_id):
-    if letter_id is None:
-        return []
-    connection = db_engine.connect()
-    statement = text("SELECT c.id, c.title from correspondence c \
-                     where c.legacy_id = :letter_id ")
-    statement = statement.bindparams(letter_id=letter_id)
-    data = connection.execute(statement).fetchone()
-    connection.close()
-    return data
+    logger.debug("Getting correspondence info for letter: %s", letter_id)
 
+    c = get_table("correspondence")
+    ec = get_table("event_connection")
+    s = get_table("subject")
+    l = get_table("location")
 
-def get_letter_person(letter_id, type):
-    if letter_id is None:
-        return []
-    if type not in ['mottagare', 'avsändare']:
-        return []
-    connection = db_engine.connect()
-    statement = text("SELECT s.id, s.full_name from correspondence c \
-                     join event_connection ec on ec.correspondence_id = c.id \
-                     join subject s on s.id = ec.subject_id \
-                     where c.legacy_id = :letter_id and ec.type = :type ")
-    statement = statement.bindparams(letter_id=letter_id, type=type)
-    data = connection.execute(statement).fetchone()
-    connection.close()
-    return data
+    # Conditional aggregates pivot rows (by ec.type) into columns
+    sender = func.max(case((ec.c.type == 'avsändare', s.c.full_name))).label("sender")
+    sender_id = func.max(case((ec.c.type == 'avsändare', s.c.id))).label("sender_id")
+    receiver = func.max(case((ec.c.type == 'mottagare', s.c.full_name))).label("receiver")
+    receiver_id = func.max(case((ec.c.type == 'mottagare', s.c.id))).label("receiver_id")
+    sender_loc = func.max(case((ec.c.type == 'avsändarort', l.c.name))).label("sender_location")
+    sender_loc_id = func.max(case((ec.c.type == 'avsändarort', l.c.id))).label("sender_location_id")
+    recv_loc = func.max(case((ec.c.type == 'mottagarort', l.c.name))).label("receiver_location")
+    recv_loc_id = func.max(case((ec.c.type == 'mottagarort', l.c.id))).label("receiver_location_id")
 
+    # Duplicate detectors for senders and receivers.
+    # If there are multiple, issue a warning, but include only one since CTeiDocument
+    # currently doesn't support multiple senders or receivers.
+    sender_count = func.count(case((ec.c.type == 'avsändare', 1))).label("sender_count")
+    receiver_count = func.count(case((ec.c.type == 'mottagare', 1))).label("receiver_count")
 
-def get_letter_location(letter_id, type):
-    if letter_id is None:
-        return []
-    if type not in ['mottagarort', 'avsändarort']:
-        return []
-    connection = db_engine.connect()
-    statement = text("SELECT l.id, l.name from correspondence c \
-                     join event_connection ec on ec.correspondence_id = c.id \
-                     join location l on l.id = ec.location_id \
-                     where c.legacy_id = :letter_id and ec.type = :type ")
-    statement = statement.bindparams(letter_id=letter_id, type=type)
-    data = connection.execute(statement).fetchone()
-    connection.close()
-    return data
+    stmt = (
+        select(
+            c.c.id.label("title_id"),
+            c.c.title.label("title"),
+            sender, sender_id,
+            receiver, receiver_id,
+            sender_loc, sender_loc_id,
+            recv_loc, recv_loc_id,
+            sender_count, receiver_count
+        )
+        .select_from(
+            c.outerjoin(ec, c.c.id == ec.c.correspondence_id)
+             .outerjoin(s, s.c.id == ec.c.subject_id)
+             .outerjoin(l, l.c.id == ec.c.location_id)
+        )
+        .where(c.c.legacy_id == letter_id)
+        .group_by(c.c.id, c.c.title)
+    )
+
+    try:
+        with db_engine.connect() as conn:
+            row = conn.execute(stmt).mappings().first()
+    except Exception:
+        logger.exception("Unexpected error getting correspondence data from database.")
+        return None
+
+    if not row:
+        return None
+
+    if row.get("sender_count", 1) > 1:
+        logger.warning("Multiple senders (%s) for letter %s. Only one will be recorded in the published XML-file.", row["sender_count"], letter_id)
+    if row.get("receiver_count", 1) > 1:
+        logger.warning("Multiple receivers (%s) for letter %s. Only one will be recorded in the published XML-file.", row["receiver_count"], letter_id)
+
+    # empty string for missing fields
+    def _val(key):
+        v = row.get(key)
+        return "" if v is None else v
+
+    return {
+        "sender": _val("sender"),
+        "sender_id": _val("sender_id"),
+        "receiver": _val("receiver"),
+        "receiver_id": _val("receiver_id"),
+        "sender_location": _val("sender_location"),
+        "sender_location_id": _val("sender_location_id"),
+        "receiver_location": _val("receiver_location"),
+        "receiver_location_id": _val("receiver_location_id"),
+        "title": _val("title"),
+        "title_id": _val("title_id")
+    }
 
 
 def clean_comment_html_fragment(html_str: str) -> str:
@@ -318,7 +314,8 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
         letterId = est_document.GetLetterId()
         if letterId is not None:
             letterData = get_letter_info_from_database(letterId)
-            est_document.SetLetterTitleAndStatusAndMeta(letterData)
+            if letterData is not None:
+                est_document.SetLetterTitleAndStatusAndMeta(letterData)
 
     est_document.Save(est_target_path)
 

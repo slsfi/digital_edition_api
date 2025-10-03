@@ -624,7 +624,7 @@ def transform_xml(
             result = xsl_transform(xml_root, **params)
 
         if len(xsl_transform.error_log) > 0:
-            logger.debug(xsl_transform.error_log)
+            logger.error("XSL transform error: %s", xsl_transform.error_log)
 
         return str(result)
 
