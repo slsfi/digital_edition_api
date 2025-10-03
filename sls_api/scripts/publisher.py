@@ -133,8 +133,8 @@ def get_letter_info_from_database(letter_id: Optional[str]) -> Optional[Dict[str
         )
         .select_from(
             cor.outerjoin(evc, cor.c.id == evc.c.correspondence_id)
-             .outerjoin(sub, sub.c.id == evc.c.subject_id)
-             .outerjoin(loc, loc.c.id == evc.c.location_id)
+            .outerjoin(sub, sub.c.id == evc.c.subject_id)
+            .outerjoin(loc, loc.c.id == evc.c.location_id)
         )
         .where(cor.c.legacy_id == letter_id)
         .group_by(cor.c.id, cor.c.title)
