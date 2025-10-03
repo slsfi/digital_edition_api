@@ -100,31 +100,31 @@ def get_letter_info_from_database(letter_id: Optional[str]) -> Optional[Dict[str
 
     logger.debug("Getting correspondence info for letter: %s", letter_id)
 
-    c = get_table("correspondence")
-    ec = get_table("event_connection")
-    s = get_table("subject")
-    l = get_table("location")
+    cor = get_table("correspondence")
+    evc = get_table("event_connection")
+    sub = get_table("subject")
+    loc = get_table("location")
 
     # Conditional aggregates pivot rows (by ec.type) into columns
-    sender = func.max(case((ec.c.type == 'avsändare', s.c.full_name))).label("sender")
-    sender_id = func.max(case((ec.c.type == 'avsändare', s.c.id))).label("sender_id")
-    receiver = func.max(case((ec.c.type == 'mottagare', s.c.full_name))).label("receiver")
-    receiver_id = func.max(case((ec.c.type == 'mottagare', s.c.id))).label("receiver_id")
-    sender_loc = func.max(case((ec.c.type == 'avsändarort', l.c.name))).label("sender_location")
-    sender_loc_id = func.max(case((ec.c.type == 'avsändarort', l.c.id))).label("sender_location_id")
-    recv_loc = func.max(case((ec.c.type == 'mottagarort', l.c.name))).label("receiver_location")
-    recv_loc_id = func.max(case((ec.c.type == 'mottagarort', l.c.id))).label("receiver_location_id")
+    sender = func.max(case((evc.c.type == 'avsändare', sub.c.full_name))).label("sender")
+    sender_id = func.max(case((evc.c.type == 'avsändare', sub.c.id))).label("sender_id")
+    receiver = func.max(case((evc.c.type == 'mottagare', sub.c.full_name))).label("receiver")
+    receiver_id = func.max(case((evc.c.type == 'mottagare', sub.c.id))).label("receiver_id")
+    sender_loc = func.max(case((evc.c.type == 'avsändarort', loc.c.name))).label("sender_location")
+    sender_loc_id = func.max(case((evc.c.type == 'avsändarort', loc.c.id))).label("sender_location_id")
+    recv_loc = func.max(case((evc.c.type == 'mottagarort', loc.c.name))).label("receiver_location")
+    recv_loc_id = func.max(case((evc.c.type == 'mottagarort', loc.c.id))).label("receiver_location_id")
 
     # Duplicate detectors for senders and receivers.
     # If there are multiple, issue a warning, but include only one since CTeiDocument
     # currently doesn't support multiple senders or receivers.
-    sender_count = func.count(case((ec.c.type == 'avsändare', 1))).label("sender_count")
-    receiver_count = func.count(case((ec.c.type == 'mottagare', 1))).label("receiver_count")
+    sender_count = func.count(case((evc.c.type == 'avsändare', 1))).label("sender_count")
+    receiver_count = func.count(case((evc.c.type == 'mottagare', 1))).label("receiver_count")
 
     stmt = (
         select(
-            c.c.id.label("title_id"),
-            c.c.title.label("title"),
+            cor.c.id.label("title_id"),
+            cor.c.title.label("title"),
             sender, sender_id,
             receiver, receiver_id,
             sender_loc, sender_loc_id,
@@ -132,12 +132,12 @@ def get_letter_info_from_database(letter_id: Optional[str]) -> Optional[Dict[str
             sender_count, receiver_count
         )
         .select_from(
-            c.outerjoin(ec, c.c.id == ec.c.correspondence_id)
-             .outerjoin(s, s.c.id == ec.c.subject_id)
-             .outerjoin(l, l.c.id == ec.c.location_id)
+            cor.outerjoin(evc, cor.c.id == evc.c.correspondence_id)
+             .outerjoin(sub, sub.c.id == evc.c.subject_id)
+             .outerjoin(loc, loc.c.id == evc.c.location_id)
         )
-        .where(c.c.legacy_id == letter_id)
-        .group_by(c.c.id, c.c.title)
+        .where(cor.c.legacy_id == letter_id)
+        .group_by(cor.c.id, cor.c.title)
     )
 
     try:
@@ -321,6 +321,12 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
 
     # Generate comments file for this document
 
+    if not publication_info["publication_comment_id"]:
+        # No publication_comment linked to publication, skip
+        # generation of comments web XML
+        logger.debug("Skipping generation of comment file, no comment linked to publication.")
+        return
+
     # If com_master_file_path doesn't exist, use COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT.
     # If the template file doesn't exist either, don't generate a comments file for this document.
     if not os.path.exists(com_master_file_path):
@@ -328,7 +334,7 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
                                          COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
 
         if not os.path.exists(com_master_file_path):
-            logger.info("Skipping com file generation: no comments file associated with publication and no template file exists at %s", COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+            logger.warning("Skipping com file generation: no comments file associated with publication and no template file exists at %s", COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
             return
 
     # Get all documentnote IDs from the main master file (these are the IDs of the comments for this document)
@@ -411,8 +417,18 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
     if not publication_info["publication_comment_id"]:
         # No publication_comment linked to publication, skip
         # generation of comments web XML
-        logger.info("Skipping generation of comment file, no comment linked to publication.")
+        logger.debug("Skipping generation of comment file, no comment linked to publication.")
         return
+
+    # If com_source_file_path doesn't exist, use
+    # COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT
+    if not os.path.exists(com_source_file_path):
+        com_source_file_path = safe_join(config[project]["file_root"],
+                                         COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+
+        if not os.path.exists(com_source_file_path):
+            logger.warning("Skipping com file generation: no comments file associated with publication and no template file exists at %s", COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
+            return
 
     if xslt_execs["com"] is None:
         logger.warning("XSLT executable for 'com' is missing. '%s' is invalid or does not exist in project root. Comment file not generated.", XSL_PATH_MAP_FOR_PUBLISHING.get("com"))
@@ -435,12 +451,6 @@ def generate_est_and_com_files_with_xslt(publication_info: Optional[Dict[str, An
             notes_xml_str = construct_notes_xml(comment_notes, comment_positions)
         except Exception:
             logger.exception("Failed to get/process comment notes from database.")
-
-    # If com_source_file_path doesn't exist, use
-    # COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT
-    if not os.path.exists(com_source_file_path):
-        com_source_file_path = safe_join(config[project]["file_root"],
-                                         COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT)
 
     try:
         com_document = SaxonXMLDocument(saxon_proc, xml_filepath=com_source_file_path)
