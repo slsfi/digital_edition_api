@@ -586,14 +586,15 @@ class CTeiDocument:
     def GetLetterId(self):
         # Find document title (this element is used for letter ids (database) in the Topelius project)
         elem = self.xmlRoot.find('.//' + self.sPrefixUrl + 'titleStmt/' + self.sPrefixUrl + 'title')
-        # If title is found, return the text of the element
-        if elem is not None:
-            return re.sub('br', '', str(elem.text), flags=re.IGNORECASE)
-            # If you want to validate the id, uncomment and the following lines and edit the RegEx to your needs
-            # if re.match(r"^[Bb]r[0-9]", elem.text) is not None:
-            #  return elem.text
-            # else:
-            #  return None
+        # If title is found, extract possible letter id from the text of the element
+        # Letter ids start with the letters "Br" and follow by digits, for instance Br2541
+        # Letter ids must be at the start of the text content of the title element
+        # Return the digit part of the id if found, else None
+        if elem is not None and elem.text is not None:
+            # (?i) = ignore case; ^ = start anchor; (\d+) = capture digits; \b = word boundary
+            m = re.search(r'(?i)^br(\d+)\b', str(elem.text).strip())
+            letter_id = str(m.group(1)) if m else None
+            return letter_id
         else:
             return None
 
@@ -693,10 +694,7 @@ class CTeiDocument:
             elemProfileDesc = ET.SubElement(oNode, 'profileDesc')
 
         # Get the creation element
-        elemContainer = elemProfileDesc.find(self.sPrefixUrl + 'creation')
-        # If no such element, create it
-        if elemContainer is None:
-            elemContainer = ET.SubElement(elemProfileDesc, 'creation')
+        elemContainer = self.__GetOrCreate(elemProfileDesc, self.sPrefix + ':creation', 'creation')
 
         # Create the title element
         elem = ET.SubElement(elemContainer, 'title')
@@ -712,11 +710,11 @@ class CTeiDocument:
             elem.text = letterData['sender_location']
 
         # Create element for place received
-        if len(letterData['reciever_location']) > 0:
+        if len(letterData['receiver_location']) > 0:
             elem = ET.SubElement(elemContainer, 'placeName')
             elem.attrib['type'] = 'adressee'
-            elem.attrib['id'] = str(letterData['reciever_location_id'])
-            elem.text = letterData['reciever_location']
+            elem.attrib['id'] = str(letterData['receiver_location_id'])
+            elem.text = letterData['receiver_location']
 
         # Create element for sender
         if len(letterData['sender']) > 0:
@@ -726,11 +724,11 @@ class CTeiDocument:
             elem.text = letterData['sender']
 
         # Create element for receiver
-        if len(letterData['reciever']) > 0:
+        if len(letterData['receiver']) > 0:
             elem = ET.SubElement(elemContainer, 'persName')
             elem.attrib['type'] = 'adressee'
-            elem.attrib['id'] = str(letterData['reciever_id'])
-            elem.text = letterData['reciever']
+            elem.attrib['id'] = str(letterData['receiver_id'])
+            elem.text = letterData['receiver']
 
         # Return success
         return True
