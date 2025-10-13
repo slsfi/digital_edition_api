@@ -147,6 +147,7 @@ def get_comments_from_database(
                 note.c.deleted == 0,
                 documentnote.c.id.in_(doc_ids)
             )
+            .order_by(documentnote.c.id)
         )
 
         with engine.connect() as connection:
