@@ -562,6 +562,108 @@ def list_facsimile_collections(project, order_by="id", direction="desc"):
         return create_error_response("Unexpected error: failed to retrieve facsimile collections.", 500)
 
 
+@collection_tools.route("/<project>/facsimile_collection/<collection_id>/data/")
+@project_permission_required
+def get_facsimile_collection_data(project, collection_id):
+    """
+    Retrieve a single facsimile collection.
+
+    URL Path Parameters:
+
+    - project (str, required): The name of the project to which the
+      facsimile collection belongs (currently not enforced, any valid
+      project name will do).
+    - collection_id (int, required): The id of the facsimile collection
+      to retrieve.
+
+    Returns:
+
+    - A tuple containing a Flask Response object with JSON data and an
+      HTTP status code. The JSON response has the following structure:
+
+        {
+            "success": bool,
+            "message": str,
+            "data": object or null
+        }
+
+    - `success`: A boolean indicating whether the operation was successful.
+    - `message`: A string containing a descriptive message about the result.
+    - `data`: On success, an object containing the facsimile collection
+      data; `null` on error.
+
+    Example Request:
+
+        GET /projectname/facsimile_collection/123/data/
+
+    Example Success Response (HTTP 200):
+
+        {
+            "success": true,
+            "message": "Retrieved 1 facsimile collection.",
+            "data": {
+                "id": 123,
+                "date_created": "2023-05-12T12:34:56",
+                "date_modified": "2023-06-01T08:22:11",
+                "deleted": 0,
+                "title": "Facsimile Collection",
+                "number_of_pages": 150,
+                "start_page_number": 0,
+                "description": "Description of the collection.",
+                "folder_path": null,
+                "page_comment": null,
+                "external_url": null
+            }
+        }
+
+    Example Error Response (HTTP 400):
+
+        {
+            "success": false,
+            "message": "Validation error: 'project' does not exist.",
+            "data": null
+        }
+
+    Status Codes:
+
+    - 200 - OK: The request was successful, and the facsimile collection
+            is returned.
+    - 400 - Bad Request: The project name or collection_id is invalid.
+    - 500 - Internal Server Error: Database query or execution failed.
+    """
+    # Verify that project name is valid and get project_id
+    project_id = get_project_id_from_name(project)
+    if not project_id:
+        return create_error_response("Validation error: 'project' does not exist.")
+
+    # Convert facsimile collection_id to integer and verify
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return create_error_response("Validation error: 'collection_id' must be a positive integer.")
+
+    facs_coll_table = get_table("publication_facsimile_collection")
+    statement = (
+        select(*facs_coll_table.c)
+        .where(facs_coll_table.c.deleted < 1)
+        .where(facs_coll_table.c.id == collection_id)
+    )
+
+    try:
+        with db_engine.connect() as connection:
+            result = connection.execute(statement).mappings().first()
+    except Exception:
+        logger.exception("Exception retrieving facsimile collection data.")
+        return create_error_response("Unexpected error: failed to retrieve facsimile collection.", 500)
+
+    if result is None:
+        return create_error_response("Validation error: could not find facsimile collection, either it’s deleted or 'collection_id' is invalid.")
+
+    return create_success_response(
+        message="Retrieved 1 facsimile collection.",
+        data=dict(result)
+    )
+
+
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/link/", methods=["POST"])
 @project_permission_required
 def link_facsimile_collection_to_publication(project, collection_id):
