@@ -9,7 +9,7 @@ from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 from sqlalchemy import and_, case, create_engine, func, MetaData, select, Table
 from sqlalchemy.engine import Engine
 from subprocess import CalledProcessError
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
@@ -872,7 +872,7 @@ def transform_and_save(
 
 
 def prerender_xml_to_html(
-        project_file_root: str,
+        project_config: Mapping[str, Any],
         xml_filepath: str,
         saxon_proc: Optional[PySaxonProcessor],
         xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]]
@@ -888,7 +888,11 @@ def prerender_xml_to_html(
 
     `xml_filepath` must be the safe-joined file path to the XML file from
     the project root.
+
+    `project_config` must be a valid project config.
     """
+    project_file_root = project_config.get("file_root", "")
+
     if not os.path.isfile(xml_filepath):
         logger.error("Failed to prerender %s: source file does not exist", xml_filepath)
         return []
@@ -925,8 +929,10 @@ def prerender_xml_to_html(
     # separate HTML file. Since we also need to render the full text
     # we are treating it as a "chapter" with id None so it's processed
     # in the loop further down.
+    chapter_divs_enabled = project_config.get("xml_chapter_divs", True)
     chapter_ids: List[Optional[str]] = [None]
-    if text_type in ["com", "est", "ms", "var"]:
+
+    if chapter_divs_enabled and text_type in ["com", "est", "ms", "var"]:
         # For com files the chapter ids need to be checked from the
         # corresponding est file
         find_ch_file = (
@@ -1497,7 +1503,7 @@ def check_publication_mtimes_and_publish_files(
             ):
                 # prerender est
                 logger.debug("Prerendering HTML for reading text.")
-                est_html_file = prerender_xml_to_html(file_root,
+                est_html_file = prerender_xml_to_html(project_config,
                                                       est_target_file_path,
                                                       saxon_proc,
                                                       html_xslt_execs)
@@ -1519,7 +1525,7 @@ def check_publication_mtimes_and_publish_files(
             ):
                 # prerender com
                 logger.debug("Prerendering HTML for comments.")
-                com_html_file = prerender_xml_to_html(file_root,
+                com_html_file = prerender_xml_to_html(project_config,
                                                       com_target_file_path,
                                                       saxon_proc,
                                                       html_xslt_execs)
@@ -1697,7 +1703,7 @@ def check_publication_mtimes_and_publish_files(
                 ):
                     # prerender var
                     logger.debug("Prerendering HTML for variant %s.", xml_path)
-                    var_html_file = prerender_xml_to_html(file_root,
+                    var_html_file = prerender_xml_to_html(project_config,
                                                           xml_path,
                                                           saxon_proc,
                                                           html_xslt_execs)
@@ -1850,7 +1856,7 @@ def check_publication_mtimes_and_publish_files(
             ):
                 # prerender ms
                 logger.debug("Prerendering HTML for manuscript %s.", xml_path)
-                ms_html_file = prerender_xml_to_html(file_root,
+                ms_html_file = prerender_xml_to_html(project_config,
                                                      xml_path,
                                                      saxon_proc,
                                                      html_xslt_execs)
@@ -1883,7 +1889,7 @@ def check_publication_mtimes_and_publish_files(
                     )
                 ):
                     logger.debug("Prerendering HTML for front matter text %s.", xml_path)
-                    html_file = prerender_xml_to_html(file_root,
+                    html_file = prerender_xml_to_html(project_config,
                                                       xml_path,
                                                       saxon_proc,
                                                       html_xslt_execs)
