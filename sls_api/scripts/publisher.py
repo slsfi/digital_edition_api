@@ -168,9 +168,31 @@ def get_letter_info_from_database(letter_id: Optional[str]) -> Optional[Dict[str
     Fetch correspondence metadata for a single letter in one database
     round trip.
 
-    Limitations: as in the previous implementation, if a letter has
-    multiple senders or receivers, the information of only one of them
-    will be included in the result.
+    Limitations: if a letter has multiple senders or receivers, the
+    information of only one of them will be included in the result.
+    TODO: support multiple senders and receivers.
+
+    Raw SQL query used to get the data:
+
+    SELECT
+    c.id    AS title_id,
+    c.title AS title,
+    MAX(CASE WHEN ec.type='avsändare'   THEN s.full_name END) AS sender,
+    MAX(CASE WHEN ec.type='avsändare'   THEN s.id END)        AS sender_id,
+    MAX(CASE WHEN ec.type='mottagare'   THEN s.full_name END) AS reciever,
+    MAX(CASE WHEN ec.type='mottagare'   THEN s.id END)        AS reciever_id,
+    MAX(CASE WHEN ec.type='avsändarort' THEN l.name END)      AS sender_location,
+    MAX(CASE WHEN ec.type='avsändarort' THEN l.id END)        AS sender_location_id,
+    MAX(CASE WHEN ec.type='mottagarort' THEN l.name END)      AS reciever_location,
+    MAX(CASE WHEN ec.type='mottagarort' THEN l.id END)        AS reciever_location_id,
+    COUNT(CASE WHEN ec.type='avsändare'   THEN 1 END) AS sender_count,
+    COUNT(CASE WHEN ec.type='mottagare'   THEN 1 END) AS reciever_count
+    FROM correspondence c
+    LEFT JOIN event_connection ec ON ec.correspondence_id = c.id
+    LEFT JOIN subject          s  ON s.id = ec.subject_id
+    LEFT JOIN location         l  ON l.id = ec.location_id
+    WHERE c.legacy_id = :legacy_id
+    GROUP BY c.id, c.title;
     """
     if letter_id is None or letter_id == "":
         return None
