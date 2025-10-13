@@ -506,7 +506,10 @@ class CTeiDocument:
             note_ids = []
             for elem in oAnchorNode:
                 id_text = elem.attrib['{http://www.w3.org/XML/1998/namespace}id']
-                note_ids.append(id_text[5:])
+                try:
+                    note_ids.append(int(id_text[5:]))
+                except (TypeError, ValueError):
+                    raise ValueError("Invalid note start ID: numeric part of '%s' is not convertible to an integer.", id_text)
             return note_ids
         else:
             return None

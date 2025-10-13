@@ -6,10 +6,10 @@ from bs4 import BeautifulSoup
 from io import StringIO
 from lxml import etree as ET
 from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
-from sqlalchemy import and_, case, create_engine, func, select
-from sqlalchemy.sql import text
+from sqlalchemy import and_, case, create_engine, func, MetaData, select, Table
+from sqlalchemy.engine import Engine
 from subprocess import CalledProcessError
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
@@ -42,6 +42,11 @@ projects = [project for project in config if isinstance(config[project], dict)]
 # Initialize a cache for collection legacy ids for fast lookups
 collection_legacy_id_cache: Dict[int, Optional[str]] = {}
 
+# Initialize per project caches of SQLAlchemy engines and
+# tables for connecting to comment notes databases
+notes_db_engine: Dict[str, Optional[Engine]] = {}
+notes_tables: Dict[str, Tuple[Table, Table]] = {}
+
 LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT = "xslt/comment_html_to_tei.xsl"
 COMMENTS_TEMPLATE_PATH_IN_FILE_ROOT = "templates/comment.xml"
 
@@ -60,29 +65,101 @@ def enable_debug_logging():
     logger.setLevel(logging.DEBUG)
 
 
-def get_comments_from_database(project, document_note_ids):
+def get_notes_db_resources(project: str) -> Optional[Tuple[Engine, Table, Table]]:
     """
-    Given the name of a project and a list of IDs of comments in a master file, returns data from the comments database with matching documentnote.id
-    Returns a list of dicts, each dict representing one comment.
+    Returns (engine, documentnote_table, note_table) for the project's
+    MySQL/MariaDB comments database, or None if the project has no
+    comments DB configured.
+    Caches the engine and reflected tables for reuse.
+    """
+    # get cached notes db engine for project
+    engine = notes_db_engine.get(project, False)
+
+    if engine is None:
+        # we have already determined that the project has no comments DB
+        return None
+
+    if engine is False:
+        # first time for this project -> build engine or mark as None
+        notes_db = config[project].get("comments_database")
+        if not notes_db:
+            logger.info("Project %s lacks comments_database configuration.", project)
+            notes_db_engine[project] = None
+            return None
+
+        engine = create_engine(notes_db, pool_pre_ping=True)
+        notes_db_engine[project] = engine
+
+    # reflect tables once per project/engine
+    tables = notes_tables.get(project)
+    if tables is None:
+        md = MetaData()
+        dn = Table("documentnote", md, autoload_with=engine)
+        nt = Table("note", md, autoload_with=engine)
+        tables = (dn, nt)
+        notes_tables[project] = tables
+
+    return engine, *tables
+
+
+def get_comments_from_database(
+        project: str,
+        document_note_ids: Optional[List[int]]
+) -> List[Dict[str, Any]]:
+    """
+    Given the name of a project and a list of IDs of comments in a master
+    file, returns data from the comments database with matching
+    documentnote.id
+
+    Returns a list of dicts, each dict representing one comment, or an
+    empty list if no comments.
+
+    Raw SQL query used to get the data:
+
+    SELECT documentnote.id, documentnote.shortenedSelection, note.description
+    FROM documentnote INNER
+    JOIN note ON documentnote.note_id = note.id
+    WHERE documentnote.deleted = 0 AND note.deleted = 0 AND documentnote.id IN :docnote_ids
     """
     if not document_note_ids:
         return []
 
-    # if project has comments database config, try and read comments from database
-    if config[project].get("comments_database", False):
-        connection = create_engine(config[project]["comments_database"], pool_pre_ping=True).connect()
+    db_resources = get_notes_db_resources(project)
+    if db_resources is None:
+        return []
 
-        comment_query = text("SELECT documentnote.id, documentnote.shortenedSelection, note.description \
-                            FROM documentnote INNER JOIN note ON documentnote.note_id = note.id \
-                            WHERE documentnote.deleted = 0 AND note.deleted = 0 AND documentnote.id IN :docnote_ids")
-        comment_query = comment_query.bindparams(docnote_ids=tuple(document_note_ids))
-        comments = connection.execute(comment_query).fetchall()
-        connection.close()
-        if len(comments) <= 0:
-            return []
-        return [comment._asdict() for comment in comments if comment is not None]
-    else:
-        logger.warning("Project %s lacks comments_database configuration.", project)
+    # unpack tuple with comments db resources
+    engine, documentnote, note = db_resources
+
+    # normalize & de-dup ids
+    doc_ids = tuple(dict.fromkeys(document_note_ids))
+
+    try:
+        statement = (
+            select(
+                documentnote.c.id,
+                documentnote.c["shortenedSelection"],
+                note.c.description,
+            )
+            .select_from(documentnote.join(note, documentnote.c.note_id == note.c.id))
+            .where(
+                documentnote.c.deleted == 0,
+                note.c.deleted == 0,
+                documentnote.c.id.in_(doc_ids)
+            )
+        )
+
+        with engine.connect() as connection:
+            rows = connection.execute(statement).mappings().all()
+
+        # sort results so they are in the same order as the IDs in the
+        # input document_note_ids
+        order_idx = {id_: i for i, id_ in enumerate(doc_ids)}
+        rows.sort(key=lambda r: order_idx.get(r["id"], len(order_idx)))
+
+        return [dict(r) for r in rows]
+    except Exception:
+        logger.exception("Unexpected error getting notes data from the comments database.")
         return []
 
 
@@ -338,7 +415,11 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
             return
 
     # Get all documentnote IDs from the main master file (these are the IDs of the comments for this document)
-    note_ids = est_document.GetAllNoteIDs()
+    try:
+        note_ids = est_document.GetAllNoteIDs()
+    except Exception as ex:
+        logger.exception("Error getting note IDs from reading text XML, omitting notes. %s", ex)
+        note_ids = []
     # Use these note_ids to get all comments for this publication from the notes database
     comments = get_comments_from_database(project, note_ids)
 
@@ -641,7 +722,7 @@ def clear_collection_legacy_id_cache():
 def cached_get_collection_legacy_id(collection_id: str) -> Optional[str]:
     c_id = int_or_none(collection_id)
     if c_id is None or c_id < 1:
-        logger.error("Unable to convert %s into an integer.", collection_id)
+        logger.error("Unable to convert collection ID '%s' into an integer.", collection_id)
         return None
 
     # Check if the collection id already exists in the cache,
@@ -1115,6 +1196,12 @@ def check_publication_mtimes_and_publish_files(
         logger.exception("Unexpected error getting publication, comment and manuscript data from the database. Terminating script run.")
         return False
 
+    # Initialize caches of comment notes database resources: this sets
+    # the global `notes_db_engine` and `notes_tables` for the project
+    get_notes_db_resources(project)
+
+    # Create a dict which maps publication ID to comment XML file path
+    # for all comments
     comment_filenames = {
         row["p_id"]: row["original_filename"] for row in comment_rows
     }
