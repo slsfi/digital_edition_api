@@ -585,8 +585,12 @@ def process_var_documents_and_generate_files(main_var_doc, main_var_path, var_do
     main_var_doc.ProcessVariants(var_docs)
     if publication_info is not None:
         main_var_doc.SetMetadata(publication_info['original_publication_date'],
-                                 publication_info['p_id'], publication_info['name'],
-                                 publication_info['genre'], 'com', publication_info['c_id'], publication_info['publication_group_id'])
+                                 publication_info['p_id'],
+                                 publication_info['name'],
+                                 publication_info['genre'],
+                                 'com',
+                                 publication_info['c_id'],
+                                 publication_info['publication_group_id'])
     # Then save main variant web XML file
     main_var_doc.Save(main_var_path)
     # lastly, save all other variant web XML files
@@ -608,8 +612,12 @@ def generate_ms_file(master_file_path, target_file_path, publication_info):
 
     if publication_info is not None:
         ms_document.SetMetadata(publication_info['original_publication_date'],
-                                publication_info['p_id'], publication_info['name'],
-                                publication_info['genre'], 'ms', publication_info['c_id'], publication_info['publication_group_id'])
+                                publication_info['p_id'],
+                                publication_info['name'],
+                                publication_info['genre'],
+                                'ms',
+                                publication_info['c_id'],
+                                publication_info['publication_group_id'])
     ms_document.Save(target_file_path)
 
 
@@ -781,9 +789,10 @@ def get_variant_type(publication_id: str, variant_id: str) -> Optional[int]:
     """
     Return the `type` value for a publication variant.
 
-    Looks up `publication_version` by (publication_id, id) with `deleted < 1`
-    and returns the integer in column `type`. Returns None if the IDs are not
-    positive integers, no row matches, `type` is NULL, or a database error occurs.
+    Looks up `publication_version` by `publication_id`, `variant_id` and
+    `deleted < 1`, and returns the integer in column `type`. Returns
+    None if the IDs are not positive integers, no row matches, `type`
+    is NULL, or a database error occurs.
     """
     p_id = int_or_none(publication_id)
     v_id = int_or_none(variant_id)
@@ -860,7 +869,7 @@ def transform_and_save(
         with open(output_filepath, "w", encoding="utf-8") as outfile:
             outfile.write(content)
     except (OSError, Exception):
-        logger.exception("Unexpected rrror saving %s", output_filepath)
+        logger.exception("Unexpected error saving %s", output_filepath)
         return None
 
     # Check if the output file was modified. If it was, return the file
@@ -1054,7 +1063,7 @@ def prerender_xml_to_html(
 
 def check_publication_mtimes_and_publish_files(
         project: str,
-        publication_ids: Union[tuple, None],
+        publication_ids: Optional[Tuple],
         git_author: str,
         no_git=False,
         force_publish=False,
@@ -1275,14 +1284,16 @@ def check_publication_mtimes_and_publish_files(
     # Keep a list of changed HTML files for later git commit
     html_changes = set()
 
-    logger.info("Publications to process: %s", len(publication_rows))
-    logger.info("Manuscripts to process: %s", len(manuscript_rows))
+    pub_count = len(publication_rows)
+    ms_count = len(manuscript_rows)
+    logger.info("Publications to process: %s", pub_count)
+    logger.info("Manuscripts to process: %s", ms_count)
 
     # ****** PUBLICATIONS ******
     # For each publication belonging to this project, check the
     # modification timestamp of its master files and compare them
     # to the generated web XML files.
-    pub_count = len(publication_rows)
+
     if pub_count:
         logger.info("Processing reading texts, comments and variants of publications.")
 
@@ -1713,9 +1724,9 @@ def check_publication_mtimes_and_publish_files(
     # For each publication_manuscript belonging to this project, check
     # the modification timestamp of its master file and compare it to
     # the generated web XML file.
-    ms_count = len(manuscript_rows)
+
     if ms_count:
-        logger.info("Processing manuscripts.")
+        logger.info("Processing %s manuscripts.", ms_count)
 
     # Build a list of all manuscripts regardless of change status,
     # so they can be prerendered to HTML if necessary
@@ -1898,7 +1909,7 @@ def check_publication_mtimes_and_publish_files(
     # Log a summary of changed XML-files.
     if xml_changes:
         sorted_xml_changes = sorted(xml_changes)
-        logger.info("XML changes made in publisher script run (%d):\n%s", len(xml_changes), "\n".join(sorted_xml_changes))
+        logger.info("XML changes made in publisher script run (%d):\n%s", len(xml_changes), ", ".join(sorted_xml_changes))
     else:
         logger.info("No XML changes made in publisher script run.")
 
@@ -1906,7 +1917,7 @@ def check_publication_mtimes_and_publish_files(
         # Log a summary of changed HTML-files.
         if html_changes:
             sorted_html_changes = sorted(html_changes)
-            logger.info("HTML changes made in publisher script run (%d):\n%s", len(html_changes), "\n".join(sorted_html_changes))
+            logger.info("HTML changes made in publisher script run (%d):\n%s", len(html_changes), ", ".join(sorted_html_changes))
         else:
             logger.info("No HTML changes made in publisher script run.")
 

@@ -18,7 +18,7 @@ from sqlalchemy import create_engine, Connection, MetaData, RowMapping, Table
 from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from werkzeug.security import safe_join
 
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -281,18 +281,6 @@ def get_project_id_from_name(project):
     connection.close()
     try:
         return int(project_id.id)
-    except Exception:
-        return None
-
-
-def get_collection_legacy_id(collection_id):
-    publication_collection = Table('publication_collection', metadata, autoload_with=db_engine)
-    connection = db_engine.connect()
-    statement = select(publication_collection.c.legacy_id).where(publication_collection.c.id == collection_id)
-    collection_legacy_id = connection.execute(statement).fetchone()
-    connection.close()
-    try:
-        return int(collection_legacy_id.legacy_id)
     except Exception:
         return None
 
@@ -755,9 +743,27 @@ def get_prerendered_or_transformed_xml_content(
         text_type: str,
         filename_stem: str,
         project: str,
-        project_config: Optional[Dict] = None,
+        project_config: Optional[Mapping] = None,
         xslt_parameters: Optional[Dict] = None
 ) -> Tuple[str, str]:
+    """
+    Return HTML for an XML-based text plus the source used. Tries to load
+    prerendered HTML when `prerender_html` in the project config is
+    truthy. If unavailable, falls back to transforming the corresponding
+    XML via the XSLT mapped by `text_type`.
+
+    Parameters:
+        text_type (str): Key selecting the XSLT (e.g., "est", "inl", "ms_*").
+        filename_stem (str): Base filename without extension.
+        project (str): Project name.
+        project_config (Mapping, optional): Optional project config;
+            fetched based on project name `None`.
+        xslt_parameters (dict, optional): Optional XSLT parameters.
+
+    Returns:
+        (content, source): HTML string and either "prerendered" or
+        "transformed".
+    """
     base_text_type = text_type.split("_")[0]
     content = None
     used_source = None
@@ -771,30 +777,36 @@ def get_prerendered_or_transformed_xml_content(
         html_filename = filename_stem
         if "sectionId" in xslt_parameters:
             html_filename = f"{filename_stem}_{xslt_parameters['sectionId']}"
+        html_filename = f"{html_filename}.html"
 
         content = get_prerendered_html_content(
             project_file_root=file_root,
             base_text_type=base_text_type,
-            html_filename=f"{html_filename}.html"
+            html_filename=html_filename
         )
         if content is not None:
             used_source = "prerendered"
 
     if content is None:
         # No prerendered content -> transform XML to HTML
-        xsl_path = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS[text_type]
+        xsl_path = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS.get(text_type)
         xml_filename = (
             filename_stem.replace(f"_{text_type}_", f"_{base_text_type}_")
             if base_text_type == "ms" else filename_stem
         )
+        xml_filename = f"{xml_filename}.xml"
 
-        content = get_transformed_xml_content_with_caching(
-            project=project,
-            base_text_type=base_text_type,
-            xml_filename=f"{xml_filename}.xml",
-            xsl_path=xsl_path,
-            xslt_parameters=xslt_parameters
-        )
+        if xsl_path is not None:
+            content = get_transformed_xml_content_with_caching(
+                project=project,
+                base_text_type=base_text_type,
+                xml_filename=xml_filename,
+                xsl_path=xsl_path,
+                xslt_parameters=xslt_parameters
+            )
+        else:
+            content = f"Could not find XSLT stylesheet for the text type '{text_type}'"
+            logger.error("XSL map for text type '%s' returned `None`, unable to transform %s.", text_type, xml_filename)
         used_source = "transformed"
 
     return content, used_source
@@ -807,7 +819,8 @@ def get_frontmatter_page_content(
         project: str
 ) -> Tuple[str, str]:
     project_config = get_project_config(project)
-    version = "int" if project_config["show_internally_published"] else "ext"
+    show_internal = project_config.get("show_internally_published", False)
+    version = "int" if show_internal else "ext"
     filename_stem = f"{collection_id}_{text_type}_{language}_{version}"
 
     return get_prerendered_or_transformed_xml_content(
