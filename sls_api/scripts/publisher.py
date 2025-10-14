@@ -9,7 +9,7 @@ from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 from sqlalchemy import and_, case, create_engine, func, MetaData, select, Table
 from sqlalchemy.engine import Engine
 from subprocess import CalledProcessError
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
