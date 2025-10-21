@@ -911,7 +911,7 @@ def extract_publication_metadata_from_tei_xml(file_path: str) -> Tuple[Optional[
         # date formats if not None. Set to None if invalid format.
         if (
             orig_date is not None
-            and not is_any_valid_date_format(str(orig_date))
+            and not is_any_valid_date_format(str(orig_date).strip())
         ):
             orig_date = None
 
@@ -931,6 +931,14 @@ def extract_publication_metadata_from_tei_xml(file_path: str) -> Tuple[Optional[
             "language": language,
             "genre": genre
         }
+
+        # Strip whitespace from extracted values and convert
+        # empty string values to None
+        for key, value in metadata.items():
+            if value is not None:
+                new_value = str(value).strip()
+                metadata[key] = None if new_value == "" else new_value
+ 
         return metadata, None, 200
 
     except FileNotFoundError:
