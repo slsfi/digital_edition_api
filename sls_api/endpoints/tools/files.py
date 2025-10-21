@@ -938,7 +938,7 @@ def extract_publication_metadata_from_tei_xml(file_path: str) -> Tuple[Optional[
             if value is not None:
                 new_value = str(value).strip()
                 metadata[key] = None if new_value == "" else new_value
- 
+
         return metadata, None, 200
 
     except FileNotFoundError:
