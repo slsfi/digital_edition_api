@@ -158,6 +158,70 @@ def apply_updates_to_collection_toc(
     return updated_count
 
 
+def normalize_toc_key_order(node, *, children_key: str = "children"):
+    """
+    Return a deep-copied structure where, in every dict:
+      1) All keys except `children_key` are sorted alphabetically, and
+      2) `children_key` (if present) is placed as the last key.
+
+    This improves human readability and keeps a stable, deterministic
+    order in serialized JSON regardless of the input order of keys.
+    The function preserves semantics and data types; it only reorders
+    keys.
+
+    Behavior:
+      - Dicts: Recursively processes values. Non-`children_key` keys are
+        sorted alphabetically (case-insensitive) and emitted first. If
+        `children_key` exists, it is emitted last (recursively processed).
+      - Lists: Each element is processed recursively.
+      - Other types: Returned as-is.
+
+    Parameters:
+      node: Any JSON-serializable Python structure (dict/list/primitive).
+      children_key: The key to move to the end when present (default:
+      "children").
+
+    Notes:
+      - Python 3.7+ preserves insertion order in dicts; `json.dump` will
+        respect the order produced here. Keep `sort_keys=False` when
+        dumping JSON.
+      - If `children_key` is present but not a list, it is still
+        processed recursively.
+    """
+    # Dict
+    if isinstance(node, dict):
+        other_keys = sorted((k for k in node.keys() if k != children_key),
+                            key=lambda s: s.casefold())
+        new_d = {}
+        for k in other_keys:
+            new_d[k] = normalize_toc_key_order(node[k],
+                                               children_key=children_key)
+        if children_key in node:
+            cv = node[children_key]
+            if isinstance(cv, list):
+                new_d[children_key] = [
+                    normalize_toc_key_order(
+                        c, children_key=children_key
+                    ) for c in cv
+                ]
+            else:
+                new_d[children_key] = normalize_toc_key_order(
+                    cv, children_key=children_key
+                )
+        return new_d
+
+    # List
+    if isinstance(node, list):
+        return [
+            normalize_toc_key_order(
+                x, children_key=children_key
+            ) for x in node
+        ]
+
+    # Primitives (str, int, float, bool, None) or other JSON-safe types
+    return node
+
+
 @file_tools.route("/<project>/config/get")
 def get_config_file(project):
     config = get_project_config(project)
@@ -1078,6 +1142,9 @@ def handle_collection_toc(project, collection_id, language=None):
         except PermissionError:
             logger.exception(f"Permission denied error when trying to read ToC-file at {filepath}.")
             return create_error_response(f"Error: permission denied when trying to read {filename}.", 403)
+        except UnicodeDecodeError:
+            logger.exception(f"Invalid encoding in ToC file at {filepath}.")
+            return create_error_response(f"Error: file {filename} is not valid UTF-8 encoded JSON.", 415)
         except json.JSONDecodeError:
             logger.exception(f"Invalid JSON in ToC file at {filepath}.")
             return create_error_response(f"Error: file {filename} contains invalid JSON.", 415)
@@ -1091,10 +1158,17 @@ def handle_collection_toc(project, collection_id, language=None):
         if not request_data:
             return create_error_response("No data provided or data not valid JSON.", 415)
 
+        # Reorder keys so 'children' is last everywhere and rest of keys are
+        # alphabetically sorted. Makes the serialized JSON more humanly readable
+        # and diffs easier to spot.
+        norm_toc = normalize_toc_key_order(request_data)
+
         try:
+            # Ensure parent dir exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
             # Save new ToC as filepath.new
             with open(f"{filepath}.new", "w", encoding="utf-8") as outfile:
-                json.dump(request_data, outfile)
+                json.dump(norm_toc, outfile, ensure_ascii=False, indent=2)
         except Exception:
             logger.exception(f"Error saving file {filepath}.new.")
             # If saving file fails, remove it before returning an error
@@ -1112,7 +1186,7 @@ def handle_collection_toc(project, collection_id, language=None):
 
             # Attempt to rename the new ToC file so it replaces the old file
             try:
-                os.rename(f"{filepath}.new", filepath)
+                os.replace(f"{filepath}.new", filepath)
             except PermissionError:
                 logger.exception(f"Permission error renaming ToC file {filepath}.new.")
                 try:
@@ -1131,7 +1205,7 @@ def handle_collection_toc(project, collection_id, language=None):
             # Get author and construct git commit message
             author_email = str(identity)
             author = f"{author_email.split('@')[0]} <{author_email}>"
-            message = f"ToC update by {author_email}"
+            message = f"ToC {filename} update by {author_email}"
 
             # git commit (and possibly push) file
             commit_result = git_commit_and_push_file(project, author, message, filepath)
