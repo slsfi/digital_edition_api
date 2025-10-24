@@ -14,11 +14,11 @@ import os
 import re
 from ruamel.yaml import YAML
 from sls_api.models import User
-from sqlalchemy import create_engine, Connection, MetaData, Table
+from sqlalchemy import create_engine, Connection, MetaData, RowMapping, Table
 from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 from werkzeug.security import safe_join
 
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -39,6 +39,28 @@ FACSIMILE_IMAGE_SIZES = {
 
 # Default PostgreSQL collation for ordering
 DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
+
+# Folder path from the project root to the folder where prerendered
+# HTML output of collection texts are located. The original XML files
+# are located in the "documents" folder and the generated web XML files
+# in the "xml" folder. Hence "html/documents" (we might also have other
+# HTML than prerendered HTML from the XML files).
+PRERENDERED_HTML_PATH_IN_PROJECT_ROOT = "html/documents"
+
+# Map of paths to XSLT stylesheets for HTML transformations for different
+# text types. The paths to the XSLT stylesheets are relative to the
+# project root.
+XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
+    "com": "xslt/com.xsl",
+    "est": "xslt/est.xsl",
+    "fore": "xslt/foreword.xsl",
+    "inl": "xslt/introduction.xsl",
+    "ms_changes": "xslt/ms_changes.xsl",
+    "ms_normalized": "xslt/ms_normalized.xsl",
+    "tit": "xslt/title.xsl",
+    "var_base": "xslt/poem_variants_est.xsl",
+    "var_other": "xslt/poem_variants_other.xsl"
+}
 
 metadata = MetaData()
 
@@ -89,12 +111,12 @@ def get_project_config(project_name):
 
 
 def get_project_collation(project_name: str) -> str:
-    config = get_project_config(project_name)
+    project_config = get_project_config(project_name)
 
-    if config is None or "collation" not in config:
+    if project_config is None or "collation" not in project_config:
         return DEFAULT_COLLATION
     else:
-        return config["collation"]
+        return project_config["collation"]
 
 
 def int_or_none(var):
@@ -132,7 +154,7 @@ def safe_checksum(path: str) -> str | None:
     Returns:
         str | None: The MD5 checksum string if the file exists, otherwise None.
     """
-    return calculate_checksum(path) if os.path.exists(path) else None
+    return calculate_checksum(path) if os.path.isfile(path) else None
 
 
 def file_fingerprint(path: str) -> Tuple[Optional[int], Optional[str]]:
@@ -263,18 +285,6 @@ def get_project_id_from_name(project):
         return None
 
 
-def get_collection_legacy_id(collection_id):
-    publication_collection = Table('publication_collection', metadata, autoload_with=db_engine)
-    connection = db_engine.connect()
-    statement = select(publication_collection.c.legacy_id).where(publication_collection.c.id == collection_id)
-    collection_legacy_id = connection.execute(statement).fetchone()
-    connection.close()
-    try:
-        return int(collection_legacy_id.legacy_id)
-    except Exception:
-        return None
-
-
 def select_all_from_table(table_name):
     table = Table(table_name, metadata, autoload_with=db_engine)
     connection = db_engine.connect()
@@ -399,95 +409,113 @@ def cache_is_recent(source_file, xsl_file, cache_file):
     return True
 
 
-def get_published_status(project, collection_id, publication_id):
+def get_published_status(
+        project: str,
+        collection_id: str,
+        publication_id: Optional[str] = None
+) -> Tuple[bool, str, Optional[str]]:
     """
-    Returns info on if project, publication_collection, and publication are all published
-    Returns two values:
-        - a boolean if the publication can be shown
-        - a message text why it can't be shown, if that is the case
+    Returns info on if project, publication_collection, and optionally
+    publication are all valid and published. Also validates that
+    collection_id and publication_id (if not None) can be converted to
+    integers.
 
-    Publications can be shown if they're externally published (published==2),
-    or if they're internally published (published==1) and show_internally_published is True
-    """
-    project_config = get_project_config(project)
-    if project_config is None:
-        return False, "No such project."
+    Returns three values:
+        - a boolean which is True if the following conditions are met:
+            - project name and config are valid
+            - collection_id and optional publication_id are valid and
+              can be converted to integers
+            - the collection/publication can be shown
+        - a message text why it can't be shown, or an empty string if
+          it can be
+        - legacy_id value of the collection
 
-    if publication_id is None or str(publication_id) == "undefined":
-        return False, "No such publication_id."
-
-    connection = db_engine.connect()
-    stmt = """SELECT project.published AS proj_pub, publication_collection.published AS col_pub, publication.published as pub
-    FROM project
-    JOIN publication_collection ON publication_collection.project_id = project.id
-    JOIN publication ON publication.publication_collection_id = publication_collection.id
-    WHERE project.id = publication_collection.project_id
-    AND publication.publication_collection_id = publication_collection.id
-    AND project.name = :project AND publication_collection.id = :c_id AND (publication.id = :p_id OR split_part(publication.legacy_id, '_', 2) = :str_p_id)
-    """
-    statement = text(stmt).bindparams(project=project, c_id=collection_id, p_id=publication_id, str_p_id=str(publication_id))
-    result = connection.execute(statement)
-    show_internal = project_config["show_internally_published"]
-    can_show = False
-    message = ""
-    row = result.fetchone()
-    if row is None:
-        message = "Content does not exist"
-    else:
-        if row.proj_pub is None or row.col_pub is None or row.pub is None:
-            status = -1
-        else:
-            status = min(row.proj_pub, row.col_pub, row.pub)
-        if status < 1:
-            message = "Content is not published"
-        elif status == 1 and not show_internal:
-            message = "Content is not externally published"
-        else:
-            can_show = True
-    connection.close()
-    return can_show, message
-
-
-def get_collection_published_status(project, collection_id):
-    """
-    Returns info on if project, publication_collection, and publication are all published
-    Returns two values:
-        - a boolean if the publication can be shown
-        - a message text why it can't be shown, if that is the case
-
-    Publications can be shown if they're externally published (published==2),
-    or if they're internally published (published==1) and show_internally_published is True
+    Collections/publications can be shown if they're externally
+    published (published==2), or if they're internally published
+    (published==1) and show_internally_published is True
     """
     project_config = get_project_config(project)
     if project_config is None:
-        return False, "No such project."
-    connection = db_engine.connect()
+        return False, f"The project '{project}' does not exist.", None
 
-    project_id = get_project_id_from_name(project)
+    if project_config.get("file_root") is None:
+        return False, f"File root missing from '{project}' project config.", None
 
-    stmt = """SELECT project.published AS proj_pub, publication_collection.published AS col_pub
-    FROM project
-    JOIN publication_collection ON publication_collection.project_id = project.id
-    AND project.id = :project_id AND publication_collection.id = :c_id
-    """
-    statement = text(stmt).bindparams(project_id=project_id, c_id=collection_id)
-    result = connection.execute(statement)
+    c_id = int_or_none(collection_id)
+    if c_id is None or c_id < 1:
+        return False, "Invalid collection_id.", None
+
+    p_id = int_or_none(publication_id)
+    if publication_id is not None and (p_id is None or p_id < 1):
+        return False, "Invalid publication_id.", None
+
+    try:
+        project_table = get_table("project")
+        collection_table = get_table("publication_collection")
+        publication_table = get_table("publication")
+
+        with db_engine.connect() as connection:
+            cols = [
+                project_table.c.published.label("proj_pub"),
+                collection_table.c.published.label("col_pub"),
+                collection_table.c.legacy_id.label("col_legacy_id"),
+            ]
+
+            from_clause = project_table.join(
+                collection_table,
+                collection_table.c.project_id == project_table.c.id,
+            )
+
+            wheres = [
+                project_table.c.name == str(project),
+                collection_table.c.id == c_id,
+                project_table.c.deleted < 1,
+                collection_table.c.deleted < 1
+            ]
+
+            if publication_id is not None:
+                cols.append(publication_table.c.published.label("pub"))
+
+                from_clause = from_clause.join(
+                    publication_table,
+                    publication_table.c.publication_collection_id == collection_table.c.id
+                )
+
+                wheres += [
+                    publication_table.c.deleted < 1,
+                    publication_table.c.id == p_id
+                ]
+
+            statement = select(*cols).select_from(from_clause).where(*wheres)
+            row = connection.execute(statement).mappings().first()
+    except Exception:
+        message = "Unexpected error getting published status."
+        logger.exception(message)
+        return False, message, None
+
     show_internal = project_config["show_internally_published"]
     can_show = False
     message = ""
-    row = result.fetchone()
+    col_legacy_id = None
+
     if row is None:
-        message = "Content does not exist"
+        message = "Content does not exist."
     else:
-        status = min(row.proj_pub, row.col_pub)
+        col_legacy_id = row["col_legacy_id"]
+        pub_values = [row["proj_pub"], row["col_pub"]]
+        if publication_id is not None:
+            pub_values.append(row["pub"])
+
+        status = -1 if any(v is None for v in pub_values) else min(pub_values)
+
         if status < 1:
-            message = "Content is not published"
+            message = "Content is not published."
         elif status == 1 and not show_internal:
-            message = "Content is not externally published"
+            message = "Content is not publicly available."
         else:
             can_show = True
-    connection.close()
-    return can_show, message
+
+    return can_show, message, col_legacy_id
 
 
 class FileResolver(etree.Resolver):
@@ -497,10 +525,12 @@ class FileResolver(etree.Resolver):
 
 
 def transform_xml(
-        xsl_file_path: str,
+        xsl_file_path: Optional[str],
         xml_file_path: str,
         params: Optional[Dict[str, Any]] = None,
-        use_saxon: bool = False
+        use_saxon: bool = False,
+        saxon_proc: Optional[PySaxonProcessor] = None,
+        xslt_exec: Optional[PyXsltExecutable] = None
 ) -> str:
     """
     Transform an XML document using an XSLT stylesheet with optional parameters.
@@ -508,21 +538,27 @@ def transform_xml(
     processor (default) or the Saxon XSLT 3.0 processor.
 
     Parameters:
-        xsl_file_path (str): File path to an XSLT stylesheet.
+        xsl_file_path (str or None): File path to an XSLT stylesheet. If None,
+            Saxon must be used and an compiled XSLT executable passed.
         xml_file_path (str): File path to the XML document which is to be
             transformed.
         params (dict or OrderedDict, optional): A dictionary with parameters
             for the XSLT stylesheet. Defaults to None.
         use_saxon (bool, optional): Whether to use the Saxon processor (instead
             of the lxml processor) or not. Defaults to False.
+        passed_saxon_proc (PySaxonProcessor, optional): A Saxon processor that
+            should be used instead of the global Saxon processor. Defaults to None.
+        passed_xslt_exec (PyXsltExecutable, optional): A compiled Saxon XSLT
+            executable that should be used instead of compiling `xsl_file_path`.
+            Defaults to None.
 
     Returns:
         String representation of the result document.
     """
-    logger.debug(f"Transforming {xml_file_path} using {xsl_file_path}")
+    logger.debug("Transforming %s using %s", xml_file_path, xsl_file_path)
 
     if params is not None:
-        logger.debug(f"Parameters are {params}")
+        logger.debug("Parameters are %r", params)
         if not isinstance(params, dict) and not isinstance(params, OrderedDict):
             raise Exception(f"Invalid parameters for XSLT transformation, must be of type dict or OrderedDict, not {type(params)}")
 
@@ -534,28 +570,39 @@ def transform_xml(
                 for key, val in params.items()
             }
 
-    if not os.path.exists(xsl_file_path):
-        return f"XSL file {xsl_file_path!r} not found!"
-    if not os.path.exists(xml_file_path):
+    if not os.path.isfile(xml_file_path):
         return f"XML file {xml_file_path!r} not found!"
 
     if use_saxon:
         # Use the Saxon XSLT 3.0 processor.
-        xslt_exec: PyXsltExecutable = saxon_xslt_proc.compile_stylesheet(
-                stylesheet_file=xsl_file_path,
-                encoding="utf-8"
-        )
+        if saxon_proc is None:
+            return "Saxon XSLT processor not set!"
+
+        if xslt_exec is None and xsl_file_path is not None:
+            if not os.path.isfile(xsl_file_path):
+                return f"XSL file {xsl_file_path!r} not found!"
+
+            xslt_exec: PyXsltExecutable = saxon_xslt_proc.compile_stylesheet(
+                    stylesheet_file=xsl_file_path,
+                    encoding="utf-8"
+            )
+        elif xslt_exec is None:
+            return "Neither XSL file nor Saxon XSLT executable passed to transformation!"
+
         xml_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc, xml_file_path)
         return xml_doc.transform_to_string(xslt_exec, params, format_output=False)
     else:
+        if not os.path.isfile(xsl_file_path) or xsl_file_path is None:
+            return f"XSL file {xsl_file_path!r} not found!"
+
         # Use the lxml XSLT 1.0 processor.
-        with io.open(xml_file_path, mode="rb") as xml_file:
+        with open(xml_file_path, mode="rb") as xml_file:
             xml_contents = xml_file.read()
             xml_root = etree.fromstring(xml_contents)
 
         xsl_parser = etree.XMLParser()
         xsl_parser.resolvers.add(FileResolver())
-        with io.open(xsl_file_path, encoding="UTF-8") as xsl_file:
+        with open(xsl_file_path, encoding="utf-8") as xsl_file:
             xslt_root = etree.parse(xsl_file, parser=xsl_parser)
             xsl_transform = etree.XSLT(xslt_root)
 
@@ -565,82 +612,223 @@ def transform_xml(
             result = xsl_transform(xml_root, **params)
 
         if len(xsl_transform.error_log) > 0:
-            logging.debug(xsl_transform.error_log)
+            logger.error("XSL transform error: %s", xsl_transform.error_log)
 
         return str(result)
 
 
-def get_content(project, folder, xml_filename, xsl_filename, parameters):
+def get_transformed_xml_content_with_caching(
+        project: str,
+        base_text_type: str,
+        xml_filename: str,
+        xsl_path: str,
+        xslt_parameters: Optional[Dict] = None
+) -> str:
+    """
+    Transforms the given XML file with the given XSLT stylesheet and returns
+    the result as a string. The result is cached.
+    """
     project_config = get_project_config(project)
     if project_config is None:
         return "No such project."
-    xml_file_path = safe_join(project_config["file_root"], "xml", folder, xml_filename)
-    xsl_file_path = safe_join(project_config["file_root"], "xslt", xsl_filename)
-    cache_folder = os.path.join("/tmp", "api_cache", project, folder)
+
+    xml_file_path = safe_join(project_config["file_root"], "xml", base_text_type, xml_filename)
+    xsl_file_path = safe_join(project_config["file_root"], xsl_path)
+    cache_folder = os.path.join("/tmp", "api_cache", project, base_text_type)
     os.makedirs(cache_folder, exist_ok=True)
-    if "ms" in xsl_filename:
-        # xsl_filename is 'ms_changes.xsl' or 'ms_normalized.xsl'
-        # ensure that '_changes' or '_normalized' is appended to the cache filename accordingly
-        cache_extension = "{}.html".format(xsl_filename.split("ms")[1].replace(".xsl", ""))
+
+    if base_text_type == "ms" and "ms_changes" in xsl_path:
+        cache_extension = "_changes.html"
+    elif base_text_type == "ms" and "ms_normalized" in xsl_path:
+        cache_extension = "_normalized.html"
     else:
         cache_extension = ".html"
-    cache_file_path = os.path.join(cache_folder, xml_filename.replace(".xml", cache_extension))
+
+    cache_filename_stem = xml_filename.split(".xml")[0]
+    if xslt_parameters is not None:
+        if 'noteId' in xslt_parameters:
+            cache_filename_stem = f"{cache_filename_stem}_{xslt_parameters['noteId']}"
+        if 'sectionId' in xslt_parameters:
+            cache_filename_stem = f"{cache_filename_stem}_{xslt_parameters['sectionId']}"
+
+    cache_file_path = os.path.join(cache_folder, f"{cache_filename_stem}{cache_extension}")
+    logger.debug("Cache file path for %s is %s", xml_filename, cache_file_path)
 
     content = None
-    param_ext = ''
-    if parameters is not None:
-        if 'noteId' in parameters:
-            param_ext += "_" + parameters["noteId"]
-        if 'sectionId' in parameters:
-            param_ext += "_" + parameters["sectionId"]
-        # not needed for bookId
-        param_file_name = xml_filename.split(".xml")[0] + param_ext
-        cache_file_path = cache_file_path.replace(xml_filename.split(".xml")[0], param_file_name)
-        cache_file_path = cache_file_path.replace('"', '')
 
-    logger.debug("Cache file path for {} is {}".format(xml_filename, cache_file_path))
-
-    if os.path.exists(cache_file_path):
+    if os.path.isfile(cache_file_path):
         if cache_is_recent(xml_file_path, xsl_file_path, cache_file_path):
             try:
-                with io.open(cache_file_path, encoding="UTF-8") as cache_file:
+                with open(cache_file_path, encoding="utf-8") as cache_file:
                     content = cache_file.read()
             except Exception:
-                logger.exception("Error reading content from cache for {}".format(cache_file_path))
-                content = "Error reading content from cache."
+                logger.exception("Error reading content from cache for %s", cache_file_path)
+                # Ensure content is set to None so we try to get it by transforming
+                content = None
+                os.remove(cache_file_path)
             else:
-                logger.info("Content fetched from cache.")
+                logger.debug("Content fetched from cache.")
         else:
-            logger.info("Cache file is old or invalid, deleting cache file...")
+            logger.debug("Cache file is old or invalid, deleting cache file...")
             os.remove(cache_file_path)
-    if os.path.exists(xml_file_path) and content is None:
-        logger.info("Getting contents from file and transforming...")
+
+    if os.path.isfile(xml_file_path) and content is None:
+        logger.debug("Transforming %s with %s", xml_file_path, xsl_file_path)
         try:
             use_saxon_xslt = project_config.get("use_saxon_xslt", False)
             content = transform_xml(
                     xsl_file_path,
                     xml_file_path,
-                    params=parameters,
-                    use_saxon=use_saxon_xslt
+                    params=xslt_parameters,
+                    use_saxon=use_saxon_xslt,
+                    saxon_proc=(saxon_proc if use_saxon_xslt else None)
             )
+
             if not use_saxon_xslt:
-                # The legacy XSLT stylesheets don't control newline characters
-                # in the output, so we need to manually strip them
-                content = content.replace('\n', '').replace('\r', '')
+                # The legacy XSLT stylesheets output @id where @data-id is
+                # required by the frontend, so replace them for applicable
+                # text types.
+                # TODO: fix this in all projects’ XSLT and then remove from here
+                # TODO: and from publisher.py
+                if base_text_type in ["est", "ms", "inl", "tit", "fore"]:
+                    content = content.replace(" id=", " data-id=")
+
             try:
-                with io.open(cache_file_path, mode="w", encoding="UTF-8") as cache_file:
+                with open(cache_file_path, mode="w", encoding="utf-8") as cache_file:
                     cache_file.write(content)
             except Exception:
                 logger.exception("Could not create cachefile")
-                content = "Successfully fetched content but could not generate cache for it."
         except Exception as e:
             logger.exception("Error when parsing/transforming XML file")
-            content = "Error parsing/transforming document"
+            content = "Error parsing/transforming document\n"
             content += str(e)
     elif content is None:
         content = "File not found"
 
     return content
+
+
+def get_prerendered_html_content(
+        project_file_root: str,
+        base_text_type: str,
+        html_filename: str
+) -> Optional[str]:
+    """
+    Returns the content of the given prerenderd HTML file, or None if
+    an error occurs.
+    """
+    file_path = safe_join(project_file_root,
+                          PRERENDERED_HTML_PATH_IN_PROJECT_ROOT,
+                          base_text_type,
+                          html_filename)
+
+    if file_path is None:
+        logger.error("safe_join returned None for path %r", html_filename)
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as html_file:
+            return html_file.read()
+    except UnicodeDecodeError as e:
+        logger.exception("Decode error reading %s at pos %s", file_path, e.start)
+    except OSError as e:
+        logger.exception("OS error reading %s: %s", file_path, e)
+    except Exception:
+        logger.exception("Unexpected error when reading %s", file_path)
+
+    return None
+
+
+def get_prerendered_or_transformed_xml_content(
+        text_type: str,
+        filename_stem: str,
+        project: str,
+        project_config: Optional[Mapping] = None,
+        xslt_parameters: Optional[Dict] = None
+) -> Tuple[str, str]:
+    """
+    Return HTML for an XML-based text plus the source used. Tries to load
+    prerendered HTML when `prerender_html` in the project config is
+    truthy. If unavailable, falls back to transforming the corresponding
+    XML via the XSLT mapped by `text_type`.
+
+    Parameters:
+        text_type (str): Key selecting the XSLT (e.g., "est", "inl", "ms_*").
+        filename_stem (str): Base filename without extension.
+        project (str): Project name.
+        project_config (Mapping, optional): Optional project config;
+            fetched based on project name `None`.
+        xslt_parameters (dict, optional): Optional XSLT parameters.
+
+    Returns:
+        (content, source): HTML string and either "prerendered" or
+        "transformed".
+    """
+    base_text_type = text_type.split("_")[0]
+    content = None
+    used_source = None
+
+    if project_config is None:
+        project_config = get_project_config(project)
+    file_root = project_config.get("file_root", "")
+
+    if project_config.get("prerender_html", False):
+        # Get prerendered HTML
+        html_filename = filename_stem
+        if "sectionId" in xslt_parameters:
+            html_filename = f"{filename_stem}_{xslt_parameters['sectionId']}"
+        html_filename = f"{html_filename}.html"
+
+        content = get_prerendered_html_content(
+            project_file_root=file_root,
+            base_text_type=base_text_type,
+            html_filename=html_filename
+        )
+        if content is not None:
+            used_source = "prerendered"
+
+    if content is None:
+        # No prerendered content -> transform XML to HTML
+        xsl_path = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS.get(text_type)
+        xml_filename = (
+            filename_stem.replace(f"_{text_type}_", f"_{base_text_type}_")
+            if base_text_type == "ms" else filename_stem
+        )
+        xml_filename = f"{xml_filename}.xml"
+
+        if xsl_path is not None:
+            content = get_transformed_xml_content_with_caching(
+                project=project,
+                base_text_type=base_text_type,
+                xml_filename=xml_filename,
+                xsl_path=xsl_path,
+                xslt_parameters=xslt_parameters
+            )
+        else:
+            content = f"Could not find XSLT stylesheet for the text type '{text_type}'"
+            logger.error("XSL map for text type '%s' returned `None`, unable to transform %s.", text_type, xml_filename)
+        used_source = "transformed"
+
+    return content, used_source
+
+
+def get_frontmatter_page_content(
+        text_type: str,
+        collection_id: str,
+        language: str,
+        project: str
+) -> Tuple[str, str]:
+    project_config = get_project_config(project)
+    show_internal = project_config.get("show_internally_published", False)
+    version = "int" if show_internal else "ext"
+    filename_stem = f"{collection_id}_{text_type}_{language}_{version}"
+
+    return get_prerendered_or_transformed_xml_content(
+        text_type=text_type,
+        filename_stem=filename_stem,
+        project=project,
+        project_config=project_config
+    )
 
 
 def update_publication_related_table(
@@ -881,7 +1069,20 @@ def get_translation_text_id(translation_id, table_name, field_name, language):
         return None
 
 
-def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
+def get_xml_content(
+        project: str,
+        folder: str,
+        xml_filename: str,
+        xsl_filename: Optional[str],
+        parameters
+) -> str:
+    """
+    Transforms the given XML file with the given XSLT stylesheet and
+    returns the result as a string. No caching of the result.
+
+    If the XSLT filename is `None`, the content of the XML file is
+    returned untransformed.
+    """
     project_config = get_project_config(project)
     if project_config is None:
         return "No such project."
@@ -891,15 +1092,17 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
     else:
         xsl_file_path = None
 
-    if os.path.exists(xml_file_path):
-        logger.info("Getting contents from file ...")
+    if os.path.isfile(xml_file_path):
+        logger.info("Transforming %s with %s", xml_file_path, xsl_filename)
         if xsl_file_path is not None:
             try:
+                use_saxon_xslt = project_config.get("use_saxon_xslt", False)
                 content = transform_xml(
                         xsl_file_path,
                         xml_file_path,
                         params=parameters,
-                        use_saxon=project_config.get("use_saxon_xslt", False)
+                        use_saxon=use_saxon_xslt,
+                        saxon_proc=(saxon_proc if use_saxon_xslt else None)
                 )
             except Exception as e:
                 logger.exception("Error when parsing/transforming XML file")
@@ -907,7 +1110,7 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
                 content += str(e)
         else:
             try:
-                with io.open(xml_file_path, encoding="UTF-8") as xml_file:
+                with open(xml_file_path, encoding="utf-8-sig") as xml_file:
                     content = xml_file.read()
             except Exception as e:
                 logger.exception("Error opening/reading XML file")
@@ -918,8 +1121,11 @@ def get_xml_content(project, folder, xml_filename, xsl_filename, parameters):
     return content
 
 
-# Recursive function for flattening the given json, i.e. turning it into a one dimensional array, which is stored in "flattened"
 def flatten_json(json, flattened):
+    """
+    Recursive function for flattening the given json, i.e. turning it into
+    a one dimensional array, which is stored in "flattened".
+    """
     if json is not None:
         if json.get('children') is not None:
             for i in range(len(json['children'])):
@@ -928,10 +1134,20 @@ def flatten_json(json, flattened):
                 flatten_json(json['children'][i], flattened)
 
 
-# Searches the given array of toc items for the first one that has an itemId value and a type value other than "subtitle" and "section_title"
 def get_first_valid_item_from_toc(flattened_toc):
+    """
+    Searches the given array of toc items for the first one that has an
+    `itemId` value and a type value other than `subtitle` and
+    `section_title`.
+    """
     for i in range(len(flattened_toc)):
-        if flattened_toc[i].get('itemId') is not None and flattened_toc[i].get('itemId') != '' and flattened_toc[i].get('type') is not None and flattened_toc[i].get('type') != 'subtitle' and flattened_toc[i].get('type') != 'section_title':
+        if (
+            flattened_toc[i].get('itemId') is not None and
+            flattened_toc[i].get('itemId') != '' and
+            flattened_toc[i].get('type') is not None and
+            flattened_toc[i].get('type') != 'subtitle' and
+            flattened_toc[i].get('type') != 'section_title'
+        ):
             return flattened_toc[i]
     return {}
 
@@ -1251,3 +1467,44 @@ def lxml_escape_quotes_if_string(value: Any) -> Any:
         a string.
     """
     return etree.XSLT.strparam(value) if isinstance(value, str) else value
+
+
+def get_publication_language_row(publication_id: int) -> Optional[RowMapping]:
+    """
+    Return a RowMapping with key 'language' for the given publication,
+    excluding rows with deleted >= 1. Returns None if no row exists.
+    """
+    publication_table = get_table("publication")
+
+    with db_engine.connect() as connection:
+        statement = (
+            select(publication_table.c.language)
+            .where(publication_table.c.id == publication_id)
+            .where(publication_table.c.deleted < 1)
+        )
+        return connection.execute(statement).mappings().first()
+
+
+def get_comment_published_row(publication_id: int) -> Optional[RowMapping]:
+    """
+    Return a RowMapping with key 'published' for the comment linked to the
+    given publication, excluding rows with deleted >= 1. Returns None if
+    no row exists.
+    """
+    comment_table = get_table("publication_comment")
+    publication_table = get_table("publication")
+
+    with db_engine.connect() as connection:
+        statement = (
+            select(comment_table.c.published)
+            .select_from(
+                comment_table.join(
+                    publication_table,
+                    comment_table.c.id == publication_table.c.publication_comment_id,
+                )
+            )
+            .where(publication_table.c.id == publication_id)
+            .where(publication_table.c.deleted < 1)
+            .where(comment_table.c.deleted < 1)
+        )
+        return connection.execute(statement).mappings().first()

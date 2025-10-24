@@ -42,6 +42,16 @@ parland:
     # collation as defined by ICU (International Components for Unicode)
     # library.
     collation: 'sv-x-icu'
+    # Boolean indicating if prerendering of XML to HTML is enabled for the
+    # project. If it is, the publisher script generates HTML files as well
+    # as web XML files when it runs, and the API endpoints serve the
+    # prerendered HTML files (as a fallback, the HTML is transformed on the
+    # fly from XML if the prerendered HTML files are missing or can’t be read).
+    # Defaults to `False`.
+    prerender_html: False
+    # Boolean indicating if chapter divisions are used in the project’s
+    # XML texts or not. Defaults to `True`.
+    xml_chapter_divs: True
 
 topelius:
     # First, settings about how the publication tools should communicate towards git
@@ -75,6 +85,16 @@ topelius:
     # collation as defined by ICU (International Components for Unicode)
     # library.
     collation: 'sv-x-icu'
+    # Boolean indicating if prerendering of XML to HTML is enabled for the
+    # project. If it is, the publisher script generates HTML files as well
+    # as web XML files when it runs, and the API endpoints serve the
+    # prerendered HTML files (as a fallback, the HTML is transformed on the
+    # fly from XML if the prerendered HTML files are missing or can’t be read).
+    # Defaults to `False`.
+    prerender_html: False
+    # Boolean indicating if chapter divisions are used in the project’s
+    # XML texts or not. Defaults to `True`.
+    xml_chapter_divs: True
 
 # XML-to-HTML is somewhat computationally expensive, so HTML reading texts are cached for up to this amount of time
 cache_lifetime_seconds: 7200  # 2 hours
