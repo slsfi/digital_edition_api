@@ -106,12 +106,12 @@ def apply_updates_to_collection_toc(
 ) -> int:
     """
     Recursively traverse a nested JSON structure (collection table of
-    contents) and update nodes that match itemIds found in the
+    contents) and update nodes (in-place) that match itemIds found in the
     `update_map`. Returns the count of updated nodes.
 
     Behavior:
         - If a node contains an `itemId` that exists in `update_map`, its
-          `text` and/or `date` fields will be updated.
+          `text`, `date`, and/or `language` fields will be updated.
         - The original structure of the JSON is preserved.
         - This function modifies `data` in-place.
 
@@ -122,8 +122,8 @@ def apply_updates_to_collection_toc(
             "children" arrays.
         update_map (dict): A dictionary mapping itemIds (str) to
             dictionaries with the updated field values (e.g.,
-            {"text": ..., "date": ...}). Only the keys present in the
-            mapped value will be updated.
+            {"text": ..., "date": ..., "language": ...}). Only the keys
+            present in the mapped value will be updated.
 
     Returns:
         int: Number of nodes where at least one field was changed.
@@ -1226,8 +1226,8 @@ def handle_collection_toc(project, collection_id, language=None):
 def get_collection_toc_updated_from_db(project, collection_id, language=None):
     """
     Get an existing table of contents for the specified collection in the
-    specified language (optional) and project, with publication names
-    and dates updated from the database.
+    specified language (optional) and project, with publication names,
+    dates, and languages updated from the database.
 
     Note: This endpoint does not modify the table of contents file in the
     project repository – it simply loads the table of contents on the
@@ -1245,7 +1245,8 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
     POST Data Parameters in JSON Format:
 
     - update (array, required): an array of strings with the names of the
-      fields to update. Valid field names are "text" and "date".
+      fields to update. Valid field names are "text", "date", and
+      "language.
 
     Returns:
 
@@ -1302,9 +1303,9 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
     # Validate request data
     payload = request.get_json()
     update_fields = payload.get("update", []) if payload else []
-    valid_fields = ["text", "date"]
+    valid_fields = ["text", "date", "language"]
     if not update_fields or not any(f in valid_fields for f in update_fields):
-        return create_error_response("Request must include a valid update list with either 'date', 'text' or both.")
+        return create_error_response("Request must include a valid update list with one or more of 'date', 'text', and 'language'.")
 
     filename = f"{collection_id}_{language}.json" if language else f"{collection_id}.json"
     filepath = safe_join(config["file_root"], "toc", filename)
@@ -1363,12 +1364,13 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
                 select(
                     publication_table.c.id,
                     publication_table.c.name,
-                    publication_table.c.original_publication_date
+                    publication_table.c.original_publication_date,
+                    publication_table.c.language
                 )
                 .where(publication_table.c.publication_collection_id == collection_id)
                 .where(publication_table.c.deleted < 1)
             )
-            publication_rows = connection.execute(select_pub_stmt).fetchall()
+            publication_rows = connection.execute(select_pub_stmt).mappings().all()
 
     except Exception:
         logger.exception("Exception retrieving publications data for collection ToC update.")
@@ -1380,7 +1382,6 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
     # Build update map
     update_map = {}
     for row in publication_rows:
-        row = row._asdict()
         item_id = f"{collection_id}_{row['id']}"
         entry = {}
 
@@ -1389,6 +1390,9 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
 
         if "date" in update_fields:
             entry["date"] = row["original_publication_date"] or ""
+
+        if "language" in update_fields:
+            entry["language"] = row["language"] or ""
 
         if entry:
             update_map[item_id] = entry
