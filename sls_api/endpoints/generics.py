@@ -1211,12 +1211,16 @@ def is_valid_language(language_tag: str) -> bool:
         "el",  # Greek
         "en",  # English
         "es",  # Spanish
+        "et",  # Estonian
         "fi",  # Finnish
         "fr",  # French
+        "he",  # Hebrew
         "hu",  # Hungarian
         "is",  # Icelandic
         "it",  # Italian
         "la",  # Latin
+        "lt",  # Lithuanian
+        "lv",  # Latvian
         "nl",  # Dutch
         "no",  # Norwegian
         "pl",  # Polish
