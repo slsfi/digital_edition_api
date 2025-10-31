@@ -945,7 +945,7 @@ def prerender_xml_to_html(
         # For com files the chapter ids need to be checked from the
         # corresponding est file
         find_ch_file = (
-            xml_filepath.replace(file, file.replace("com", "est"))
+            xml_filepath.replace("_com.xml", "_est.xml").replace("/com/", "/est/")
             if text_type == "com"
             else xml_filepath
         )
@@ -1025,7 +1025,7 @@ def prerender_xml_to_html(
             saxon_xslt_exec = (xslt_execs or {}).get(text_type_key)
 
             if saxon_proc is not None and saxon_xslt_exec is None:
-                logger.error("Failed to prerender %s: Saxon XSLT executable is None", xml_filepath)
+                logger.error("Failed to prerender %s: Saxon XSLT executable is None. `text_type_key` is `%s` and `xslt_execs` is %s", xml_filepath, text_type_key, xslt_execs)
                 return []
 
             if saxon_proc is None and (
@@ -1270,13 +1270,15 @@ def check_publication_mtimes_and_publish_files(
 
     if prerender_html and use_saxon_for_prerender:
         # Compile the XSLT stylesheets used to transform the web XML to
-        # HTML. and store
+        # HTML.
         # The compiled Saxon stylesheets are stored in a dictionary where
         # the text types (est, com, ms, etc.) are keys and the compiled
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
         html_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
-            compile_xslt_stylesheets(file_root, xslt_proc)
+            compile_xslt_stylesheets(file_root,
+                                     xslt_proc,
+                                     xml_to_html_stylesheets=True)
         )
 
     # Keep a list of changed XML files for later git commit
