@@ -816,18 +816,21 @@ def get_frontmatter_page_content(
         text_type: str,
         collection_id: str,
         language: str,
-        project: str
+        project: str,
+        legacy_collection_id: Optional[str] = None
 ) -> Tuple[str, str]:
     project_config = get_project_config(project)
     show_internal = project_config.get("show_internally_published", False)
     version = "int" if show_internal else "ext"
     filename_stem = f"{collection_id}_{text_type}_{language}_{version}"
+    xslt_params = {"bookId": legacy_collection_id or collection_id}
 
     return get_prerendered_or_transformed_xml_content(
         text_type=text_type,
         filename_stem=filename_stem,
         project=project,
-        project_config=project_config
+        project_config=project_config,
+        xslt_parameters=xslt_params
     )
 
 

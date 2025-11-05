@@ -85,7 +85,8 @@ def get_frontmatter(project, collection_id, text_type, lang="sv"):
     if not is_valid_language(lang):
         return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
-    can_show, message, _ = get_published_status(project, collection_id)
+    can_show, message, c_legacy_id = get_published_status(project,
+                                                          collection_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
 
@@ -93,7 +94,8 @@ def get_frontmatter(project, collection_id, text_type, lang="sv"):
         text_type=text_type,
         collection_id=collection_id,
         language=lang,
-        project=project
+        project=project,
+        legacy_collection_id=c_legacy_id
     )
     logger.info("Served %s %s for %s",
                 used_source, valid_text_types[text_type], request.full_path)
@@ -116,7 +118,8 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
     if not is_valid_language(lang):
         return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
-    can_show, message, _ = get_published_status(project, collection_id)
+    can_show, message, c_legacy_id = get_published_status(project,
+                                                          collection_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
 
@@ -124,7 +127,8 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
         text_type=text_type,
         collection_id=collection_id,
         language=lang,
-        project=project
+        project=project,
+        legacy_collection_id=c_legacy_id
     )
     logger.info("Served %s introduction for %s", used_source, request.full_path)
     return jsonify({"id": resp_id, "content": content}), 200
@@ -146,7 +150,8 @@ def get_title(project, collection_id, publication_id, lang="sv"):
     if not is_valid_language(lang):
         return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
-    can_show, message, _ = get_published_status(project, collection_id)
+    can_show, message, c_legacy_id = get_published_status(project,
+                                                          collection_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
 
@@ -154,7 +159,8 @@ def get_title(project, collection_id, publication_id, lang="sv"):
         text_type=text_type,
         collection_id=collection_id,
         language=lang,
-        project=project
+        project=project,
+        legacy_collection_id=c_legacy_id
     )
     logger.info("Served %s title page for %s", used_source, request.full_path)
     return jsonify({"id": resp_id, "content": content}), 200
@@ -172,7 +178,8 @@ def get_foreword(project, collection_id, lang="sv"):
     if not is_valid_language(lang):
         return jsonify({"id": resp_id, "error": "Invalid language."}), 400
 
-    can_show, message, _ = get_published_status(project, collection_id)
+    can_show, message, c_legacy_id = get_published_status(project,
+                                                          collection_id)
     if not can_show:
         return jsonify({"id": resp_id, "error": message}), 403
 
@@ -180,7 +187,8 @@ def get_foreword(project, collection_id, lang="sv"):
         text_type=text_type,
         collection_id=collection_id,
         language=lang,
-        project=project
+        project=project,
+        legacy_collection_id=c_legacy_id
     )
     logger.info("Served %s foreword for %s", used_source, request.full_path)
     return jsonify({"id": resp_id, "content": content}), 200
