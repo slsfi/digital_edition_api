@@ -775,7 +775,7 @@ def get_prerendered_or_transformed_xml_content(
     if project_config.get("prerender_html", False):
         # Get prerendered HTML
         html_filename = filename_stem
-        if "sectionId" in xslt_parameters:
+        if xslt_parameters is not None and "sectionId" in xslt_parameters:
             html_filename = f"{filename_stem}_{xslt_parameters['sectionId']}"
         html_filename = f"{html_filename}.html"
 
