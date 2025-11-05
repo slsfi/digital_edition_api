@@ -1888,6 +1888,10 @@ def check_publication_mtimes_and_publish_files(
 
         for f_type in frontmatter_types:
             xml_folder = safe_join(file_root, "xml", f_type)
+            # Check if the folder exists, if not, skip the front matter type
+            if not os.path.isdir(xml_folder):
+                continue
+
             # Get file paths of all files with xml-extension in the front
             # matter type folder
             xml_file_paths = [safe_join(xml_folder, e.name)
