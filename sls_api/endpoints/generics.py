@@ -539,23 +539,29 @@ def transform_xml(
 
     Parameters:
         xsl_file_path (str or None): File path to an XSLT stylesheet. If None,
-            Saxon must be used and an compiled XSLT executable passed.
+            Saxon must be used and both a Saxon XSLT processor and a compiled
+            XSLT executable passed.
         xml_file_path (str): File path to the XML document which is to be
             transformed.
         params (dict or OrderedDict, optional): A dictionary with parameters
             for the XSLT stylesheet. Defaults to None.
         use_saxon (bool, optional): Whether to use the Saxon processor (instead
             of the lxml processor) or not. Defaults to False.
-        passed_saxon_proc (PySaxonProcessor, optional): A Saxon processor that
-            should be used instead of the global Saxon processor. Defaults to None.
-        passed_xslt_exec (PyXsltExecutable, optional): A compiled Saxon XSLT
-            executable that should be used instead of compiling `xsl_file_path`.
-            Defaults to None.
+        saxon_proc (PySaxonProcessor, optional): A Saxon XSLT processor, must
+            be defined if using Saxon for transformation. Defaults to None.
+        xslt_exec (PyXsltExecutable, optional): A compiled Saxon XSLT
+            executable that should be used for the transformation. If set
+            to None, and Saxon is used, a Saxon processor is passed and
+            `xsl_file_path` is set, the stylesheet `xsl_file_path` will be
+            compiled and used. Defaults to None.
 
     Returns:
         String representation of the result document.
     """
-    logger.debug("Transforming %s using %s", xml_file_path, xsl_file_path)
+    if use_saxon and xsl_file_path is None and xslt_exec is not None:
+        logger.debug("Transforming %s using compiled Saxon XSLT executable.", xml_file_path)
+    else:
+        logger.debug("Transforming %s using %s", xml_file_path, xsl_file_path)
 
     if params is not None:
         logger.debug("Parameters are %r", params)
@@ -580,20 +586,21 @@ def transform_xml(
 
         if xslt_exec is None and xsl_file_path is not None:
             if not os.path.isfile(xsl_file_path):
-                return f"XSL file {xsl_file_path!r} not found!"
+                return f"XSLT file {xsl_file_path!r} not found!"
 
             xslt_exec: PyXsltExecutable = saxon_xslt_proc.compile_stylesheet(
                     stylesheet_file=xsl_file_path,
                     encoding="utf-8"
             )
         elif xslt_exec is None:
-            return "Neither XSL file nor Saxon XSLT executable passed to transformation!"
+            logger.error("Unable to transform %s using Saxon because both XSLT file and Saxon XSLT executable are None.", xml_file_path)
+            return "Neither XSLT file nor Saxon XSLT executable passed to transformation!"
 
         xml_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc, xml_file_path)
         return xml_doc.transform_to_string(xslt_exec, params, format_output=False)
     else:
         if not os.path.isfile(xsl_file_path) or xsl_file_path is None:
-            return f"XSL file {xsl_file_path!r} not found!"
+            return f"XSLT file {xsl_file_path!r} not found!"
 
         # Use the lxml XSLT 1.0 processor.
         with open(xml_file_path, mode="rb") as xml_file:
@@ -612,7 +619,7 @@ def transform_xml(
             result = xsl_transform(xml_root, **params)
 
         if len(xsl_transform.error_log) > 0:
-            logger.error("XSL transform error: %s", xsl_transform.error_log)
+            logger.error("XSLT transform error: %s", xsl_transform.error_log)
 
         return str(result)
 
