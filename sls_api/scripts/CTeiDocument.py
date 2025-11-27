@@ -365,6 +365,11 @@ class CTeiDocument:
                     xml_content = ET.fromstring(CTeiDocument.HtmlToTeiXml(comment['description'], sXsltPath))
                     oNoteNode.append(xml_content)
                 except Exception as e:
+                    print(f"Error transforming comment note with ID {comment['id']} from HTML to XML.")
+                    print(f"XSLT path: {sXsltPath}")
+                    print(f"Note shortenedSelection: {comment['shortenedSelection']}")
+                    print("Note description:")
+                    print(comment['description'])
                     print(e)
 
         return True
@@ -739,7 +744,23 @@ class CTeiDocument:
     # ------------------------------------------------
     # Saves the xml document to a file
     def Save(self, sFileName):
-        ET.ElementTree(self.xmlRoot).write(sFileName, encoding="UTF-8", xml_declaration=True)
+        # Serialize the XML tree to a UTF-8 bytes object with XML declaration
+        xml_bytes = ET.tostring(
+            self.xmlRoot,
+            encoding="UTF-8",
+            xml_declaration=True
+        )
+
+        # Decode to text so we can reason about line endings
+        xml_text = xml_bytes.decode("utf-8")
+
+        # Ensure the file ends with exactly one trailing newline,
+        # matching CRLF style if present
+        xml_text = CTeiDocument._ensure_trailing_newline(xml_text)
+
+        with open(sFileName, "w", encoding="utf-8") as f:
+            f.write(xml_text)
+
         return True
 
     # ------------------------------------------------
@@ -789,3 +810,35 @@ class CTeiDocument:
         # Return the result
         xmlOut = xmlOut.encode('utf-8')
         return xmlOut
+
+    @staticmethod
+    def _ensure_trailing_newline(text: str) -> str:
+        """
+        Ensures that the given text ends with a newline character, preserving
+        the existing line-ending style where possible.
+
+        Behavior:
+        - If the text already ends with either "\n" or "\r\n", it is returned
+          unchanged.
+        - If the text does not end with a newline:
+            - If the text contains any "\r\n" sequences, a trailing "\r\n" is
+              appended.
+            - Otherwise, a trailing "\n" is appended.
+
+        Parameters:
+        - text (str): The input text to check and normalize.
+
+        Returns:
+        - str: The input text guaranteed to end with a newline, matching the
+          detected or default line-ending style.
+        """
+        # Return unchanged if already ends with a newline of some kind
+        if text.endswith(("\r\n", "\n")):
+            return text
+
+        # Prefer CRLF if it appears anywhere in the content
+        if "\r\n" in text:
+            return text + "\r\n"
+
+        # Otherwise, default to LF
+        return text + "\n"

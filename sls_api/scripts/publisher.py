@@ -14,6 +14,7 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
     changed_by_size_or_hash, \
+    ensure_trailing_newline, \
     file_fingerprint, \
     get_project_id_from_name, \
     get_table, \
@@ -452,7 +453,10 @@ def generate_est_and_com_files(publication_info: Optional[Dict[str, Any]],
     try:
         com_document.Load(com_master_file_path)
 
-        # if com_xsl_path is invalid or not given, try using COMMENTS_XSL_PATH_IN_FILE_ROOT
+        # if com_xsl_path is invalid or not given, try using
+        # LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT
+        # com_xsl_path should be the path to the XSLT that transforms individual
+        # comment notes from HTML to XML
         if com_xsl_path is None or not os.path.exists(com_xsl_path):
             com_xsl_path = safe_join(config[project]["file_root"],
                                      LEGACY_COMMENTS_XSL_PATH_IN_FILE_ROOT)
@@ -863,6 +867,8 @@ def transform_and_save(
         # TODO: and from generics.py
         if text_type in ["est", "ms", "inl", "tit", "fore"]:
             content = content.replace(" id=", " data-id=")
+
+    content = ensure_trailing_newline(content)
 
     # Save the transformed content
     try:

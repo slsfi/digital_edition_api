@@ -1518,3 +1518,35 @@ def get_comment_published_row(publication_id: int) -> Optional[RowMapping]:
             .where(comment_table.c.deleted < 1)
         )
         return connection.execute(statement).mappings().first()
+
+
+def ensure_trailing_newline(text: str) -> str:
+    """
+    Ensures that the given text ends with a newline character, preserving
+    the existing line-ending style where possible.
+
+    Behavior:
+    - If the text already ends with either "\n" or "\r\n", it is returned
+        unchanged.
+    - If the text does not end with a newline:
+        - If the text contains any "\r\n" sequences, a trailing "\r\n" is
+            appended.
+        - Otherwise, a trailing "\n" is appended.
+
+    Parameters:
+    - text (str): The input text to check and normalize.
+
+    Returns:
+    - str: The input text guaranteed to end with a newline, matching the
+        detected or default line-ending style.
+    """
+    # Return unchanged if already ends with a newline of some kind
+    if text.endswith(("\r\n", "\n")):
+        return text
+
+    # Prefer CRLF if it appears anywhere in the content
+    if "\r\n" in text:
+        return text + "\r\n"
+
+    # Otherwise, default to LF
+    return text + "\n"
