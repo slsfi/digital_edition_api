@@ -951,8 +951,8 @@ def extract_publication_metadata_from_tei_xml(file_path: str) -> Tuple[Optional[
         def get_full_text(element):
             return "".join(element.itertext()) if element is not None else None
 
-        # Extract the full text of the first <title> without an attribute inside <titleStmt>
-        title_element = root.xpath("./tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:title[not(@*)]", namespaces=ns)
+        # Extract the full text of the first <title> without @type attribute inside <titleStmt>
+        title_element = root.xpath("./tei:teiHeader/tei:fileDesc/tei:titleStmt/tei:title[not(@type)]", namespaces=ns)
         title_element = title_element[0] if title_element else None
         title = get_full_text(title_element)
 
