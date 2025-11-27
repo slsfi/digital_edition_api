@@ -304,14 +304,16 @@ class SaxonXMLDocument:
 
     def _save_to_file(self, output_filepath: str):
         """
-        Saves the XML document to the specified output file.
+        Saves the document to the specified output file. The file is
+        guaranteed to end in a newline.
 
         Parameters:
         - output_filepath (str): The file path where the XML document will be
           saved.
         """
         with open(output_filepath, "w", encoding="utf-8") as file:
-            file.write(self.xml_doc_str)
+            content = SaxonXMLDocument._ensure_trailing_newline(self.xml_doc_str)
+            file.write(content)
 
     def _parse_from_string(self, xml_str: str) -> PyXdmNode:
         """
@@ -432,3 +434,35 @@ class SaxonXMLDocument:
             return self.saxon_proc.make_float_value(value)
         else:
             return self.saxon_proc.empty_sequence()
+
+    @staticmethod
+    def _ensure_trailing_newline(text: str) -> str:
+        """
+        Ensures that the given text ends with a newline character, preserving
+        the existing line-ending style where possible.
+
+        Behavior:
+        - If the text already ends with either "\n" or "\r\n", it is returned
+          unchanged.
+        - If the text does not end with a newline:
+            - If the text contains any "\r\n" sequences, a trailing "\r\n" is
+              appended.
+            - Otherwise, a trailing "\n" is appended.
+
+        Parameters:
+        - text (str): The input text to check and normalize.
+
+        Returns:
+        - str: The input text guaranteed to end with a newline, matching the
+          detected or default line-ending style.
+        """
+        # Return unchanged if already ends with a newline of some kind
+        if text.endswith(("\r\n", "\n")):
+            return text
+
+        # Prefer CRLF if it appears anywhere in the content
+        if "\r\n" in text:
+            return text + "\r\n"
+
+        # Otherwise, default to LF
+        return text + "\n"
