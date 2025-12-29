@@ -30,6 +30,7 @@ def get_projects():
 
 
 @meta.route("/<project>/html/<filename>")
+@reader_auth_required()  # TODO: check if this is actually required...
 def get_html_contents_as_json(project, filename):
     config = get_project_config(project)
     if config is None:
@@ -108,6 +109,7 @@ def get_static_pages_as_json(project, language):
 
 
 @meta.route("/<project>/manuscript/<publication_id>")
+@reader_auth_required()
 def get_manuscripts(project, publication_id):
     logger.info("Getting manuscript /{}/manuscript/{}".format(project, publication_id))
     connection = db_engine.connect()
@@ -123,6 +125,7 @@ def get_manuscripts(project, publication_id):
 
 @meta.route("/<project>/toc-first/<collection_id>/<language>")
 @meta.route("/<project>/toc-first/<collection_id>")
+@reader_auth_required()
 def get_first_toc_item(project, collection_id, language=None):
     config = get_project_config(project)
     if config is None:
@@ -162,6 +165,7 @@ def get_first_toc_item(project, collection_id, language=None):
 
 @meta.route("/<project>/toc/<collection_id>/<language>")
 @meta.route("/<project>/toc/<collection_id>")
+@reader_auth_required()
 def get_toc(project, collection_id, language=None):
     """
     Get the table of contents of the specified collection, optionally in
@@ -278,6 +282,7 @@ def get_collections(project, language=None):
 
 @meta.route("/<project>/collection/<collection_id>")
 @meta.route("/<project>/collection/<collection_id>/i18n/<language>")
+@reader_auth_required()
 def get_collection(project, collection_id, language=None):
     if language is None:
         logger.info("Getting collection /{}/collection/{}".format(project, collection_id))
@@ -325,6 +330,7 @@ def get_collection(project, collection_id, language=None):
 
 
 @meta.route("/<project>/publication/<publication_id>")
+@reader_auth_required()
 def get_publication(project, publication_id):
     logger.info("Getting publication /{}/publication/{}".format(project, publication_id))
     connection = db_engine.connect()
@@ -339,6 +345,7 @@ def get_publication(project, publication_id):
 
 
 @meta.route("/<project>/collection/<collection_id>/publications")
+@reader_auth_required()
 def get_collection_publications(project, collection_id):
     logger.info("Getting publication /{}/collections/{}/publications".format(project, collection_id))
     connection = db_engine.connect()
@@ -354,6 +361,7 @@ def get_collection_publications(project, collection_id):
 
 # Get the collection and publication id for a legacy id
 @meta.route("/<project>/legacy/<legacy_id>")
+@reader_auth_required()
 def get_collection_publication_by_legacyid(project, legacy_id):
     logger.info("Getting /<project>/legacy/<legacy_id>")
     connection = db_engine.connect()
@@ -374,6 +382,7 @@ def get_collection_publication_by_legacyid(project, legacy_id):
 
 # Get the legacy id by publication id
 @meta.route("/<project>/legacy/publication/<publication_id>")
+@reader_auth_required()
 def get_legacyid_by_publication_id(project, publication_id):
     logger.info("Getting /<project>/legacy/publication/<publication_id>")
     connection = db_engine.connect()
@@ -389,6 +398,7 @@ def get_legacyid_by_publication_id(project, publication_id):
 
 # Get the legacy id by collection id
 @meta.route("/<project>/legacy/collection/<collection_id>")
+@reader_auth_required()
 def get_legacyid_by_collection_id(project, collection_id):
     logger.info("Getting /<project>/legacy/collection/<collection_id>")
     connection = db_engine.connect()
@@ -405,6 +415,7 @@ def get_legacyid_by_collection_id(project, collection_id):
 # Get all subjects for a project
 @meta.route("/<project>/subjects-i18n/<language>")
 @meta.route("/<project>/subjects")
+@reader_auth_required()
 def get_project_subjects(project, language=None):
     logger.info("Getting /<project>/subjects")
     connection = db_engine.connect()
@@ -455,6 +466,7 @@ def get_project_subjects(project, language=None):
 
 # Get all subjects for a project
 @meta.route("/<project>/locations")
+@reader_auth_required()
 def get_project_locations(project):
     logger.info("Getting /<project>/locations")
     connection = db_engine.connect()
@@ -479,6 +491,7 @@ def get_project_locations(project):
 
 # Get all tags for a project
 @meta.route("/<project>/tags")
+@reader_auth_required()
 def get_project_tags(project):
     logger.info("Getting /<project>/tags")
     connection = db_engine.connect()
@@ -495,6 +508,7 @@ def get_project_tags(project):
 
 # Get all subjects for a project
 @meta.route("/<project>/works")
+@reader_auth_required()
 def get_project_works(project):
     logger.info("Getting /<project>/works")
     connection = db_engine.connect()
@@ -510,6 +524,7 @@ def get_project_works(project):
 
 
 @meta.route("/tooltips/subjects")
+@reader_auth_required()
 def subject_tooltips():
     """
     List all available subject tooltips as id and name
@@ -518,6 +533,7 @@ def subject_tooltips():
 
 
 @meta.route("/tooltips/tags")
+@reader_auth_required()
 def tag_tooltips():
     """
     List all available tag tooltips as id and name
@@ -526,6 +542,7 @@ def tag_tooltips():
 
 
 @meta.route("/tooltips/locations")
+@reader_auth_required()
 def location_tooltips():
     """
     List all available location tooltips as id and name
@@ -534,6 +551,7 @@ def location_tooltips():
 
 
 @meta.route("/tooltips/<object_type>/<ident>")
+@reader_auth_required()
 def get_tooltip_text(object_type, ident):
     """
     Get tooltip text for a specific subject, tag, or location
@@ -548,6 +566,7 @@ def get_tooltip_text(object_type, ident):
 
 @meta.route("/<project>/tooltips/<object_type>/<ident>/")
 @meta.route("/<project>/tooltips/<object_type>/<ident>/<use_legacy>/")
+@reader_auth_required()
 def get_project_tooltip_text(project, object_type, ident, use_legacy=False):
     """
     Get tooltip text for a specific subject, tag, or location
@@ -561,6 +580,7 @@ def get_project_tooltip_text(project, object_type, ident, use_legacy=False):
 
 
 @meta.route("/<project>/subject/<subject_id>")
+@reader_auth_required()
 def get_subject(project, subject_id):
     logger.info("Getting subject /{}/subject/{}".format(project, subject_id))
     connection = db_engine.connect()
@@ -591,6 +611,7 @@ def get_subject(project, subject_id):
 
 
 @meta.route("/<project>/tag/<tag_id>")
+@reader_auth_required()
 def get_tag(project, tag_id):
     logger.info("Getting tag /{}/tag/{}".format(project, tag_id))
     connection = db_engine.connect()
@@ -622,6 +643,7 @@ def get_tag(project, tag_id):
 
 
 @meta.route("/<project>/work/<work_id>")
+@reader_auth_required()
 def get_work(project, work_id):
     logger.info("Getting work /{}/work/{}".format(project, work_id))
     connection = db_engine.connect()
@@ -645,6 +667,7 @@ def get_work(project, work_id):
 
 
 @meta.route("/<project>/location/<location_id>")
+@reader_auth_required()
 def get_location(project, location_id):
     logger.info("Getting location /{}/location/{}".format(project, location_id))
     connection = db_engine.connect()
@@ -676,6 +699,7 @@ def get_location(project, location_id):
 
 
 @meta.route("/<project>/files/<folder>/<file_name>/")
+@reader_auth_required()
 def get_json_file(project, folder, file_name):
     config = get_project_config(project)
     if config is None:
@@ -693,6 +717,7 @@ def get_json_file(project, folder, file_name):
 
 @meta.route("/<project>/urn/<url>/")
 @meta.route("/<project>/urn/<url>/<legacy_id>/")
+@reader_auth_required()
 def get_urn(project, url, legacy_id=None):
     url = unquote(unquote(url))
     logger.info("Getting urn /{}/urn/{}/{}/".format(project, url, legacy_id))

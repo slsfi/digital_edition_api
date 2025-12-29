@@ -1,14 +1,12 @@
 import logging
 import os
 from flask import Blueprint, request, Response
-from flask_jwt_extended import jwt_required
 from sqlalchemy import and_, collate, select
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name, \
-    get_table, int_or_none, validate_int, project_permission_required, \
-    create_error_response, create_success_response, get_project_config, \
-    get_project_collation
+from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_from_name, \
+    get_table, int_or_none, validate_int, create_error_response, \
+    create_success_response, get_project_config, get_project_collation
 
 
 publication_tools = Blueprint("publication_tools", __name__)
@@ -17,7 +15,7 @@ logger = logging.getLogger("sls_api.tools.publications")
 
 @publication_tools.route("/<project>/publications/")
 @publication_tools.route("/<project>/publications/<order_by>/<direction>/")
-@jwt_required()
+@cms_required()
 def get_publications(project, order_by="id", direction="asc"):
     """
     List all (non-deleted) publications for a given project, with optional
@@ -148,7 +146,7 @@ def get_publications(project, order_by="id", direction="asc"):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/")
-@project_permission_required
+@cms_required()
 def get_publication(project, publication_id):
     """
     Retrieve a single publication for a given project.
@@ -259,7 +257,7 @@ def get_publication(project, publication_id):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/versions/")
-@jwt_required()
+@cms_required()
 def get_publication_versions(project, publication_id):
     """
     List all (non-deleted) versions (i.e. variants) of the specified
@@ -369,7 +367,7 @@ def get_publication_versions(project, publication_id):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/manuscripts/")
-@jwt_required()
+@cms_required()
 def get_publication_manuscripts(project, publication_id):
     """
     List all (non-deleted) manuscripts of the specified publication in
@@ -480,7 +478,7 @@ def get_publication_manuscripts(project, publication_id):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/keywords/")
-@jwt_required()
+@cms_required()
 def get_publication_keywords(project, publication_id):
     """
     List all (non-deleted) keywords for the specified publication. The
@@ -620,7 +618,7 @@ def get_publication_keywords(project, publication_id):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/facsimiles/")
-@jwt_required()
+@cms_required()
 def get_publication_facsimiles(project, publication_id):
     """
     List all (non-deleted) fascimiles for the specified publication in
@@ -738,7 +736,7 @@ def get_publication_facsimiles(project, publication_id):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/comments/")
-@jwt_required()
+@cms_required()
 def get_publication_comments(project, publication_id):
     """
     List all (non-deleted) comments of the specified publication
@@ -850,7 +848,7 @@ def get_publication_comments(project, publication_id):
 
 
 @publication_tools.route("/<project>/publication/<publication_id>/link_text/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def link_text_to_publication(project, publication_id):
     """
     Create a new comment, manuscript or version for the specified publication
@@ -1113,7 +1111,7 @@ def link_text_to_publication(project, publication_id):
 
 
 @publication_tools.route("/<project>/verify-facsimile-file/<collection_id>/<file_nr>/<zoom_level>")
-@project_permission_required
+@cms_required()
 def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
     """
     Verify the existence of a single facsimile file or all files in a
@@ -1275,7 +1273,7 @@ def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
 
 
 @publication_tools.route("/<project>/get-single-facsimile-file/<collection_id>/<file_nr>/<zoom_level>")
-@project_permission_required
+@cms_required()
 def get_single_facsimile_file(project, collection_id, file_nr, zoom_level):
     """
     Retrieve a single facsimile file in a specific facsimile collection

@@ -60,3 +60,7 @@ cache_lifetime_seconds: 7200  # 2 hours
 elasticsearch_connection: 
     host: 'dockerhost-ext03'
     port: 9200
+
+# whether a user account is required to read projects served by this API
+# defaults to `False`
+reader_auth_required: False

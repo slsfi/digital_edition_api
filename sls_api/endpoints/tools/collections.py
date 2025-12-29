@@ -3,8 +3,8 @@ from flask import Blueprint, request
 from sqlalchemy import collate, select, and_, or_, not_
 from datetime import datetime
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, \
-    int_or_none, project_permission_required, validate_int, create_error_response, \
+from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_from_name, \
+    get_table, int_or_none, validate_int, create_error_response, \
     create_success_response, get_project_collation
 
 
@@ -13,7 +13,7 @@ logger = logging.getLogger("sls_api.tools.collections")
 
 
 @collection_tools.route("/<project>/facsimile_collection/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def create_facsimile_collection(project):
     """
     Create a new facsimile collection.
@@ -178,7 +178,7 @@ def create_facsimile_collection(project):
 
 
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_facsimile_collection(project, collection_id):
     """
     Edit a facsimile collection.
@@ -353,7 +353,7 @@ def edit_facsimile_collection(project, collection_id):
 
 @collection_tools.route("/<project>/facsimile_collection/list/")
 @collection_tools.route("/<project>/facsimile_collection/list/<order_by>/<direction>/")
-@project_permission_required
+@cms_required(edit=True)
 def list_facsimile_collections(project, order_by="id", direction="desc"):
     """
     List all facsimile collections linked to the specified project and
@@ -563,7 +563,7 @@ def list_facsimile_collections(project, order_by="id", direction="desc"):
 
 
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/data/")
-@project_permission_required
+@cms_required(edit=True)
 def get_facsimile_collection_data(project, collection_id):
     """
     Retrieve a single facsimile collection.
@@ -665,7 +665,7 @@ def get_facsimile_collection_data(project, collection_id):
 
 
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/link/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def link_facsimile_collection_to_publication(project, collection_id):
     """
     Link a facsimile collection to a publication by creating a
@@ -852,7 +852,7 @@ def link_facsimile_collection_to_publication(project, collection_id):
 
 
 @collection_tools.route("/<project>/facsimile_collection/facsimile/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_facsimile(project):
     """
     Edit a publication facsimile object by updating its fields.
@@ -1029,7 +1029,7 @@ def edit_facsimile(project):
 
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/list_links/")
 @collection_tools.route("/<project>/facsimile_collection/<collection_id>/list_links/<order_by>/<direction>/")
-@project_permission_required
+@cms_required(edit=True)
 def list_facsimile_collection_links(project, collection_id, order_by="id", direction="asc"):
     """
     List all publication facsimile objects in the specified publication
@@ -1170,7 +1170,7 @@ def list_facsimile_collection_links(project, collection_id, order_by="id", direc
 
 @collection_tools.route("/<project>/publication_collection/list/")
 @collection_tools.route("/<project>/publication_collection/list/<order_by>/<direction>/")
-@project_permission_required
+@cms_required(edit=True)
 def list_publication_collections(project, order_by="id", direction="asc"):
     """
     List all (non-deleted) publication collections for a given project,
@@ -1317,7 +1317,7 @@ def list_publication_collections(project, order_by="id", direction="asc"):
 
 
 @collection_tools.route("/<project>/publication_collection/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def new_publication_collection(project):
     """
     Create a new publication collection in the specified project.
@@ -1464,7 +1464,7 @@ def new_publication_collection(project):
 
 @collection_tools.route("/<project>/publication_collection/<collection_id>/publications/")
 @collection_tools.route("/<project>/publication_collection/<collection_id>/publications/<order_by>/")
-@project_permission_required
+@cms_required(edit=True)
 def list_publications(project, collection_id, order_by="id"):
     """
     List all (non-deleted) publications within a specific publication
@@ -1601,7 +1601,7 @@ def list_publications(project, collection_id, order_by="id"):
 
 
 @collection_tools.route("/<project>/publication_collection/<collection_id>/publications/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def new_publication(project, collection_id):
     """
     Create a new publication as part of the specified publication collection.

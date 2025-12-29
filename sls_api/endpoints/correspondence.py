@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify
 import logging
 from sqlalchemy.sql import text
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name
+from sls_api.endpoints.generics import db_engine, get_project_id_from_name, reader_auth_required
 
 correspondence = Blueprint('correspondence', __name__)
 logger = logging.getLogger("sls_api.correspondence")
@@ -11,6 +11,7 @@ logger = logging.getLogger("sls_api.correspondence")
 
 
 @correspondence.route("/<project>/correspondence/publication/metadata/<pub_id>")
+@reader_auth_required()
 def get_correspondence_metadata_for_publication(project, pub_id):
     logger.info("Getting results for /correspondence/manifestations/")
     connection = db_engine.connect()

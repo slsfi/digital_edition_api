@@ -1,11 +1,11 @@
 import logging
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import get_jwt, jwt_required
+from flask_jwt_extended import get_jwt
 from sqlalchemy import select
 from datetime import datetime
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
-    project_permission_required, validate_project_name, validate_int, create_error_response, \
+from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_from_name, get_table, \
+    int_or_none, validate_project_name, validate_int, create_error_response, \
     create_success_response, update_publication_related_table, handle_deleted_flag
 from sls_api.exceptions import CascadeUpdateError
 
@@ -15,7 +15,7 @@ logger = logging.getLogger("sls_api.tools.publishing")
 
 
 @publishing_tools.route("/projects/list/")
-@jwt_required()
+@cms_required()
 def list_user_projects():
     """
     List all (non-deleted) projects the current user has access to.
@@ -105,7 +105,7 @@ def list_user_projects():
 
 
 @publishing_tools.route("/projects/new/", methods=["POST"])
-@jwt_required()
+@cms_required()
 def add_new_project():
     """
     Create a new project.
@@ -240,7 +240,7 @@ def add_new_project():
 
 
 @publishing_tools.route("/projects/<project_id>/edit/", methods=["POST"])
-@jwt_required()
+@cms_required(edit=True)
 def edit_project(project_id):
     """
     Edit fields of the specified project.
@@ -379,7 +379,7 @@ def edit_project(project_id):
 
 
 @publishing_tools.route("/<project>/publication_collection/<collection_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_publication_collection(project, collection_id):
     """
     Edit a publication collection in the specified project by updating
@@ -610,7 +610,7 @@ def edit_publication_collection(project, collection_id):
 
 
 @publishing_tools.route("<project>/publication_collection/<collection_id>/intro/")
-@project_permission_required
+@cms_required()
 def get_intro(project, collection_id):
     collections = get_table("publication_collection")
     introductions = get_table("publication_collection_introduction")
@@ -631,7 +631,7 @@ def get_intro(project, collection_id):
 
 
 @publishing_tools.route("<project>/publication_collection/<collection_id>/intro/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_intro(project, collection_id):
     """
     Takes "filename" and/or "published" as JSON data
@@ -677,7 +677,7 @@ def edit_intro(project, collection_id):
 
 
 @publishing_tools.route("<project>/publication_collection/<collection_id>/title/")
-@project_permission_required
+@cms_required()
 def get_title(project, collection_id):
     collections = get_table("publication_collection")
     titles = get_table("publication_collection_title")
@@ -698,7 +698,7 @@ def get_title(project, collection_id):
 
 
 @publishing_tools.route("<project>/publication_collection/<collection_id>/title/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_title(project, collection_id):
     """
     Takes "filename" and/or "published" as JSON data
@@ -744,7 +744,7 @@ def edit_title(project, collection_id):
 
 
 @publishing_tools.route("/<project>/publication/<publication_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_publication(project, publication_id):
     """
     Edit a publication in the specified project by updating its fields.
@@ -988,7 +988,7 @@ def edit_publication(project, publication_id):
 
 
 @publishing_tools.route("/<project>/publication/<publication_id>/comment/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_comment(project, publication_id):
     """
     Edit a comment of the specified publication in the given project by
@@ -1164,7 +1164,7 @@ def edit_comment(project, publication_id):
 
 
 @publishing_tools.route("/<project>/manuscripts/<manuscript_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_manuscript(project, manuscript_id):
     """
     Edit a manuscript of the specified project by updating its fields.
@@ -1368,7 +1368,7 @@ def edit_manuscript(project, manuscript_id):
 
 
 @publishing_tools.route("/<project>/versions/<version_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_version(project, version_id):
     """
     Edit a publication version of the specified project by updating its fields.
@@ -1571,7 +1571,7 @@ def edit_version(project, version_id):
 
 
 @publishing_tools.route("/<project>/publication_collection/<collection_id>/info")
-@project_permission_required
+@cms_required()
 def get_publication_collection_info(project, collection_id):
     """
     Returns published status for publication_collection and associated introduction and title objects

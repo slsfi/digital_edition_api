@@ -12,6 +12,7 @@ logger = logging.getLogger("sls_api.songs")
 
 
 @songs.route("/<project>/song/<song_id>")
+@reader_auth_required()
 def get_publication_song(project, song_id):
     logger.info("Getting songs /{}/song/{}".format(project, song_id))
     connection = db_engine.connect()
@@ -45,6 +46,7 @@ def get_publication_song(project, song_id):
 
 
 @songs.route("/<project>/song/id/<song_id>/")
+@reader_auth_required()
 def get_song_by_id(project, song_id):
     logger.info("Getting song by id")
     try:
@@ -62,6 +64,7 @@ def get_song_by_id(project, song_id):
 
 
 @songs.route("/<project>/songs/filtered", methods=["GET"])
+@reader_auth_required()
 def get_songs_filtered(project):
     """
     Filter songs either by subject name, location or category.
@@ -159,6 +162,7 @@ def get_songs_filtered(project):
 
 
 @songs.route("/<project>/song-files/<file_type>/<file_name>/")
+@reader_auth_required()
 def get_song_file(project, file_type, file_name):
     """
     Retrieve a single file from project root that belongs to a song

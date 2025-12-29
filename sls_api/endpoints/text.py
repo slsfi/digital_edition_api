@@ -23,6 +23,7 @@ logger = logging.getLogger("sls_api.text")
 
 
 @text.route("/<project>/text/<text_type>/<text_id>")
+@reader_auth_required()
 def get_text_by_type(project, text_type, text_id):
     table = None
     if text_type == 'manuscript':
@@ -60,6 +61,7 @@ def get_text_by_type(project, text_type, text_id):
 
 @text.route("/<project>/frontmatter/<collection_id>/<text_type>")
 @text.route("/<project>/frontmatter/<collection_id>/<text_type>/<lang>")
+@reader_auth_required()
 def get_frontmatter(project, collection_id, text_type, lang="sv"):
     """
     Get the specified front matter text for a given collection.
@@ -104,6 +106,7 @@ def get_frontmatter(project, collection_id, text_type, lang="sv"):
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/inl")
 @text.route("/<project>/text/<collection_id>/<publication_id>/inl/<lang>")
+@reader_auth_required()
 def get_introduction(project, collection_id, publication_id, lang="sv"):
     """
     Get introduction text for a given collection.
@@ -136,6 +139,7 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/tit")
 @text.route("/<project>/text/<collection_id>/<publication_id>/tit/<lang>")
+@reader_auth_required()
 def get_title(project, collection_id, publication_id, lang="sv"):
     """
     Get title page for a given collection.
@@ -168,6 +172,7 @@ def get_title(project, collection_id, publication_id, lang="sv"):
 
 @text.route("/<project>/text/<collection_id>/fore")
 @text.route("/<project>/text/<collection_id>/fore/<lang>")
+@reader_auth_required()
 def get_foreword(project, collection_id, lang="sv"):
     """
     Get foreword for a given collection.
@@ -197,6 +202,7 @@ def get_foreword(project, collection_id, lang="sv"):
 @text.route("/<project>/text/<collection_id>/<publication_id>/est-i18n/<language>")
 @text.route("/<project>/text/<collection_id>/<publication_id>/est/<section_id>")
 @text.route("/<project>/text/<collection_id>/<publication_id>/est")
+@reader_auth_required()
 def get_reading_text(project, collection_id, publication_id, section_id=None, language=None):
     """
     Get reading text for a given publication.
@@ -256,6 +262,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
 @text.route("/<project>/text/<collection_id>/<publication_id>/com")
 @text.route("/<project>/text/<collection_id>/<publication_id>/com/<note_id>")
 @text.route("/<project>/text/<collection_id>/<publication_id>/com/<note_id>/<section_id>")
+@reader_auth_required()
 def get_comments(project, collection_id, publication_id, note_id=None, section_id=None):
     """
     Get comments text for a given publication.
@@ -329,6 +336,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/list/ms")
 @text.route("/<project>/text/<collection_id>/<publication_id>/list/ms/<section_id>")
+@reader_auth_required()
 def get_manuscript_list(project, collection_id, publication_id, section_id=None):
     """
     Get a list of metadata of all manuscripts for a given publication.
@@ -384,6 +392,7 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
 @text.route("/<project>/text/<collection_id>/<publication_id>/ms/")
 @text.route("/<project>/text/<collection_id>/<publication_id>/ms/<manuscript_id>")
 @text.route("/<project>/text/<collection_id>/<publication_id>/ms/<manuscript_id>/<section_id>")
+@reader_auth_required()
 def get_manuscript(project, collection_id, publication_id, manuscript_id=None, section_id=None):
     """
     Get one or all manuscripts for a given publication.
@@ -482,6 +491,7 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
 
 @text.route("/<project>/text/<collection_id>/<publication_id>/var/")
 @text.route("/<project>/text/<collection_id>/<publication_id>/var/<section_id>")
+@reader_auth_required()
 def get_variant(project, collection_id, publication_id, section_id=None):
     """
     Get all variants for a given publication, optionally specifying a
@@ -556,6 +566,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
 
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/inl")
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/inl/<lang>")
+@reader_auth_required()
 def get_introduction_downloadable_format(project, format, collection_id, lang="sv"):
     """
     Get introduction text in a downloadable format for a given collection
@@ -596,6 +607,7 @@ def get_introduction_downloadable_format(project, format, collection_id, lang="s
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est-i18n/<language>")
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est/<section_id>")
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est")
+@reader_auth_required()
 def get_reading_text_downloadable_format(project, format, collection_id, publication_id, section_id=None, language=None):
     """
     Get reading text in a downloadable format for a given publication.
@@ -657,6 +669,7 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
 
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/com")
 @text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/com/<section_id>")
+@reader_auth_required()
 def get_comments_downloadable_format(project, format, collection_id, publication_id, section_id=None):
     """
     Get comments in a downloadable format for a given publication.

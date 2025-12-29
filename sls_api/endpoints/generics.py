@@ -225,40 +225,74 @@ def changed_by_size_or_hash(pre: Tuple[Optional[int], Optional[str]], path: str)
     return pre_md5 != post_md5
 
 
-def project_permission_required(fn):
+def reader_auth_required(fn):
     """
-    Function decorator that checks for JWT authorization and that the user has edit rights for the project.
-    The project the method concerns should be the first positional argument or a keyword argument.
+    Function decorator that checks for JWT authentication, provided that the API is set to require it
     """
     @wraps(fn)
-    def decorated_function(*args, **kwargs):
-        verify_jwt_in_request()
-        # get JWT identity
-        identity = get_jwt_identity()
-        # get JWT claims to check for claimed project access
-        claims = get_jwt()
-        if int(os.environ.get("FLASK_DEBUG", 0)) == 1 and identity == "test@test.com":
-            # If in FLASK_DEBUG mode, test@test.com user has access to all projects
+    def reader_auth_check(*args, **kwargs):
+        if not config["reader_auth_required"]:
             return fn(*args, **kwargs)
         else:
-            # locate project arg in function arguments
-            if len(args) > 0:
-                project = args[0]
-            elif "project" in kwargs:
-                project = kwargs["project"]
-            else:
-                return jsonify({"msg": "No project identified."}), 500
-
-            # check for permission
-            if "projects" not in claims or not claims["projects"]:
-                # according to JWT, no access to any projects
-                return jsonify({"msg": "No access to this project."}), 403
-            elif check_for_project_permission_in_database(identity, project):
-                # only run function if database says user *actually* has permissions
+            verify_jwt_in_request()
+            # get JWT identity so we can ensure email is verified also
+            identity = get_jwt_identity()
+            user = User.find_by_email(identity)
+            if user.email_is_verified:
                 return fn(*args, **kwargs)
             else:
-                return jsonify({"msg": "No access to this project."}), 403
-    return decorated_function
+                return jsonify({"msg": "You are not logged in with a verified email address."}), 403
+    return reader_auth_check
+
+
+def cms_required(edit: bool = False) -> Any:
+    """
+    Function decorator that checks if the user is a CMS user, and optionally whether they have editing rights for the project
+    The project the method concerns should be the first positional argument or a keyword argument.
+
+    :param edit:
+    If ``True``, allow the decorated endpoint to be accessed only if the CMS user has permission to the project. Defaults to ``False``.
+    """
+    def wrapper(fn):
+        @wraps(fn)
+        def decorator(*args, **kwargs):
+            verify_jwt_in_request()
+            # get JWT identity
+            identity = get_jwt_identity()
+            # get JWT claims to check for claimed project access
+            claims = get_jwt()
+            if int(os.environ.get("FLASK_DEBUG", 0)) == 1 and identity == "test@test.com":
+                # If in FLASK_DEBUG mode, test@test.com user has access to all projects
+                return fn(*args, **kwargs)
+            else:
+                # TODO check for source IP, CMS users should only come from company intranet
+                user = User.find_by_email(identity)
+                if edit:
+                    # locate project arg in function arguments
+                    if len(args) > 0:
+                        project = args[0]
+                    elif "project" in kwargs:
+                        project = kwargs["project"]
+                    else:
+                        return jsonify({"msg": "No project identified."}), 500
+
+                    # check for permission
+                    if "projects" not in claims or not claims["projects"]:
+                        # according to JWT, no access to any projects
+                        return jsonify({"msg": "No access to this project."}), 403
+                    elif check_for_project_permission_in_database(identity, project):
+                        # only run function if database says user *actually* has permissions
+                        return fn(*args, **kwargs)
+                    else:
+                        return jsonify({"msg": "No access to this project."}), 403
+                else:
+                    # just check if user is a CMS user
+                    if user.cms_user:
+                        return fn(*args, **kwargs)
+                    else:
+                        return jsonify({"msg": "User is not a CMS user"}), 403
+        return decorator
+    return wrapper
 
 
 def check_for_project_permission_in_database(user_email, project_name) -> bool:

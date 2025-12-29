@@ -11,6 +11,7 @@ logger = logging.getLogger("sls_api.workregister")
 
 
 @workregister.route("/<project>/workregister/manifestations/")
+@reader_auth_required()
 def get_work_manifestations_for_project(project):
     logger.info("Getting results for /workregister/manifestations/")
     connection = db_engine.connect()
@@ -31,6 +32,7 @@ def get_work_manifestations_for_project(project):
 
 
 @workregister.route("/<project>/workregister/manifestation/authors/<manifestation_id>")
+@reader_auth_required()
 def get_work_manifestation_authors_for_project(project, manifestation_id):
     logger.info("Getting results for /workregister/manifestation/authors/<manifestation_id>")
     connection = db_engine.connect()
@@ -65,6 +67,7 @@ def get_work_manifestation_authors_for_project(project, manifestation_id):
 
 
 @workregister.route("/<project>/workregister/manifestation/project/occurrences/<manifestation_id>")
+@reader_auth_required()
 def get_work_manifestation_occurrences_for_project(project, manifestation_id):
     logger.info("Getting results for /workregister/manifestation/occurrences/<manifestation_id>")
     connection = db_engine.connect()
@@ -99,6 +102,7 @@ def get_work_manifestation_occurrences_for_project(project, manifestation_id):
 
 
 @workregister.route("/<project>/workregister/work/project/occurrences/<work_id>")
+@reader_auth_required()
 def get_work_occurrences_by_work(project, work_id):
     logger.info("Getting results for /workregister/work/project/occurrences/<work_id>")
     connection = db_engine.connect()
@@ -133,6 +137,7 @@ def get_work_occurrences_by_work(project, work_id):
 
 
 @workregister.route("/<project>/workregister/publication/manifestations/<publication_id>")
+@reader_auth_required()
 def get_work_manifestations_for_publication(project, publication_id):
     logger.info("Getting results for /workregister/publication/manifestations/<publication_id>")
     connection = db_engine.connect()
@@ -167,6 +172,7 @@ def get_work_manifestations_for_publication(project, publication_id):
 
 
 @workregister.route("/<project>/workregister/author/manifestations/<author_id>")
+@reader_auth_required()
 def get_work_manifestations_by_author(project, author_id):
     logger.info("Getting results for /workregister/author/manifestations/<author_id>")
     connection = db_engine.connect()
@@ -199,6 +205,7 @@ def get_work_manifestations_by_author(project, author_id):
 
 
 @workregister.route("/<project>/workregister/manifestation/<manifestation_id>")
+@reader_auth_required()
 def get_work_manifestation_metadata(project, manifestation_id):
     logger.info("Getting results for /workregister/manifestation/<manifestation_id>")
     connection = db_engine.connect()
@@ -224,6 +231,7 @@ def get_work_manifestation_metadata(project, manifestation_id):
 
 
 @workregister.route("/<project>/workregister/work/manifestations/<work_id>")
+@reader_auth_required()
 def get_work_manifestations(project, work_id):
     logger.info("Getting results for /workregister/work/manifestations/<work_id>")
     connection = db_engine.connect()
