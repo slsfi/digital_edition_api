@@ -10,6 +10,7 @@ auth = Blueprint('auth', __name__)
 JWT-based Authorization
 
 Routes in the API protected by @jwt_required() can only be accessed with a proper JWT token in the header
+Routes in the API protected by @reader_auth_required() be only be accessed by logged-in users with email_verified=True, if reader_auth_required=True in the API config
 Routes in the API protected by @cms_required() can only be accessed by logged-in CMS users
 Routes in the API protected by @cms_required(edit=True) can only be accessed by logged-in CMS users with edit rights for the project
 JWT Header format is "Authorization: Bearer <JWT_TOKEN>"
