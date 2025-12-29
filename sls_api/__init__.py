@@ -99,6 +99,8 @@ if projects_config_exists and security_config_exists:
     app.register_blueprint(collection_tools, url_prefix="/digitaledition")
     from sls_api.endpoints.tools.events import event_tools
     app.register_blueprint(event_tools, url_prefix="/digitaledition")
+    from sls_api.endpoints.tools.facsimiles import facsimile_tools
+    app.register_blueprint(facsimile_tools, url_prefix="/digitaledition")
     from sls_api.endpoints.tools.files import file_tools
     app.register_blueprint(file_tools, url_prefix="/digitaledition")
     from sls_api.endpoints.tools.groups import group_tools
