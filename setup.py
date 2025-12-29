@@ -18,7 +18,6 @@ setup(
         'passlib==1.7.4',
         'Pillow==11.3.0',
         'psycopg2-binary==2.9.10',
-        'raven[flask]==6.10.0',
         'ruamel.yaml==0.18.15',
         'requests==2.32.5',
         'saxonche==12.8.0',

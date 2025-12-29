@@ -1,2 +1,0 @@
-# Config settings for sentry.io error tracking software
-sentry_dsn: 'https://public_key:secret_key@example.com/1'
