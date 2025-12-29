@@ -62,6 +62,9 @@ XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
     "var_other": "xslt/poem_variants_other.xsl"
 }
 
+# Frontend URL used in links sent over email (address verification, password reset)
+FRONTEND_EXTERNAL_URL = os.environ.get("FRONTEND_URL", "")
+
 metadata = MetaData()
 
 logger = logging.getLogger("sls_api.generics")
