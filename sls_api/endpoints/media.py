@@ -4,7 +4,7 @@ import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, get_allowed_cors_origins
+from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, get_allowed_cors_origins, reader_auth_required
 
 media = Blueprint('media', __name__)
 logger = logging.getLogger("sls_api.media")

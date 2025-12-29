@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify
 import logging
 from sqlalchemy.sql import text
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name
+from sls_api.endpoints.generics import db_engine, get_project_id_from_name, reader_auth_required
 
 workregister = Blueprint('workregister', __name__)
 logger = logging.getLogger("sls_api.workregister")

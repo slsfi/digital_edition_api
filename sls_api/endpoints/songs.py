@@ -3,7 +3,7 @@ import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config
+from sls_api.endpoints.generics import db_engine, get_project_config, reader_auth_required
 
 songs = Blueprint('songs', __name__)
 logger = logging.getLogger("sls_api.songs")

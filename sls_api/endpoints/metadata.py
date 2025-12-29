@@ -12,7 +12,7 @@ from werkzeug.security import safe_join
 from sls_api.endpoints.generics import db_engine, get_project_config, \
     get_project_id_from_name, path_hierarchy, select_all_from_table, \
     flatten_json, get_first_valid_item_from_toc, int_or_none, \
-    is_valid_language
+    is_valid_language, reader_auth_required
 
 meta = Blueprint('metadata', __name__)
 

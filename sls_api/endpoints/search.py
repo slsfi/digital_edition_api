@@ -4,7 +4,7 @@ import json
 import requests
 from elasticsearch import Elasticsearch
 
-from sls_api.endpoints.generics import elastic_config, get_project_id_from_name
+from sls_api.endpoints.generics import elastic_config, get_project_id_from_name, reader_auth_required
 
 search = Blueprint('search', __name__)
 

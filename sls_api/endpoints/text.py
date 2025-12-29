@@ -14,7 +14,8 @@ from sls_api.endpoints.generics import db_engine, \
     get_transformed_xml_content_with_caching, \
     get_xml_content, \
     int_or_none, \
-    is_valid_language
+    is_valid_language, \
+    reader_auth_required
 
 text = Blueprint('text', __name__)
 logger = logging.getLogger("sls_api.text")
