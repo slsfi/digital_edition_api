@@ -4,6 +4,9 @@ from flask_jwt_extended import create_access_token, create_refresh_token, get_jw
 from sls_api.email import send_address_verification_email, send_password_reset_email
 from sls_api.models import User
 
+# minimum password length for users
+MINIMUM_PASSWORD_LENGTH = 12
+
 auth = Blueprint('auth', __name__)
 
 """
@@ -28,6 +31,10 @@ def register_user():
 
     if not email or not password:
         return jsonify({"msg": "email or password not in JSON payload."}), 400
+    # verify password meets requirements
+    if len(password) < MINIMUM_PASSWORD_LENGTH:
+        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}"}), 400
+    # check for existing user account with this email
     existing_user = User.find_by_email(data["email"])
     if existing_user:
         if existing_user.email_is_verified:
@@ -40,6 +47,7 @@ def register_user():
         new_user = User.create_new_user(email, password)
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
+        # send token to user by email
         send_address_verification_email(to_address=new_user.email, access_token=verification_token)
         return jsonify(
             {
@@ -149,6 +157,8 @@ def finish_password_reset():
     password = data.get("password", None)
     if not password:
         return jsonify({"msg": "No password provided."}), 400
+    if len(password) < MINIMUM_PASSWORD_LENGTH:
+        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}"}), 400
     password_set = User.reset_password(user.email, password)
     if password_set:
         return jsonify({"msg": f"New password set for {user.email}"}), 200
