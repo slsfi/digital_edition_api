@@ -22,7 +22,7 @@ setup(
         'requests==2.32.5',
         'saxonche==12.9.0',
         'sqlalchemy==2.0.45',
-        'werkzeug==3.1.4',
+        'werkzeug==3.1.5',
         'uwsgi==2.0.31'
     ]
 )
