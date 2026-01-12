@@ -221,34 +221,6 @@ def normalize_toc_key_order(node, *, children_key: str = "children"):
     return node
 
 
-@file_tools.route("/<project>/config/get")
-def get_config_file(project):
-    config = get_project_config(project)
-    if config is None:
-        return jsonify({"msg": "No such project."}), 400
-    else:
-        file_path = os.path.join(config["file_root"], "config.json")
-        if not os.path.exists(file_path):
-            return jsonify({})
-        with open(file_path) as f:
-            json_data = json.load(f)
-        return jsonify(json_data)
-
-
-@file_tools.route("/<project>/config/update", methods=["POST"])
-@cms_required(edit=True)
-def update_config(project):
-    config = get_project_config(project)
-    if config is None:
-        return jsonify({"msg": "No such project."}), 400
-    else:
-        request_data = request.get_json()
-        file_path = os.path.join(config["file_root"], "config.json")
-        with open(file_path, "w") as f:
-            json.dump(request_data, f)
-        return jsonify({"msg": "received"})
-
-
 @file_tools.route("/<project>/git-repo-details")
 @cms_required(edit=True)
 def get_git_repo_details(project):

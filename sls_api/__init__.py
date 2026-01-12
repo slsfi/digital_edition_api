@@ -3,7 +3,6 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 import logging
 import os
-from raven.contrib.flask import Sentry
 from ruamel.yaml import YAML
 from sys import stdout
 
@@ -22,21 +21,6 @@ stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(leveln
 root_logger.addHandler(stream_handler)
 
 logger = logging.getLogger("sls_api")
-
-# if there's a sentry.io config file, enable error tracking towards it
-if os.path.exists(os.path.join("sls_api", "configs", "sentry.yml")):
-    with open(os.path.join("sls_api", "configs", "sentry.yml")) as config_file:
-        sentry_config = yaml.load(config_file.read())
-        # handle environment variables in the YAML file
-        for setting, value in sentry_config.items():
-            sentry_config[setting] = os.path.expandvars(value)
-    if "sentry_dsn" in sentry_config and sentry_config["sentry_dsn"] != "":
-        logger.info("Enabled sentry.io error tracking with settings from 'sentry.yml'")
-        sentry = Sentry(app, dsn=sentry_config["sentry_dsn"], logging=True, level=logging.ERROR)
-    else:
-        sentry = None
-else:
-    sentry = None
 
 # check what config files exists, so we know what blueprints to load
 projects_config_exists = os.path.exists(os.path.join("sls_api", "configs", "digital_editions.yml"))
@@ -115,6 +99,8 @@ if projects_config_exists and security_config_exists:
     app.register_blueprint(collection_tools, url_prefix="/digitaledition")
     from sls_api.endpoints.tools.events import event_tools
     app.register_blueprint(event_tools, url_prefix="/digitaledition")
+    from sls_api.endpoints.tools.facsimiles import facsimile_tools
+    app.register_blueprint(facsimile_tools, url_prefix="/digitaledition")
     from sls_api.endpoints.tools.files import file_tools
     app.register_blueprint(file_tools, url_prefix="/digitaledition")
     from sls_api.endpoints.tools.groups import group_tools

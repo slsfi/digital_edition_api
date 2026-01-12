@@ -5,19 +5,15 @@ FROM python:3.13-slim-bookworm
 ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
 
-# build-essential is needed to build some libraries (mainly uwsgi and the various database support ones)
+# build-essential is needed to build psycopg and uwsgi
 # git is needed to pull/push file changes
 # imagemagick is needed for conversions as part of facsimile upload
-# libmariadb-dev is needed to build mysqlclient for mysql/mariadb support
-# libpq-dev is needed for proper postgresql support
-# pkg-config is required to build mysqlclient
+# libpq-dev is needed to build psycopg from source
 RUN apt update && apt install -y \
     build-essential \
     git \
     imagemagick \
-    libmariadb-dev \
-    libpq-dev \
-    pkg-config
+    libpq-dev
 
 # create uwsgi user for uWSGI to run as (running as root is a Bad Idea, generally)
 RUN useradd -ms /bin/bash uwsgi
