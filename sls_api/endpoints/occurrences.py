@@ -3,7 +3,7 @@ import logging
 from operator import itemgetter
 import sqlalchemy
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name
+from sls_api.endpoints.generics import db_engine, get_project_id_from_name, reader_auth_required
 
 occurrences = Blueprint('occurrences', __name__)
 logger = logging.getLogger("sls_api.occurrences")
@@ -12,6 +12,7 @@ logger = logging.getLogger("sls_api.occurrences")
 
 
 @occurrences.route("/occurrences/<object_type>/<ident>")
+@reader_auth_required()
 def get_occurrences(object_type, ident):
     """
     Get event occurrence info and related publication IDs for a given subject, tag, or location
@@ -69,6 +70,7 @@ def get_occurrences(object_type, ident):
 
 @occurrences.route("/<project>/occurrences/<object_type>")
 @occurrences.route("/occurrences/<object_type>")
+@reader_auth_required()
 def get_all_occurrences_by_type(object_type, project=None):
     """
     Get occurrences for each person
@@ -270,6 +272,7 @@ def get_all_occurrences_by_type(object_type, project=None):
 
 @occurrences.route("/<project>/subject/occurrences/<subject_id>/")
 @occurrences.route("/<project>/subject/occurrences/")
+@reader_auth_required()
 def get_subject_occurrences(project=None, subject_id=None):
     if project == 'all':
         subject_sql = " SELECT id, date_born::text, date_deceased::text, description, first_name, last_name, full_name as name, \
@@ -353,6 +356,7 @@ def get_subject_occurrences(project=None, subject_id=None):
 
 @occurrences.route("/<project>/location/occurrences/<location_id>/")
 @occurrences.route("/<project>/location/occurrences/")
+@reader_auth_required()
 def get_location_occurrences(project=None, location_id=None):
     if project == 'all':
         location_sql = " SELECT id, city, country, description, latitude, longitude, name, region, source \
@@ -433,6 +437,7 @@ def get_location_occurrences(project=None, location_id=None):
 
 @occurrences.route("/<project>/tag/occurrences/<tag_id>/")
 @occurrences.route("/<project>/tag/occurrences/")
+@reader_auth_required()
 def get_tag_occurrences(project=None, tag_id=None):
     if project == 'all':
         tag_sql = " SELECT id, type, name, description, source \
@@ -514,6 +519,7 @@ def get_tag_occurrences(project=None, tag_id=None):
 
 @occurrences.route("/<project>/work_manifestation/occurrences/<work_manifestation_id>/")
 @occurrences.route("/<project>/work_manifestation/occurrences/")
+@reader_auth_required()
 def get_work_manifestation_occurrences(project=None, work_manifestation_id=None):
 
     work_sql = """ SELECT id, title \
@@ -566,6 +572,7 @@ def get_work_manifestation_occurrences(project=None, work_manifestation_id=None)
 
 
 @occurrences.route("/<project>/occurrences/collection/<object_type>/<collection_id>")
+@reader_auth_required()
 def get_person_occurrences_by_collection(project, object_type, collection_id):
     connection = db_engine.connect()
     occurrence_sql = "SELECT publication.publication_collection_id AS collection_id, event_occurrence.id, event_occurrence.event_id, \

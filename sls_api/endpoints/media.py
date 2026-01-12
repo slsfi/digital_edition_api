@@ -4,7 +4,7 @@ import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, get_allowed_cors_origins
+from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, get_allowed_cors_origins, reader_auth_required
 
 media = Blueprint('media', __name__)
 logger = logging.getLogger("sls_api.media")
@@ -13,6 +13,7 @@ logger = logging.getLogger("sls_api.media")
 
 
 @media.route("/<project>/media/data/<type>/<type_id>")
+@reader_auth_required()
 def get_media_data(project, type, type_id):
     logger.info("Getting media data...")
     media_column = "{}_id".format(type)
@@ -38,6 +39,7 @@ def get_media_data(project, type, type_id):
 
 
 @media.route("/<project>/media/articles/<type>/<type_id>")
+@reader_auth_required()
 def get_media_article_data(project, type, type_id):
     logger.info("Getting media data...")
     media_column = "{}_id".format(type)
@@ -61,6 +63,7 @@ def get_media_article_data(project, type, type_id):
 
 
 @media.route("/<project>/media/image/<image_id>")
+@reader_auth_required()
 def get_media_data_image(project, image_id):
     logger.info("Getting media image...")
     try:
@@ -81,6 +84,7 @@ def get_media_data_image(project, image_id):
 
 
 @media.route("/<project>/media/image/metadata/<media_id>/<lang>")
+@reader_auth_required()
 def get_media_image_metadata(project, media_id, lang):
     logger.info("Getting media metadata...")
     try:
@@ -113,6 +117,7 @@ def get_media_image_metadata(project, media_id, lang):
 
 
 @media.route("/<project>/media/connections/<connection_type>/<media_id>")
+@reader_auth_required()
 def get_media_connections(project, connection_type, media_id):
     logger.info("Getting media connection data...")
     if connection_type not in ['tag', 'location', 'subject']:
@@ -143,6 +148,7 @@ def get_media_connections(project, connection_type, media_id):
 
 @media.route("/<project>/gallery/connections/<connection_type>")
 @media.route("/<project>/gallery/connections/<connection_type>/<gallery_id>")
+@reader_auth_required()
 def get_gallery_connections(project, connection_type, gallery_id=None):
     logger.info("Getting gallery connection data...")
     if connection_type not in ['tag', 'location', 'subject']:
@@ -202,6 +208,7 @@ def get_gallery_connections(project, connection_type, gallery_id=None):
 
 @media.route("/<project>/gallery/<connection_type>/connections/<type_id>")
 @media.route("/<project>/gallery/<connection_type>/connections/<type_id>/<limit>")
+@reader_auth_required()
 def get_type_gallery_connections(project, connection_type, type_id, limit=None):
     logger.info("Getting type gallery connection data...")
     if connection_type not in ['tag', 'location', 'subject']:
@@ -236,6 +243,7 @@ def get_type_gallery_connections(project, connection_type, type_id, limit=None):
 
 
 @media.route("/<project>/gallery/data/<gallery_id>/<lang>")
+@reader_auth_required()
 def get_gallery_data(project, gallery_id, lang=None):
     logger.info("Getting gallery image data")
     try:
@@ -266,6 +274,7 @@ def get_gallery_data(project, gallery_id, lang=None):
 
 
 @media.route("/<project>/gallery/data/<lang>")
+@reader_auth_required()
 def get_galleries(project, lang=None):
     logger.info("Getting galleries")
     try:
@@ -292,6 +301,7 @@ def get_galleries(project, lang=None):
 
 
 @media.route("/<project>/gallery/get/<collection_id>/<file_name>")
+@reader_auth_required()
 def get_gallery_image(project, collection_id, file_name):
     logger.info("Getting galleries")
     try:
@@ -326,6 +336,7 @@ def get_gallery_image(project, collection_id, file_name):
 
 
 @media.route("/<project>/gallery/thumb/<connection_type>/<connection_id>")
+@reader_auth_required()
 def get_type_gallery_image(project, connection_type, connection_id):
     logger.info("Getting gallery file")
     if connection_type not in ['tag', 'location', 'subject']:
@@ -371,6 +382,7 @@ def get_type_gallery_image(project, connection_type, connection_id):
 # TODO: get subjects, locations and tags for gallery
 
 @media.route("/<project>/media/pdf/<pdf_id>")
+@reader_auth_required()
 def get_media_data_pdf(project, pdf_id):
     logger.info("Getting media image...")
     try:
@@ -391,6 +403,7 @@ def get_media_data_pdf(project, pdf_id):
 
 
 @media.route("/<project>/galleries")
+@reader_auth_required()
 def get_project_galleries(project):
     logger.info("Getting project galleries...")
     try:
@@ -410,6 +423,7 @@ def get_project_galleries(project):
 
 @media.route("/<project>/files/<collection_id>/<file_type>/<download_name>/", defaults={'use_download_name': None})
 @media.route("/<project>/files/<collection_id>/<file_type>/<download_name>/<use_download_name>")
+@reader_auth_required()
 def get_pdf_file(project, collection_id, file_type, download_name, use_download_name):
     """
     Retrieve a single file from project root

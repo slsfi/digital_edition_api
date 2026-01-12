@@ -11,9 +11,8 @@ from lxml import etree as ET
 from sqlalchemy import select
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, \
-    project_permission_required, create_error_response, \
-    create_success_response, is_any_valid_date_format, \
+from sls_api.endpoints.generics import cms_required, db_engine, get_project_config, \
+    create_error_response, create_success_response, is_any_valid_date_format, \
     int_or_none, is_valid_language, get_table, get_project_id_from_name
 
 
@@ -223,7 +222,7 @@ def normalize_toc_key_order(node, *, children_key: str = "children"):
 
 
 @file_tools.route("/<project>/git-repo-details")
-@project_permission_required
+@cms_required(edit=True)
 def get_git_repo_details(project):
     """
     Retrieve details of a project's git repository.
@@ -304,7 +303,7 @@ def get_git_repo_details(project):
 
 
 @file_tools.route("/<project>/sync_files/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def pull_changes_from_git_remote(project):
     """
     Sync the local git repository of a given project with its remote origin.
@@ -467,7 +466,7 @@ def git_commit_and_push_file(project, author, message, file_path, force=False):
 
 
 @file_tools.route("/<project>/update_file/by_path/<path:file_path>", methods=["PUT"])
-@project_permission_required
+@cms_required(edit=True)
 def update_file(project, file_path):
     """
     Add new or update existing file in git remote.
@@ -607,7 +606,7 @@ def update_file(project, file_path):
 
 
 @file_tools.route("/<project>/get_file/by_path/<path:file_path>")
-@project_permission_required
+@cms_required()
 def get_file(project, file_path):
     """
     Get latest file from git remote
@@ -646,7 +645,7 @@ def get_file(project, file_path):
 
 @file_tools.route("/<project>/get_tree/")
 @file_tools.route("/<project>/get_tree/<path:file_path>")
-@project_permission_required
+@cms_required()
 def get_file_tree(project, file_path=None):
     """
     Retrieve a file tree from the local git repository of a given project.
@@ -767,7 +766,7 @@ def get_file_tree(project, file_path=None):
 
 
 @file_tools.route("/<project>/get_metadata_from_xml/by_path/<path:file_path>")
-@project_permission_required
+@cms_required()
 def get_metadata_from_xml_file(project: str, file_path: str):
     """
     Retrieve metadata from a TEI XML file within a given project.
@@ -1018,7 +1017,7 @@ def _recurse(path, container):
 
 @file_tools.route("/<project>/collection-toc/<collection_id>/<language>", methods=["GET", "PUT"])
 @file_tools.route("/<project>/collection-toc/<collection_id>", methods=["GET", "PUT"])
-@project_permission_required
+@cms_required(edit=True)
 def handle_collection_toc(project, collection_id, language=None):
     """
     Get or save the table of contents file for the specified collection
@@ -1194,7 +1193,7 @@ def handle_collection_toc(project, collection_id, language=None):
 
 @file_tools.route("/<project>/collection-toc-update-items/<collection_id>/<language>", methods=["POST"])
 @file_tools.route("/<project>/collection-toc-update-items/<collection_id>", methods=["POST"])
-@project_permission_required
+@cms_required()
 def get_collection_toc_updated_from_db(project, collection_id, language=None):
     """
     Get an existing table of contents for the specified collection in the

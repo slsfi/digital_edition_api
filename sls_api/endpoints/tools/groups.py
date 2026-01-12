@@ -1,13 +1,13 @@
 from flask import Blueprint, jsonify, request
 from sqlalchemy import select
 
-from sls_api.endpoints.generics import db_engine, get_table, int_or_none, project_permission_required
+from sls_api.endpoints.generics import cms_required, db_engine, get_table, int_or_none
 
 group_tools = Blueprint("group_tools", __name__)
 
 
 @group_tools.route("/<project>/publication_groups/")
-@project_permission_required
+@cms_required()
 def list_publication_groups(project):
     """
     List all available publication groups
@@ -23,7 +23,7 @@ def list_publication_groups(project):
 
 
 @group_tools.route("/<project>/publication_group/<group_id>/")
-@project_permission_required
+@cms_required()
 def get_publication_group(project, group_id):
     """
     Get all data for a single publication group
@@ -39,7 +39,7 @@ def get_publication_group(project, group_id):
 
 
 @group_tools.route("/<project>/publication_group/<group_id>/publications/")
-@project_permission_required
+@cms_required()
 def get_publications_in_group(project, group_id):
     """
     List all publications in a given publication_group
@@ -56,7 +56,7 @@ def get_publications_in_group(project, group_id):
 
 
 @group_tools.route("/<project>/publication/<publication_id>/add_group/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_publication_to_group(project, publication_id):
     """
     Add a publication to a publication_group
@@ -102,7 +102,7 @@ def add_publication_to_group(project, publication_id):
 
 
 @group_tools.route("/<project>/publication_group/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_publication_group(project):
     """
     Create a new publication_group

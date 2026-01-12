@@ -10,49 +10,6 @@ engine: 'mysql://web_user:SecretPassword@mysql_server.example.com:3306?charset=u
 # Each digital edition project has its own config section describing how its files are located and handled
 # These files are XML files for est/com/inl text, and XLST files used to transform them into HTML.
 # It may be wise to change https://git-scm.com/docs/git-config#git-config-corequotePath for the repositories using git config
-parland:
-    # First, settings about how the publication tools should communicate towards git
-    git_repository: 'git@github.com:slsfi/parland_required_files.git'
-    git_branch: 'staging'
-    # And then the actual local directory where the files are located (should be a local git repository with the above configured as its remote)
-    file_root: '/var/www/parland'
-    # Finally, whether or not internally published and unpublished items should be viewable
-    show_internally_published: False
-    show_unpublished: False
-    disabled_publications: [10,12,13,14,9,20,28]
-    # SQLAlchemy engine string for comments (edith) database
-    comments_database: 'mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql_server.example.com:3306?charset=utf8mb4/parland_comments'
-    # List of origins to allow CORS requests from. Typically, you would put
-    # at least the origin of the project frontend here. This list can include
-    # multiple origins if the project needs to be accessible from different
-    # domains or environments (e.g., staging, production).
-    # Ensure that only trusted origins are added to prevent unauthorized
-    # cross-origin requests.
-    # Currently only used to set response headers on downloadable PDFs and
-    # EPUBs in the `get_pdf_file` endpoint in `endpoints/media.py`.
-    allowed_cors_origins: ["https://parland.sls.fi"]
-    # Max size in MB of XML files to be parsed. Currently only used in the
-    # `get_metadata_from_xml_file` endpoint in `endpoints/tools/files.py`.
-    xml_max_file_size: 5
-    # Boolean indicating if Saxon's XSLT 3.0 processor should be used for
-    # transformations. Defaults to False, in which case lxml's XSLT 1.0
-    # processor is used instead.
-    use_saxon_xslt: False
-    # PostgreSQL collation to use, defaults to the generic Swedish
-    # collation as defined by ICU (International Components for Unicode)
-    # library.
-    collation: 'sv-x-icu'
-    # Boolean indicating if prerendering of XML to HTML is enabled for the
-    # project. If it is, the publisher script generates HTML files as well
-    # as web XML files when it runs, and the API endpoints serve the
-    # prerendered HTML files (as a fallback, the HTML is transformed on the
-    # fly from XML if the prerendered HTML files are missing or can’t be read).
-    # Defaults to `False`.
-    prerender_html: False
-    # Boolean indicating if chapter divisions are used in the project’s
-    # XML texts or not. Defaults to `True`.
-    xml_chapter_divs: True
-
 topelius:
     # First, settings about how the publication tools should communicate towards git
     git_repository: 'git@github.com:slsfi/topelius_required_files.git'
@@ -103,3 +60,7 @@ cache_lifetime_seconds: 7200  # 2 hours
 elasticsearch_connection: 
     host: 'dockerhost-ext03'
     port: 9200
+
+# whether a user account is required to read projects served by this API
+# defaults to `False`
+reader_auth_required: False

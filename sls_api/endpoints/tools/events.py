@@ -1,12 +1,11 @@
 import logging
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import jwt_required
 from sqlalchemy import and_, cast, collate, select, text, Text
 from sqlalchemy.exc import NoResultFound, MultipleResultsFound
 from datetime import datetime
 
-from sls_api.endpoints.generics import db_engine, get_project_id_from_name, get_table, int_or_none, \
-    project_permission_required, select_all_from_table, create_translation, create_translation_text, \
+from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_from_name, get_table, \
+    int_or_none, select_all_from_table, create_translation, create_translation_text, \
     get_translation_text_id, validate_int, create_error_response, create_success_response, \
     build_select_with_filters, get_project_collation
 from sls_api.exceptions import DeleteError
@@ -17,7 +16,7 @@ logger = logging.getLogger("sls_api.tools.events")
 
 
 @event_tools.route("/<project>/locations/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_location(project):
     """
     Add a new location object to the database
@@ -82,7 +81,7 @@ def add_new_location(project):
 
 
 @event_tools.route("/<project>/locations/<location_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_location(project, location_id):
     """
     Edit a location object in the database
@@ -171,7 +170,7 @@ def edit_location(project, location_id):
 
 @event_tools.route("/<project>/subjects/list/")
 @event_tools.route("/<project>/subjects/list/<order_by>/<direction>/")
-@project_permission_required
+@cms_required()
 def list_project_subjects(project, order_by="last_name", direction="asc"):
     """
     List all (non-deleted) subjects (persons) for a specified project,
@@ -321,7 +320,7 @@ def list_project_subjects(project, order_by="last_name", direction="asc"):
 
 
 @event_tools.route("/<project>/subjects/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_subject(project):
     """
     Add a new subject (person) object to the specified project.
@@ -508,7 +507,7 @@ def add_new_subject(project):
 
 
 @event_tools.route("/<project>/subjects/<subject_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_subject(project, subject_id):
     """
     Edit an existing subject (person) object in the specified project by
@@ -708,7 +707,7 @@ def edit_subject(project, subject_id):
 
 
 @event_tools.route("/<project>/translation/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_translation(project):
     """
     Add a new translation, either for a record that has no previous
@@ -918,7 +917,7 @@ def add_new_translation(project):
 
 
 @event_tools.route("/<project>/translations/<translation_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_translation(project, translation_id):
     """
     Edit a translation object in the database.
@@ -1124,7 +1123,7 @@ def edit_translation(project, translation_id):
 
 
 @event_tools.route("/<project>/translations/<translation_id>/list/", methods=["POST"])
-@project_permission_required
+@cms_required()
 def list_translations(project, translation_id):
     """
     List all (non-deleted) translations for a given translation_id
@@ -1276,7 +1275,7 @@ def list_translations(project, translation_id):
 
 
 @event_tools.route("/<project>/keywords/list/")
-@project_permission_required
+@cms_required()
 def list_project_keywords(project):
     """
     List all non-deleted keywords in the specified project.
@@ -1384,7 +1383,7 @@ def list_project_keywords(project):
 
 
 @event_tools.route("/<project>/keywords/types/")
-@project_permission_required
+@cms_required()
 def list_project_keyword_types(project):
     """
     List all unique keyword types in the specified project (NULL values
@@ -1474,7 +1473,7 @@ def list_project_keyword_types(project):
 
 
 @event_tools.route("/<project>/keywords/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_keyword(project):
     """
     Add a new keyword object to the specified project.
@@ -1626,7 +1625,7 @@ def add_new_keyword(project):
 
 
 @event_tools.route("/<project>/keywords/<keyword_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_keyword(project, keyword_id):
     """
     Edit an existing keyword object in the specified project by
@@ -1851,7 +1850,7 @@ def edit_keyword(project, keyword_id):
 
 
 @event_tools.route("/<project>/work_manifestation/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_work_manifestation(project):
     """
     Add a new work, work_manifestation and work_reference object to the database
@@ -1928,7 +1927,7 @@ def add_new_work_manifestation(project):
 
 
 @event_tools.route("/<project>/work_manifestations/<man_id>/edit/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def edit_work_manifestation(project, man_id):
     """
     Update work_manifestation object to the database
@@ -2037,7 +2036,7 @@ def edit_work_manifestation(project, man_id):
 
 
 @event_tools.route("/locations/")
-@jwt_required()
+@cms_required()
 def get_locations():
     """
     Get all locations from the database
@@ -2046,7 +2045,7 @@ def get_locations():
 
 
 @event_tools.route("/subjects/")
-@jwt_required()
+@cms_required()
 def get_subjects():
     """
     Get all subjects from the database
@@ -2074,7 +2073,7 @@ def get_subjects():
 
 
 @event_tools.route("/keywords/")
-@jwt_required()
+@cms_required()
 def get_keywords():
     """
     Get all keywords from the database
@@ -2083,7 +2082,7 @@ def get_keywords():
 
 
 @event_tools.route("/work_manifestations/")
-@jwt_required()
+@cms_required()
 def get_work_manifestations():
     """
     Get all work_manifestations from the database
@@ -2124,7 +2123,7 @@ def get_work_manifestations():
 
 
 @event_tools.route("/events/")
-@jwt_required()
+@cms_required()
 def get_events():
     """
     Get a list of all available events in the database
@@ -2133,7 +2132,7 @@ def get_events():
 
 
 @event_tools.route("/events/search/", methods=["POST"])
-@jwt_required()
+@cms_required()
 def find_event_by_description():
     """
     List all events whose description contains a given phrase
@@ -2164,7 +2163,7 @@ def find_event_by_description():
 
 
 @event_tools.route("/<project>/events/new/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def add_new_event(project):
     """
     Add a new event to the specified project.
@@ -2439,7 +2438,7 @@ def add_new_event(project):
 
 
 @event_tools.route("/<project>/events/<event_id>/delete/", methods=["POST"])
-@project_permission_required
+@cms_required(edit=True)
 def delete_event(project, event_id):
     """
     Delete the event, event connection and event occurrence with the

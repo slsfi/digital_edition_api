@@ -4,7 +4,7 @@ import json
 import requests
 from elasticsearch import Elasticsearch
 
-from sls_api.endpoints.generics import elastic_config, get_project_id_from_name
+from sls_api.endpoints.generics import elastic_config, get_project_id_from_name, reader_auth_required
 
 search = Blueprint('search', __name__)
 
@@ -22,6 +22,7 @@ es_logger.setLevel(logging.INFO)
 
 # Freetext search through ElasticSearch API
 @search.route("<project>/search/freetext/<search_text>/<fuzziness>")
+@reader_auth_required()
 def get_freetext_search(project, search_text, fuzziness=1):
     logger.info("Getting results from elastic")
     if len(search_text) > 0:
@@ -51,6 +52,7 @@ def get_freetext_search(project, search_text, fuzziness=1):
 
 # Location search through ElasticSearch API
 @search.route("<project>/search/location/<search_text>/")
+@reader_auth_required()
 def get_location_search(project, search_text):
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
@@ -90,6 +92,7 @@ def get_location_search(project, search_text):
 
 # Subject search through ElasticSearch API
 @search.route("<project>/search/subject/<search_text>/")
+@reader_auth_required()
 def get_subject_search(project, search_text):
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
@@ -128,6 +131,7 @@ def get_subject_search(project, search_text):
 
 # Tag search through ElasticSearch API
 @search.route("<project>/search/tag/<search_text>/")
+@reader_auth_required()
 def get_tag_search(project, search_text):
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
@@ -163,6 +167,7 @@ def get_tag_search(project, search_text):
 
 # User-defined search through ElasticSearch API
 @search.route("<project>/search/user_defined/<index>/<field>/<search_text>/<fuzziness>/")
+@reader_auth_required()
 def get_user_defined_search(project, index, field, search_text, fuzziness):
     logger.info("Getting results from elastic")
     if len(search_text) > 0:
@@ -191,6 +196,7 @@ def get_user_defined_search(project, index, field, search_text, fuzziness):
 
 
 @search.route("/<project>/search/suggestions/<search_string>/<limit>")
+@reader_auth_required()
 def get_search_suggestions(project, search_string, limit):
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
@@ -271,6 +277,7 @@ def get_search_suggestions(project, search_string, limit):
 
 
 @search.route("/<project>/search/all/<search_string>/<limit>")
+@reader_auth_required()
 def get_search_all(project, search_string, limit):
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
@@ -349,6 +356,7 @@ def get_search_all(project, search_string, limit):
 
 
 @search.route("/<project>/search/elastic/<indexes>", methods=["POST"])
+@reader_auth_required()
 def get_search_elastic(project, indexes):
     request_data = request.get_json()
     query = json.dumps(request_data)
@@ -360,6 +368,7 @@ def get_search_elastic(project, indexes):
 
 
 @search.route("/<project>/search/mtermvector/<indexes>/<terms>", methods=["POST"])
+@reader_auth_required()
 def get_terms_elastic(project, indexes, terms):
     request_data = request.get_json()
     query = json.dumps(request_data)

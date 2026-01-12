@@ -7,7 +7,7 @@ from werkzeug.security import safe_join
 from werkzeug.utils import secure_filename
 
 from sls_api.endpoints.generics import ALLOWED_EXTENSIONS_FOR_FACSIMILE_UPLOAD, allowed_facsimile, db_engine, \
-    FACSIMILE_IMAGE_SIZES, FACSIMILE_UPLOAD_FOLDER, get_project_config, project_permission_required
+    FACSIMILE_IMAGE_SIZES, FACSIMILE_UPLOAD_FOLDER, get_project_config, cms_required
 
 
 facsimile_tools = Blueprint('facsimile_tools', __name__)
@@ -40,7 +40,7 @@ def convert_resize_uploaded_facsimile(uploaded_file_path, collection_folder_path
     return len(successful_conversions) == len(FACSIMILE_IMAGE_SIZES.keys())
 
 
-@project_permission_required
+@cms_required(edit=True)
 @facsimile_tools.route("/<project>/facsimiles/<collection_id>/<page_number>", methods=["PUT", "POST"])
 def upload_facsimile_file(project, collection_id, page_number):
     """

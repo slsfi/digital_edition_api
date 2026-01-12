@@ -11,6 +11,9 @@ services:
     backend:
         build:
             context: .
+        environment:
+            # Frontend external URL, used in links sent over email for address verification and password resets
+            FRONTEND_URL: "https://topelius.sls.fi"
         volumes:
             # Files for Digital Editions need to be mounted
             # Syntax is host_path:container_path

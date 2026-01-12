@@ -4,7 +4,7 @@ import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name
+from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, reader_auth_required
 
 facsimiles = Blueprint('facsimiles', __name__)
 logger = logging.getLogger("sls_api.facsimiles")
@@ -14,6 +14,7 @@ logger = logging.getLogger("sls_api.facsimiles")
 
 @facsimiles.route("/<project>/facsimiles/<publication_id>")
 @facsimiles.route("/<project>/facsimiles/<publication_id>/<section_id>")
+@reader_auth_required()
 def get_facsimiles(project, publication_id, section_id=None):
     config = get_project_config(project)
     if publication_id is None or str(publication_id) == "undefined":
@@ -88,6 +89,7 @@ def get_facsimiles(project, publication_id, section_id=None):
 
 
 @facsimiles.route("/<project>/publication-facsimile-relations/")
+@reader_auth_required()
 def get_project_publication_facsimile_relations(project):
     logger.info("Getting publication relations for {}".format(project))
     connection = db_engine.connect()
@@ -108,6 +110,7 @@ def get_project_publication_facsimile_relations(project):
 
 
 @facsimiles.route("/<project>/facsimiles/collections/<facsimile_collection_ids>")
+@reader_auth_required()
 def get_facsimile_collections(project, facsimile_collection_ids):
     logger.info("Getting facsimiles /{}/facsimiles/collections/{}".format(project, facsimile_collection_ids))
     connection = db_engine.connect()
@@ -122,6 +125,7 @@ def get_facsimile_collections(project, facsimile_collection_ids):
 
 
 @facsimiles.route("/<project>/facsimiles/<collection_id>/<number>/<zoom_level>")
+@reader_auth_required()
 def get_facsimile_file(project, collection_id, number, zoom_level):
     """
     Retrieve a single facsimile image file from project root
@@ -132,7 +136,6 @@ def get_facsimile_file(project, collection_id, number, zoom_level):
     However, the first page of a publication is not necessarily 1.jpg, as facsimiles often contain title pages and blank pages
     Thus, calling for facsimiles/1/1/1 may require fetching a file from root/facsimiles/1/1/5.jpg
     """
-    # TODO OpenStack Swift support for ISILON file storage - config param for root 'facsimiles' path
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -202,6 +205,7 @@ def get_facsimile_file(project, collection_id, number, zoom_level):
 
 @facsimiles.route("/<project>/facsimile/page/<col_pub>/")
 @facsimiles.route("/<project>/facsimiles/page/<col_pub>/<section_id>")
+@reader_auth_required()
 def get_facsimile_pages(project, col_pub, section_id=None):
     logger.info("Getting facsimile page")
     try:
@@ -230,6 +234,7 @@ def get_facsimile_pages(project, col_pub, section_id=None):
 
 
 @facsimiles.route("/<project>/<facsimile_type>/page/image/<facs_id>/<facs_nr>")
+@reader_auth_required()
 def get_facsimile_page_image(project, facsimile_type, facs_id, facs_nr):
     config = get_project_config(project)
     if config is None:
