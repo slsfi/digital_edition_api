@@ -225,24 +225,26 @@ def changed_by_size_or_hash(pre: Tuple[Optional[int], Optional[str]], path: str)
     return pre_md5 != post_md5
 
 
-def reader_auth_required(fn):
+def reader_auth_required():
     """
     Function decorator that checks for JWT authentication, provided that the API is set to require it
     """
-    @wraps(fn)
-    def reader_auth_check(*args, **kwargs):
-        if not config["reader_auth_required"]:
-            return fn(*args, **kwargs)
-        else:
-            verify_jwt_in_request()
-            # get JWT identity so we can ensure email is verified also
-            identity = get_jwt_identity()
-            user = User.find_by_email(identity)
-            if user.email_is_verified:
+    def wrapper(fn):
+        @wraps(fn)
+        def reader_auth_check(*args, **kwargs):
+            if not config["reader_auth_required"]:
                 return fn(*args, **kwargs)
             else:
-                return jsonify({"msg": "You are not logged in with a verified email address."}), 403
-    return reader_auth_check
+                verify_jwt_in_request()
+                # get JWT identity so we can ensure email is verified also
+                identity = get_jwt_identity()
+                user = User.find_by_email(identity)
+                if user.email_is_verified:
+                    return fn(*args, **kwargs)
+                else:
+                    return jsonify({"msg": "You are not logged in with a verified email address."}), 403
+        return reader_auth_check
+    return wrapper
 
 
 def cms_required(edit: bool = False) -> Any:
