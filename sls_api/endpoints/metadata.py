@@ -30,7 +30,7 @@ def get_projects():
 
 
 @meta.route("/<project>/html/<filename>")
-@reader_auth_required()  # TODO: check if this is actually required...
+@reader_auth_required()
 def get_html_contents_as_json(project, filename):
     config = get_project_config(project)
     if config is None:
