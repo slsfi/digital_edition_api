@@ -10,9 +10,9 @@ setup(
         'beautifulsoup4==4.14.3',
         'elasticsearch==7.17.12',
         'flask==3.1.2',
+        'flask-cors==6.0.2',
         'flask-jwt-extended==4.7.1',
         'flask-sqlalchemy==3.1.1',
-        'flask-cors==6.0.2',
         'lxml==6.0.2',
         'passlib==1.7.4',
         'Pillow==12.0.0',
@@ -22,7 +22,7 @@ setup(
         'requests==2.32.5',
         'saxonche==12.9.0',
         'sqlalchemy==2.0.45',
-        'werkzeug==3.1.4',
-        'uwsgi==2.0.31'
+        'uwsgi==2.0.31',
+        'werkzeug==3.1.4'
     ]
 )
