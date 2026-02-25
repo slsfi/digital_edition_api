@@ -67,29 +67,30 @@ def login_user():
     email = data.get("email", None)
     password = data.get("password", None)
     current_user = User.find_by_email(email)
-    if not current_user.email_is_verified:
-        return jsonify({"msg": "Email address has not been verified. Check your email inbox for a verification link."}, 400)
+    try:
+        if not current_user.email_is_verified:
+            return jsonify({"msg": "Email address has not been verified. Check your email inbox for a verification link.", "err": "EMAIL_NOT_VERIFIED"}, 403)
+        success = current_user.check_password(password)
+    except Exception:
+        # user not found
+        return jsonify({"msg": "Incorrect email or password.", "err": "INCORRECT_CREDENTIALS"}), 401
+    if not success:
+        # password mismatch
+        return jsonify({"msg": "Incorrect email or password.", "err": "INCORRECT_CREDENTIALS"}), 401
     else:
-        try:
-            success = current_user.check_password(password)
-        except Exception:
-            return jsonify({"msg": "Incorrect email or password."}), 401
-        if not success:
-            return jsonify({"msg": "Incorrect email or password."}), 401
-        else:
-            # update last_login_timestamp for user
-            User.update_login_timestamp(email)
+        # update last_login_timestamp for user
+        User.update_login_timestamp(email)
 
-        projects = current_user.get_projects()  # get current projects for user to add as additional claims
+    projects = current_user.get_projects()  # get current projects for user to add as additional claims
 
-        return jsonify(
-            {
-                "msg": "Logged in as {!r}".format(data["email"]),
-                "access_token": create_access_token(identity=current_user.email, additional_claims={"projects": projects}),
-                "refresh_token": create_refresh_token(identity=current_user.email, additional_claims={"projects": projects}),
-                "user_projects": projects
-            }
-        ), 200
+    return jsonify(
+        {
+            "msg": "Logged in as {!r}".format(data["email"]),
+            "access_token": create_access_token(identity=current_user.email, additional_claims={"projects": projects}),
+            "refresh_token": create_refresh_token(identity=current_user.email, additional_claims={"projects": projects}),
+            "user_projects": projects
+        }
+    ), 200
 
 
 @auth.route("/refresh", methods=["POST"])
