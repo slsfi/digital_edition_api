@@ -30,15 +30,15 @@ def register_user():
     password = data.get("password", None)
 
     if not email or not password:
-        return jsonify({"msg": "email or password not in JSON payload."}), 400
+        return jsonify({"msg": "email or password not in JSON payload.", "err": "NO_CREDENTIALS"}), 400
     # verify password meets requirements
     if len(password) < MINIMUM_PASSWORD_LENGTH:
-        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}"}), 400
+        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
     # check for existing user account with this email
     existing_user = User.find_by_email(data["email"])
     if existing_user:
         if existing_user.email_is_verified:
-            return jsonify({"msg": "User {!r} already exists.".format(data["email"])}), 400
+            return jsonify({"msg": "User {!r} already exists.".format(data["email"]), "err": "USER_ALREADY_EXISTS"}), 400
         else:
             # delete existing un-verified user, so a new user object can be created and a new verification link can be sent
             User.delete_user(data["email"])
@@ -62,7 +62,7 @@ def register_user():
 def login_user():
     data = request.get_json()
     if not data:
-        return jsonify({"msg": "No credentials provided."}), 400
+        return jsonify({"msg": "No credentials provided.", "err": "NO_CREDENTIALS"}), 400
 
     email = data.get("email", None)
     password = data.get("password", None)
@@ -118,7 +118,7 @@ def verify_email():
         User.mark_email_verified(identity)
         return jsonify({"msg": f"Email address {identity} verified. You may now log in."}, 200)
     else:
-        return jsonify({"msg": f"Email address {identity} not a valid user in the system."}, 400)
+        return jsonify({"msg": f"Email address {identity} not a valid user in the system.", "err": "INCORRECT_CREDENTIALS"}, 400)
 
 
 @auth.route("/forgot_password", methods=["POST"])
@@ -128,13 +128,13 @@ def start_password_reset():
     """
     data = request.get_json()
     if not data:
-        return jsonify({"msg": "No email provided."}), 400
+        return jsonify({"msg": "No email provided.", "err": "NO_CREDENTIALS"}), 400
     email = data.get("email", None)
     if not email:
-        return jsonify({"msg": "No email provided."}), 400
+        return jsonify({"msg": "No email provided.", "err": "NO_CREDENTIALS"}), 400
     user = User.find_by_email(email)
     if not user:
-        return jsonify({"msg": "User not found"}), 400
+        return jsonify({"msg": "User not found", "err": "INVALID_CREDENTIALS"}), 400
     access_token = create_access_token(identity=user.email, expires_delta=datetime.timedelta(minutes=30), fresh=True)
     success = send_password_reset_email(to_address=user.email, access_token=access_token)
     if success:
@@ -153,12 +153,12 @@ def finish_password_reset():
     user = User.find_by_email(identity)
     data = request.get_json()
     if not data:
-        return jsonify({"msg": "No password provided."}), 400
+        return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
     password = data.get("password", None)
     if not password:
-        return jsonify({"msg": "No password provided."}), 400
+        return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
     if len(password) < MINIMUM_PASSWORD_LENGTH:
-        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}"}), 400
+        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
     password_set = User.reset_password(user.email, password)
     if password_set:
         return jsonify({"msg": f"New password set for {user.email}"}), 200
