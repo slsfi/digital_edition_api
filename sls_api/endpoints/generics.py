@@ -232,7 +232,7 @@ def reader_auth_required():
     def wrapper(fn):
         @wraps(fn)
         def reader_auth_check(*args, **kwargs):
-            if not config["reader_auth_required"]:
+            if not config.get("reader_auth_required", False)]:
                 return fn(*args, **kwargs)
             else:
                 verify_jwt_in_request()
