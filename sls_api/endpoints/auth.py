@@ -73,9 +73,9 @@ def login_user():
         try:
             success = current_user.check_password(password)
         except Exception:
-            return jsonify({"msg": "Incorrect email or password."}), 400
+            return jsonify({"msg": "Incorrect email or password."}), 401
         if not success:
-            return jsonify({"msg": "Incorrect email or password."}), 400
+            return jsonify({"msg": "Incorrect email or password."}), 401
         else:
             # update last_login_timestamp for user
             User.update_login_timestamp(email)
