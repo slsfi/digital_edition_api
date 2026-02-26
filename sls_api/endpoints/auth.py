@@ -31,19 +31,24 @@ def register_user():
 
     email = data.get("email", None)
     password = data.get("password", None)
+    # TODO verify user language code is one of the accepted ones
+    user_language = data.get("language", "en")      # ISO 639-1 language code
+    if user_language not in ["en", "sv", "fi"]:
+        logger.warning(f"User supplied invalid language {user_language} on register, defaulting to 'en'")
+        user_language = "en"
 
     if not email or not password:
-        logging.error("Invalid request to register user - no credentials provided")
+        logger.error("Invalid request to register user - no credentials provided")
         return jsonify({"msg": "email or password not in JSON payload.", "err": "NO_CREDENTIALS"}), 400
     # verify password meets requirements
     if len(password) < MINIMUM_PASSWORD_LENGTH:
-        logging.error("Invalid request to register user - password too short")
+        logger.error("Invalid request to register user - password too short")
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
     # check for existing user account with this email
     existing_user = User.find_by_email(data["email"])
     if existing_user:
         if existing_user.email_is_verified:
-            logging.error("Invalid request to register user - verified account already exists")
+            logger.error("Invalid request to register user - verified account already exists")
             return jsonify({"msg": "User {!r} already exists.".format(data["email"]), "err": "USER_ALREADY_EXISTS"}), 400
         else:
             # delete existing un-verified user, so a new user object can be created and a new verification link can be sent
@@ -54,14 +59,14 @@ def register_user():
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
-        send_address_verification_email(to_address=new_user.email, access_token=verification_token)
+        send_address_verification_email(to_address=new_user.email, access_token=verification_token, language=user_language)
         return jsonify(
             {
                 "msg": "User {!r} was created. Please check email inbox to verify email before login.".format(data["email"])
             }
         ), 201
     except Exception:
-        logging.exception("Error in user registration")
+        logger.exception("Error in user registration")
         return jsonify({"msg": "Error in user registration"}), 500
 
 
@@ -143,8 +148,12 @@ def start_password_reset():
     user = User.find_by_email(email)
     if not user:
         return jsonify({"msg": "User not found", "err": "INVALID_CREDENTIALS"}), 400
+    user_language = data.get("language", "en")      # ISO 639-1 language code
+    if user_language not in ["en", "sv", "fi"]:
+        logger.warning(f"User supplied invalid language {user_language} with password reset request, defaulting to 'en'")
+        user_language = "en"
     access_token = create_access_token(identity=user.email, expires_delta=datetime.timedelta(minutes=30), fresh=True)
-    success = send_password_reset_email(to_address=user.email, access_token=access_token)
+    success = send_password_reset_email(to_address=user.email, access_token=access_token, language=user_language)
     if success:
         return jsonify({"msg": "Password reset email sent"}), 200
     else:
