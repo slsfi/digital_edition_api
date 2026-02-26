@@ -31,7 +31,6 @@ def register_user():
 
     email = data.get("email", None)
     password = data.get("password", None)
-    # TODO verify user language code is one of the accepted ones
     user_language = data.get("language", "en")      # ISO 639-1 language code
     if user_language not in ["en", "sv", "fi"]:
         logger.warning(f"User supplied invalid language {user_language} on register, defaulting to 'en'")
