@@ -21,5 +21,5 @@ if __name__ == "__main__":
             print(f"User {args.email} created successfully!")
             sys.exit(0)
         else:
-            print(f"Unexpected error creating user. Check API backend logs.")
+            print("Unexpected error creating user. Check API backend logs.")
             sys.exit(1)
