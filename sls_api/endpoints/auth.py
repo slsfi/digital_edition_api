@@ -1,6 +1,7 @@
 import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
+import logging
 from sls_api.email import send_address_verification_email, send_password_reset_email
 from sls_api.models import User
 
@@ -8,6 +9,8 @@ from sls_api.models import User
 MINIMUM_PASSWORD_LENGTH = 12
 
 auth = Blueprint('auth', __name__)
+
+logger = logging.getLogger("sls_api.auth")
 
 """
 JWT-based Authorization
@@ -30,14 +33,17 @@ def register_user():
     password = data.get("password", None)
 
     if not email or not password:
+        logging.error("Invalid request to register user - no credentials provided")
         return jsonify({"msg": "email or password not in JSON payload.", "err": "NO_CREDENTIALS"}), 400
     # verify password meets requirements
     if len(password) < MINIMUM_PASSWORD_LENGTH:
+        logging.error("Invalid request to register user - password too short")
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
     # check for existing user account with this email
     existing_user = User.find_by_email(data["email"])
     if existing_user:
         if existing_user.email_is_verified:
+            logging.error("Invalid request to register user - verified account already exists")
             return jsonify({"msg": "User {!r} already exists.".format(data["email"]), "err": "USER_ALREADY_EXISTS"}), 400
         else:
             # delete existing un-verified user, so a new user object can be created and a new verification link can be sent
@@ -55,6 +61,7 @@ def register_user():
             }
         ), 201
     except Exception:
+        logging.exception("Error in user registration")
         return jsonify({"msg": "Error in user registration"}), 500
 
 
