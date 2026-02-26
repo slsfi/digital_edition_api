@@ -60,6 +60,17 @@ class User(db.Model):
             return False
 
     @classmethod
+    def set_cms_user(cls, email):
+        user = cls.query.filter_by(email=email).first()
+        if user:
+            user.email_verified = True
+            user.cms_user = True
+            db.session.commit()
+            return True
+        else:
+            return False
+
+    @classmethod
     def find_by_email(cls, email):
         """
         Returns a User object if one exists for the given email, otherwise None
