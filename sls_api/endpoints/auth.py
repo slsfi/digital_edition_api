@@ -182,7 +182,7 @@ def finish_password_reset():
     if password_set:
         # revoke reset token
         jwt_id = get_jwt()["jti"]
-        jwt_redis_blocklist.set(jti, "", ex=datetime.timedelta(minutes=30))
+        jwt_redis_blocklist.set(jwt_id, "", ex=datetime.timedelta(minutes=30))
         return jsonify({"msg": f"New password set for {user.email}"}), 200
     else:
         return jsonify({"msg": f"Failed to set password for {user.email}"}), 500
