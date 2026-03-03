@@ -122,7 +122,7 @@ def refresh_token():
 
 
 @auth.route("/verify_email", methods=["POST"])
-@jwt_required(locations=["query_string"], fresh=True)
+@jwt_required(fresh=True)
 def verify_email():
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
@@ -160,7 +160,7 @@ def start_password_reset():
 
 
 @auth.route("/reset_password", methods=["POST"])
-@jwt_required(locations=["query_string"], fresh=True)
+@jwt_required(fresh=True)
 def finish_password_reset():
     """
     Finish password reset flow - verify temporary JWT and reset password to one given in JSON
