@@ -146,7 +146,7 @@ def start_password_reset():
         return jsonify({"msg": "No email provided.", "err": "NO_CREDENTIALS"}), 400
     user = User.find_by_email(email)
     if not user:
-        return jsonify({"msg": "User not found", "err": "INVALID_CREDENTIALS"}), 400
+        return jsonify({"msg": "If an account exists for this email address, a password reset link has been sent."}), 200
     user_language = data.get("language", "en")      # ISO 639-1 language code
     if user_language not in ["en", "sv", "fi"]:
         logger.warning(f"User supplied invalid language {user_language} with password reset request, defaulting to 'en'")
@@ -154,7 +154,7 @@ def start_password_reset():
     access_token = create_access_token(identity=user.email, expires_delta=datetime.timedelta(minutes=30), fresh=True)
     success = send_password_reset_email(to_address=user.email, access_token=access_token, language=user_language)
     if success:
-        return jsonify({"msg": "Password reset email sent"}), 200
+        return jsonify({"msg": "If an account exists for this email address, a password reset link has been sent."}), 200
     else:
         return jsonify({"msg": "Internal Server Error"}), 500
 
