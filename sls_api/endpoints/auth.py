@@ -1,6 +1,6 @@
 import datetime
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity, jwt_required
 import logging
 from sls_api import jwt_redis_blocklist, rate_limiter
 from sls_api.email import send_address_verification_email, send_password_reset_email
