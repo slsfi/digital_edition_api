@@ -28,7 +28,7 @@ def send_address_verification_email(to_address: str, access_token: str, user_lan
     if not email_config:
         logger.error("Email configuration missing!")
         return False
-    verification_link = f"{FRONTEND_EXTERNAL_URL}/verify_email?jwt={access_token}"
+    verification_link = f"{FRONTEND_EXTERNAL_URL}/verify-email?jwt={access_token}"
     if user_language == "en":
         email_subject = "Email verification for SLS Digital Editions"
         email_body = f"Your email address has been registered on {FRONTEND_EXTERNAL_URL}.\n\nIn order to log in, please first verify your email address by clicking on this link (expires in 8 hours): {verification_link}"
@@ -50,7 +50,7 @@ def send_password_reset_email(to_address: str, access_token: str, user_language=
     if not email_config:
         logger.error("Email configuration missing!")
         return False
-    reset_link = f"{FRONTEND_EXTERNAL_URL}/reset_password?jwt={access_token}"
+    reset_link = f"{FRONTEND_EXTERNAL_URL}/reset-password?jwt={access_token}"
     if user_language == "en":
         email_subject = "Password reset link for SLS Digital Editions"
         email_body = f"A password reset has been requested for your account on {FRONTEND_EXTERNAL_URL}.\n\nTo begin this process, please click this link (expires in 30 minutes): {reset_link}\n\nIf you did not request this password reset, you may ignore this email."
