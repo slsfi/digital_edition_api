@@ -1,6 +1,8 @@
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import logging
 import os
 from ruamel.yaml import YAML
@@ -21,6 +23,14 @@ stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(leveln
 root_logger.addHandler(stream_handler)
 
 logger = logging.getLogger("sls_api")
+
+# enable rate limiting with high default limits
+rate_limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["60/second"],
+    storage_uri=f"redis://{REDIS_HOST}:{REDIS_PORT}/0"  # use database 0 for rate limits
+)
 
 # check what config files exists, so we know what blueprints to load
 projects_config_exists = os.path.exists(os.path.join("sls_api", "configs", "digital_editions.yml"))

@@ -2,6 +2,7 @@ import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
 import logging
+from sls_api import jwt_redis_blocklist, rate_limiter
 from sls_api.email import send_address_verification_email, send_password_reset_email
 from sls_api.models import User
 
@@ -24,6 +25,7 @@ JWT Header format is "Authorization: Bearer <JWT_TOKEN>"
 
 
 @auth.route("/register", methods=["POST"])
+@rate_limiter.limit("30/minute")
 def register_user():
     data = request.get_json()
     if not data:
@@ -134,6 +136,7 @@ def verify_email():
 
 
 @auth.route("/forgot_password", methods=["POST"])
+@rate_limiter.limit("5/minute")
 def start_password_reset():
     """
     Begin password reset flow - take in email from JSON, send reset email to user if exists

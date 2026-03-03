@@ -14,6 +14,8 @@ services:
         environment:
             # Frontend external URL, used in links sent over email for address verification and password resets
             FRONTEND_URL: "https://topelius.sls.fi"
+            REDIS_HOST: "redis"
+            REDIS_PORT: "6379"
         volumes:
             # Files for Digital Editions need to be mounted
             # Syntax is host_path:container_path
@@ -28,3 +30,9 @@ services:
             # Config files need to be mounted
             - ./sls_api/configs:/app/sls_api/configs
         restart: unless-stopped
+    redis:
+        image: docker.io/valkey/valkey:8.1.6
+        volumes:
+            - redis:/data
+volumes:
+    redis:
