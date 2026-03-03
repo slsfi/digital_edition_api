@@ -1,10 +1,10 @@
 # For more information on database engine configurations, see http://docs.sqlalchemy.org/en/latest/core/engines.html
 
-engine: 'mysql://web_user:SecretPassword@mysql_server.example.com:3306?charset=utf8mb4/digitaleditions'
+engine: 'mysql://web_user:SecretPassword@mysql_server.example.com:3306/digitaleditions?charset=utf8mb4'
 # This engine config tells the system to connect to a MySQL server at mysql_server.example.com on port 3306
 # It uses the username 'web_user' with the password 'SecretPassword'
 # note that environment may also be used:
-# e.g. mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT}?charset=utf8mb4/${MYSQL_DATABASE}
+# e.g. mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?charset=utf8mb4
 # it will be parsed into a valid URI if the environment variables are all set properly (during startup)
 
 # Each digital edition project has its own config section describing how its files are located and handled
@@ -21,7 +21,7 @@ topelius:
     show_unpublished: True
     disabled_publications: [10,12,13,14,9,20,28]
     # SQLAlchemy engine string for comments (edith) database
-    comments_database: 'mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql_server.example.com:3306?charset=utf8mb4/topelius_comments'
+    comments_database: 'mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql_server.example.com:3306/topelius_comments?charset=utf8mb4'
     # List of origins to allow CORS requests from. Typically, you would put
     # at least the origin of the project frontend here. This list can include
     # multiple origins if the project needs to be accessible from different
