@@ -180,9 +180,30 @@ def finish_password_reset():
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
     password_set = User.reset_password(user.email, password)
     if password_set:
+        # revoke reset token
+        jwt_id = get_jwt()["jti"]
+        jwt_redis_blocklist.set(jti, "", ex=datetime.timedelta(minutes=30))
         return jsonify({"msg": f"New password set for {user.email}"}), 200
     else:
         return jsonify({"msg": f"Failed to set password for {user.email}"}), 500
+
+
+@auth.route("/logout", methods=["DELETE"])
+@jwt_required(verify_type=False)
+def logout():
+    """
+    Take in a valid access or refresh token and revoke it, effectively logging out.
+    Can also be used to get rid of valid refresh tokens, for example on a password reset.
+    """
+    token = get_jwt()
+    token_id = token["jti"]
+    token_type = token["type"]
+    if token_type == "access":
+        jwt_redis_blocklist.set(token_id, "", ex=datetime.timedelta(minutes=30))
+        return jsonify({"msg": "User logged out"}), 200
+    elif token_type == "refresh":
+        jwt_redis_blocklist.set(token_id, "", ex=datetime.timedelta(days=30))
+        return jsonify({"msg": "User logged out"}), 200
 
 
 @auth.route("/test", methods=["POST"])

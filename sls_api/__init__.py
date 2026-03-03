@@ -1,3 +1,4 @@
+from datetime.datetime import timedelta
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
@@ -5,12 +6,23 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import logging
 import os
+import redis
 from ruamel.yaml import YAML
 from sys import stdout
 
 app = Flask(__name__)
 CORS(app)
 yaml = YAML(typ="safe")
+
+# redis/valkey settings
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
+
+# JWT expiry settings
+# access tokens are valid for 30 minutes
+# refresh tokens are valid for 30 days
+JWT_ACCESS_TOKEN_EXPIRY = timedelta(minutes=30)
+JWT_REFRESH_TOKEN_EXPIRY = timedelta(days=30)
 
 # First, set up logging
 root_logger = logging.getLogger()
@@ -67,6 +79,8 @@ if security_config_exists:
         for setting, value in security_config.items():
             security_config[setting] = os.path.expandvars(value)
     app.config["JWT_SECRET_KEY"] = security_config["secret_key"]
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = JWT_ACCESS_TOKEN_EXPIRY
+    app.config["JWT_REFRESH_TOKEN_EXPIRES"] = JWT_REFRESH_TOKEN_EXPIRY
     app.config["JWT_TOKEN_LOCATION"] = 'headers'
     app.config["SQLALCHEMY_DATABASE_URI"] = security_config["user_database"]
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -77,6 +91,18 @@ if security_config_exists:
 
     jwt = JWTManager(app)
     db.init_app(app)
+
+    # redis connection for JWT token blocklist
+    jwt_redis_blocklist = redis.StrictRedis(
+        host=REDIS_HOST, port=REDIS_PORT, db=1, decode_responses=True  # database 1 for JWT blocklist (0 is for rate limits)
+    )
+
+    # JWT revocation check callback function
+    @jwt.token_in_blocklist_loader
+    def check_if_token_is_revoked(jwt_header, jwt_payload: dict):
+        jti = jwt_payload["jti"]
+        token_in_redis = jwt_redis_blocklist.get(jti)
+        return token_in_redis is not None
 
     try:
         # on load, after uwsgi forks, recycle the database connection pool

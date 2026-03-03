@@ -14,6 +14,7 @@ services:
         environment:
             # Frontend external URL, used in links sent over email for address verification and password resets
             FRONTEND_URL: "https://topelius.sls.fi"
+            # redis settings, for rate limiting and JWT revocation
             REDIS_HOST: "redis"
             REDIS_PORT: "6379"
         volumes:
