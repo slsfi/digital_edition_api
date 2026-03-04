@@ -140,7 +140,7 @@ class User(db.Model):
         """
         user = cls.query.filter_by(email=email).first()
         if user:
-            user.tokens_valid_after = int(time.time())
+            user.tokens_valid_after = int(time.time()) + 1
             db.session.commit()
             return True
         else:
