@@ -247,7 +247,7 @@ def reader_auth_required():
                 elif not User.check_token_validity(identity, jwt_issued_at):
                     # token issued before first validity - password reset or other reset has been done
                     return jsonify({"msg": "You are not logged in with a verified email address."}), 403
-                elif user.email_is_verified:
+                elif user.email_is_verified():
                     # verified user, valid credentials
                     return fn(*args, **kwargs)
                 else:

@@ -48,7 +48,7 @@ def register_user():
     # check for existing user account with this email
     existing_user = User.find_by_email(data["email"])
     if existing_user:
-        if existing_user.email_is_verified:
+        if existing_user.email_is_verified():
             logger.error("Invalid request to register user - verified account already exists")
             return jsonify({"msg": "User {!r} already exists.".format(data["email"]), "err": "USER_ALREADY_EXISTS"}), 400
         else:
@@ -83,7 +83,7 @@ def login_user():
     password = data.get("password", None)
     current_user = User.find_by_email(email)
     try:
-        if not current_user.email_is_verified:
+        if not current_user.email_is_verified():
             return jsonify({"msg": "Email address has not been verified. Check your email inbox for a verification link.", "err": "EMAIL_NOT_VERIFIED"}, 403)
         success = current_user.check_password(password)
     except Exception:
