@@ -1,4 +1,4 @@
-from datetime.datetime import timedelta
+import datetime
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
@@ -20,8 +20,8 @@ REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 # JWT expiry settings
 # access tokens are valid for 30 minutes
 # refresh tokens are valid for 30 days
-JWT_ACCESS_TOKEN_EXPIRY = timedelta(minutes=30)
-JWT_REFRESH_TOKEN_EXPIRY = timedelta(days=30)
+JWT_ACCESS_TOKEN_EXPIRY = datetime.timedelta(minutes=30)
+JWT_REFRESH_TOKEN_EXPIRY = datetime.timedelta(days=30)
 
 # First, set up logging
 root_logger = logging.getLogger()
