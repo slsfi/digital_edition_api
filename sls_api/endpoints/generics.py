@@ -270,7 +270,7 @@ def cms_required(edit: bool = False) -> Any:
                 return fn(*args, **kwargs)
             else:
                 # TODO check for source IP, CMS users should only come from company intranet
-                user = User.find_by_email(identity)     
+                user = User.find_by_email(identity)
                 # if user doesn't exist, then no access
                 if not user:
                     return jsonify({"msg": "No access to this project."}), 403
