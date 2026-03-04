@@ -111,16 +111,19 @@ def login_user():
 def refresh_token():
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
-    projects = user.get_projects()
-    # update last_login_timestamp, a token refresh is equivalent to a login
-    User.update_login_timestamp(identity)
-    return jsonify(
-        {
-            "msg": "Logged in as {!r}".format(identity),
-            "access_token": create_access_token(identity=identity, additional_claims={"projects": projects}),
-            "user_projects": projects
-        }
-    ), 200
+    if user:
+        projects = user.get_projects()
+        # update last_login_timestamp, a token refresh is equivalent to a login
+        User.update_login_timestamp(identity)
+        return jsonify(
+            {
+                "msg": "Logged in as {!r}".format(identity),
+                "access_token": create_access_token(identity=identity, additional_claims={"projects": projects}),
+                "user_projects": projects
+            }
+        ), 200
+    else:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
 
 
 @auth.route("/verify_email", methods=["POST"])
