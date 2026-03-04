@@ -232,8 +232,9 @@ def logout():
 @jwt_required()
 def test_authentication():
     jwt_issued_at = get_jwt()["iat"]
+    identity = get_jwt_identity()
     # check token timestamp against user
     token_valid = User.check_token_validity(identity, jwt_issued_at)
     if not token_valid:
         return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
-    return jsonify(get_jwt_identity())
+    return jsonify(identity)
