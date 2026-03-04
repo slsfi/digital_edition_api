@@ -98,7 +98,7 @@ def login_user():
 
     projects = current_user.get_projects()  # get current projects for user to add as additional claims
 
-    if user.cms_user:
+    if current_user.cms_user:
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
