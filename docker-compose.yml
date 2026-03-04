@@ -11,6 +11,8 @@ services:
     backend:
         build:
             context: .
+        depends_on:
+            - redis
         environment:
             # Frontend external URL, used in links sent over email for address verification and password resets
             FRONTEND_URL: "https://topelius.sls.fi"
