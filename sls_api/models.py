@@ -1,6 +1,7 @@
 import datetime
 from flask_sqlalchemy import SQLAlchemy
 from passlib.context import CryptContext
+import time
 
 
 pwd_context = CryptContext(
@@ -20,6 +21,7 @@ class User(db.Model):
     projects = db.Column(db.UnicodeText, nullable=True, comment="Comma-separated list of projects this user has edit rights to")
     created_timestamp = db.Column(db.DateTime, nullable=False, default=datetime.datetime.now, comment="Date and time this user was registered")
     last_login_timestamp = db.Column(db.DateTime, nullable=True, default=None, comment="Date and time this user last logged in")
+    tokens_valid_after = db.Column(db.Integer, nullable=True, default=None, comment="Unix timestamp after which this user's tokens are considered valid")
     email_verified = db.Column(db.Boolean, nullable=False, default=False, comment="Whether or not this user has verified their email address")
     cms_user = db.Column(db.Boolean, nullable=False, default=False, comment="Whether or not this user should have CMS/Tools access")
 
@@ -110,6 +112,34 @@ class User(db.Model):
         user = cls.query.filter_by(email=email).first()
         if user:
             user.email_verified = True
+            db.session.commit()
+            return True
+        else:
+            return False
+
+    @classmethod
+    def check_token_validity(cls, email, unix_time: int):
+        """
+        Check if a timestamp from a JWT is after the user's first validity time
+        Returns true if and only if:
+            - user exists
+            - timestamp is after first validity
+        """
+        user = cls.query.filter_by(email=email).first()
+        if user:
+            return unix_time >= user.tokens_valid_after
+        else:
+            return False
+
+    @classmethod
+    def reset_token_validity(cls, email):
+        """
+        Update token first validity timestamp for user
+        Returns true on success
+        """
+        user = cls.query.filter_by(email=email).first()
+        if user:
+            user.tokens_valid_after = int(time.time())
             db.session.commit()
             return True
         else:

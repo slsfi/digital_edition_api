@@ -92,18 +92,6 @@ if security_config_exists:
     jwt = JWTManager(app)
     db.init_app(app)
 
-    # redis connection for JWT token blocklist
-    jwt_redis_blocklist = redis.StrictRedis(
-        host=REDIS_HOST, port=REDIS_PORT, db=1, decode_responses=True  # database 1 for JWT blocklist (0 is for rate limits)
-    )
-
-    # JWT revocation check callback function
-    @jwt.token_in_blocklist_loader
-    def check_if_token_is_revoked(jwt_header, jwt_payload: dict):
-        jti = jwt_payload["jti"]
-        token_in_redis = jwt_redis_blocklist.get(jti)
-        return token_in_redis is not None
-
     try:
         # on load, after uwsgi forks, recycle the database connection pool
         # this prevents forks from trying to use invalid connections from the master process

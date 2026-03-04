@@ -239,11 +239,19 @@ def reader_auth_required():
                 # get JWT identity so we can ensure email is verified also
                 identity = get_jwt_identity()
                 user = User.find_by_email(identity)
+                # get JWT IAT so we can verify token is issued after user first validity
+                jwt_issued_at = get_jwt()["iat"]
                 if not user:
+                    # user does not exist
                     return jsonify({"msg": "You are not logged in with a verified email address."}), 403
-                if user.email_is_verified:
+                elif not User.check_token_validity(identity, jwt_issued_at):
+                    # token issued before first validity - password reset or other reset has been done
+                    return jsonify({"msg": "You are not logged in with a verified email address."}), 403
+                elif user.email_is_verified:
+                    # verified user, valid credentials
                     return fn(*args, **kwargs)
                 else:
+                    # fallback to not authorized in case we missed a possible case
                     return jsonify({"msg": "You are not logged in with a verified email address."}), 403
         return reader_auth_check
     return wrapper
@@ -273,6 +281,9 @@ def cms_required(edit: bool = False) -> Any:
                 user = User.find_by_email(identity)
                 # if user doesn't exist, then no access
                 if not user:
+                    return jsonify({"msg": "No access to this project."}), 403
+                # if user token issued before first validity time, then no access
+                elif not User.check_token_validity(identity, claims["iat"]):
                     return jsonify({"msg": "No access to this project."}), 403
                 # if this function is marked as needing editing permissions, check for project and then verify permissions
                 elif edit:

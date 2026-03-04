@@ -2,7 +2,7 @@ import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity, jwt_required
 import logging
-from sls_api import jwt_redis_blocklist, rate_limiter
+from sls_api import rate_limiter
 from sls_api.email import send_address_verification_email, send_password_reset_email
 from sls_api.models import User
 
@@ -57,6 +57,8 @@ def register_user():
 
     try:
         new_user = User.create_new_user(email, password)
+        # set initial token validity for user
+        User.reset_token_validity(email)
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
@@ -109,9 +111,14 @@ def login_user():
 @auth.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh_token():
+    jwt_issued_at = get_jwt()["iat"]
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
     if user:
+        # check token timestamp against user
+        token_valid = User.check_token_validity(identity, jwt_issued_at)
+        if not token_valid:
+            return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
         projects = user.get_projects()
         # update last_login_timestamp, a token refresh is equivalent to a login
         User.update_login_timestamp(identity)
@@ -129,9 +136,14 @@ def refresh_token():
 @auth.route("/verify_email", methods=["POST"])
 @jwt_required(fresh=True)
 def verify_email():
+    jwt_issued_at = get_jwt()["iat"]
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
     if user:
+        # check token timestamp against user
+        token_valid = User.check_token_validity(identity, jwt_issued_at)
+        if not token_valid:
+            return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
         User.mark_email_verified(identity)
         return jsonify({"msg": f"Email address {identity} verified. You may now log in."}), 200
     else:
@@ -171,9 +183,14 @@ def finish_password_reset():
     """
     Finish password reset flow - verify temporary JWT and reset password to one given in JSON
     """
+    jwt_issued_at = get_jwt()["iat"]
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
     if not user:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
+    # check token timestamp against user
+    token_valid = User.check_token_validity(identity, jwt_issued_at)
+    if not token_valid:
         return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
     data = request.get_json()
     if not data:
@@ -185,33 +202,38 @@ def finish_password_reset():
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
     password_set = User.reset_password(user.email, password)
     if password_set:
-        # revoke reset token
-        jwt_id = get_jwt()["jti"]
-        jwt_redis_blocklist.set(jwt_id, "", ex=datetime.timedelta(minutes=30))
+        # reset token validity for user
+        User.reset_token_validity(user.email)
         return jsonify({"msg": f"New password set for {user.email}"}), 200
     else:
         return jsonify({"msg": f"Failed to set password for {user.email}"}), 500
 
 
-@auth.route("/logout", methods=["DELETE"])
+@auth.route("/logout")
 @jwt_required(verify_type=False)
 def logout():
     """
-    Take in a valid access or refresh token and revoke it, effectively logging out.
-    Can also be used to get rid of valid refresh tokens, for example on a password reset.
+    Reset a user's token validity, making all current logins invalid
     """
+    identity = get_jwt_identity()
+    user = User.find_by_email(identity)
+    if user:
+        success = User.reset_token_validity(identity)
+        if success:
+            return jsonify({"msg": "User logged out"}), 200
+        else:
+            return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
+    else:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
     token = get_jwt()
-    token_id = token["jti"]
-    token_type = token["type"]
-    if token_type == "access":
-        jwt_redis_blocklist.set(token_id, "", ex=datetime.timedelta(minutes=30))
-        return jsonify({"msg": "User logged out"}), 200
-    elif token_type == "refresh":
-        jwt_redis_blocklist.set(token_id, "", ex=datetime.timedelta(days=30))
-        return jsonify({"msg": "User logged out"}), 200
 
 
 @auth.route("/test", methods=["POST"])
 @jwt_required()
 def test_authentication():
+    jwt_issued_at = get_jwt()["iat"]
+    # check token timestamp against user
+    token_valid = User.check_token_validity(identity, jwt_issued_at)
+    if not token_valid:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
     return jsonify(get_jwt_identity())
