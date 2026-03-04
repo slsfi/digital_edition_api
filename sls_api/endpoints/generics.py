@@ -239,6 +239,8 @@ def reader_auth_required():
                 # get JWT identity so we can ensure email is verified also
                 identity = get_jwt_identity()
                 user = User.find_by_email(identity)
+                if not user:
+                    return jsonify({"msg": "You are not logged in with a verified email address."}), 403
                 if user.email_is_verified:
                     return fn(*args, **kwargs)
                 else:
@@ -268,8 +270,12 @@ def cms_required(edit: bool = False) -> Any:
                 return fn(*args, **kwargs)
             else:
                 # TODO check for source IP, CMS users should only come from company intranet
-                user = User.find_by_email(identity)
-                if edit:
+                user = User.find_by_email(identity)     
+                # if user doesn't exist, then no access
+                if not user:
+                    return jsonify({"msg": "No access to this project."}), 403
+                # if this function is marked as needing editing permissions, check for project and then verify permissions
+                elif edit:
                     # locate project arg in function arguments
                     if len(args) > 0:
                         project = args[0]
@@ -288,7 +294,7 @@ def cms_required(edit: bool = False) -> Any:
                     else:
                         return jsonify({"msg": "No access to this project."}), 403
                 else:
-                    # just check if user is a CMS user
+                    # if user exists, check if user is a CMS user
                     if user.cms_user:
                         return fn(*args, **kwargs)
                     else:
