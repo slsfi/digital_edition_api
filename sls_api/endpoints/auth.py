@@ -130,9 +130,9 @@ def verify_email():
     user = User.find_by_email(identity)
     if user:
         User.mark_email_verified(identity)
-        return jsonify({"msg": f"Email address {identity} verified. You may now log in."}, 200)
+        return jsonify({"msg": f"Email address {identity} verified. You may now log in."}), 200
     else:
-        return jsonify({"msg": f"Email address {identity} not a valid user in the system.", "err": "INCORRECT_CREDENTIALS"}, 400)
+        return jsonify({"msg": f"Email address {identity} not a valid user in the system.", "err": "INCORRECT_CREDENTIALS"}), 400
 
 
 @auth.route("/forgot_password", methods=["POST"])
