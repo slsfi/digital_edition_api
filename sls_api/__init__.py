@@ -6,7 +6,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import logging
 import os
-import redis
 from ruamel.yaml import YAML
 from sys import stdout
 

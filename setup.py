@@ -19,7 +19,6 @@ setup(
         'Pillow==12.0.0',
         'psycopg2==2.9.11',
         'PyMySQL==1.1.2',
-        'redis==7.2.1',
         'ruamel.yaml==0.18.17',
         'requests==2.32.5',
         'saxonche==12.9.0',
