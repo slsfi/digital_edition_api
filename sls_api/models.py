@@ -32,7 +32,8 @@ class User(db.Model):
         """
         new_user = cls(
             email=email,
-            password=pwd_context.hash(password)
+            password=pwd_context.hash(password),
+            tokens_valid_after=int(time.time())
         )
         db.session.add(new_user)
         db.session.commit()
