@@ -18,10 +18,10 @@ REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
 REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
 
 # JWT expiry settings
-# access tokens are valid for 30 minutes
-# refresh tokens are valid for 30 days
+# access tokens are valid for 30 minutes by default
+# refresh tokens are valid for 14 days by default
 JWT_ACCESS_TOKEN_EXPIRY = datetime.timedelta(minutes=30)
-JWT_REFRESH_TOKEN_EXPIRY = datetime.timedelta(days=30)
+JWT_REFRESH_TOKEN_EXPIRY = datetime.timedelta(days=14)
 
 # First, set up logging
 root_logger = logging.getLogger()
