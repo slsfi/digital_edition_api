@@ -225,7 +225,6 @@ def logout():
             return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
     else:
         return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
-    token = get_jwt()
 
 
 @auth.route("/test", methods=["POST"])
