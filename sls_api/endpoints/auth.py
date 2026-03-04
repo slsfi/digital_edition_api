@@ -173,6 +173,8 @@ def finish_password_reset():
     """
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
+    if not user:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
     data = request.get_json()
     if not data:
         return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
