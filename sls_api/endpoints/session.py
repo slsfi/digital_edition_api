@@ -1,5 +1,5 @@
 from flask import Blueprint, jsonify
-from flask_jwt_extended improt jwt_required, get_jwt, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sls_api import rate_limiter
 from sls_api.models import User
 
