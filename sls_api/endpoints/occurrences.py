@@ -5,7 +5,7 @@ import sqlalchemy
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, reader_auth_required
 
-occurrences = Blueprint('occurrences', __name__)
+occurrences = Blueprint('occurrences', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.occurrences")
 
 # Occurrence functions

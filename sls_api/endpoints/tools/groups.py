@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from sls_api.endpoints.generics import cms_required, db_engine, get_table, int_or_none
 
-group_tools = Blueprint("group_tools", __name__)
+group_tools = Blueprint("group_tools", __name__, url_prefix="/digitaledition")
 
 
 @group_tools.route("/<project>/publication_groups/")

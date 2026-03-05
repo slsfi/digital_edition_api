@@ -9,7 +9,7 @@ from sls_api.models import User
 # minimum password length for users
 MINIMUM_PASSWORD_LENGTH = 12
 
-auth = Blueprint('auth', __name__)
+auth = Blueprint('auth', __name__, url_prefix="/auth")
 
 logger = logging.getLogger("sls_api.auth")
 

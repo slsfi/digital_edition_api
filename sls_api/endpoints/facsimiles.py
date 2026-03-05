@@ -6,7 +6,7 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, reader_auth_required
 
-facsimiles = Blueprint('facsimiles', __name__)
+facsimiles = Blueprint('facsimiles', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.facsimiles")
 
 # Facsimile metadata and file functions

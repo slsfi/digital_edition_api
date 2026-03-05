@@ -11,7 +11,7 @@ from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_f
 from sls_api.exceptions import DeleteError
 
 
-event_tools = Blueprint("event_tools", __name__)
+event_tools = Blueprint("event_tools", __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.events")
 
 

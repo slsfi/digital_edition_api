@@ -16,7 +16,7 @@ from sls_api.endpoints.generics import cms_required, db_engine, get_project_conf
     int_or_none, is_valid_language, get_table, get_project_id_from_name
 
 
-file_tools = Blueprint("file_tools", __name__)
+file_tools = Blueprint("file_tools", __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.files")
 
 

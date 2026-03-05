@@ -8,7 +8,7 @@ from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_f
     create_success_response, get_project_collation
 
 
-collection_tools = Blueprint("collection_tools", __name__)
+collection_tools = Blueprint("collection_tools", __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.collections")
 
 

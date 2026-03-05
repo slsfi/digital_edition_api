@@ -10,7 +10,7 @@ from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_f
 from sls_api.exceptions import CascadeUpdateError
 
 
-publishing_tools = Blueprint("publishing_tools", __name__)
+publishing_tools = Blueprint("publishing_tools", __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.publishing")
 
 

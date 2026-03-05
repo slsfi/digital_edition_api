@@ -17,7 +17,7 @@ from sls_api.endpoints.generics import db_engine, \
     is_valid_language, \
     reader_auth_required
 
-text = Blueprint('text', __name__)
+text = Blueprint('text', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.text")
 
 # Text functions

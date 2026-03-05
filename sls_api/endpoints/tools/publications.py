@@ -9,7 +9,7 @@ from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_f
     create_success_response, get_project_config, get_project_collation
 
 
-publication_tools = Blueprint("publication_tools", __name__)
+publication_tools = Blueprint("publication_tools", __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.publications")
 
 

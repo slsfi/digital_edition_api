@@ -14,7 +14,7 @@ from sls_api.endpoints.generics import db_engine, get_project_config, \
     flatten_json, get_first_valid_item_from_toc, int_or_none, \
     is_valid_language, reader_auth_required
 
-meta = Blueprint('metadata', __name__)
+meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
 logger = logging.getLogger("sls_api.metadata")
 

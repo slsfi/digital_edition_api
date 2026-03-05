@@ -51,23 +51,23 @@ security_config_exists = os.path.exists(os.path.join("sls_api", "configs", "secu
 # Selectively import and register endpoints based on which configs exist and can be loaded
 if projects_config_exists:
     from sls_api.endpoints.metadata import meta
-    app.register_blueprint(meta, url_prefix="/digitaledition")
+    app.register_blueprint(meta)
     from sls_api.endpoints.facsimiles import facsimiles
-    app.register_blueprint(facsimiles, url_prefix="/digitaledition")
+    app.register_blueprint(facsimiles)
     from sls_api.endpoints.media import media
-    app.register_blueprint(media, url_prefix="/digitaledition")
+    app.register_blueprint(media)
     from sls_api.endpoints.occurrences import occurrences
-    app.register_blueprint(occurrences, url_prefix="/digitaledition")
+    app.register_blueprint(occurrences)
     from sls_api.endpoints.search import search
-    app.register_blueprint(search, url_prefix="/digitaledition")
+    app.register_blueprint(search)
     from sls_api.endpoints.songs import songs
-    app.register_blueprint(songs, url_prefix="/digitaledition")
+    app.register_blueprint(songs)
     from sls_api.endpoints.text import text
-    app.register_blueprint(text, url_prefix="/digitaledition")
+    app.register_blueprint(text)
     from sls_api.endpoints.workregister import workregister
-    app.register_blueprint(workregister, url_prefix="/digitaledition")
+    app.register_blueprint(workregister)
     from sls_api.endpoints.correspondence import correspondence
-    app.register_blueprint(correspondence, url_prefix="/digitaledition")
+    app.register_blueprint(correspondence)
 
 if security_config_exists:
     from sls_api.endpoints.auth import auth
@@ -106,7 +106,7 @@ if security_config_exists:
         logger.warning("Skipping uwsgi postfork as importing uwsgi failed...")
         pass
 
-    app.register_blueprint(auth, url_prefix="/auth")
+    app.register_blueprint(auth)
 
     with app.app_context():
         # ensure database exists and is populated with test user
@@ -119,19 +119,19 @@ if projects_config_exists and security_config_exists:
     If we have both a projects config (digital_edition.yml) and a security config (security.yml), load tools endpoints for JWT-protected writing to database
     """
     from sls_api.endpoints.tools.collections import collection_tools
-    app.register_blueprint(collection_tools, url_prefix="/digitaledition")
+    app.register_blueprint(collection_tools)
     from sls_api.endpoints.tools.events import event_tools
-    app.register_blueprint(event_tools, url_prefix="/digitaledition")
+    app.register_blueprint(event_tools)
     from sls_api.endpoints.tools.facsimiles import facsimile_tools
-    app.register_blueprint(facsimile_tools, url_prefix="/digitaledition")
+    app.register_blueprint(facsimile_tools)
     from sls_api.endpoints.tools.files import file_tools
-    app.register_blueprint(file_tools, url_prefix="/digitaledition")
+    app.register_blueprint(file_tools)
     from sls_api.endpoints.tools.groups import group_tools
-    app.register_blueprint(group_tools, url_prefix="/digitaledition")
+    app.register_blueprint(group_tools)
     from sls_api.endpoints.tools.publications import publication_tools
-    app.register_blueprint(publication_tools, url_prefix="/digitaledition")
+    app.register_blueprint(publication_tools)
     from sls_api.endpoints.tools.publishing import publishing_tools
-    app.register_blueprint(publishing_tools, url_prefix="/digitaledition")
+    app.register_blueprint(publishing_tools)
 
 logger.info(" * Loaded endpoints: {}".format(", ".join(app.blueprints)))
 

@@ -10,7 +10,7 @@ from sls_api.endpoints.generics import ALLOWED_EXTENSIONS_FOR_FACSIMILE_UPLOAD, 
     FACSIMILE_IMAGE_SIZES, FACSIMILE_UPLOAD_FOLDER, get_project_config, cms_required
 
 
-facsimile_tools = Blueprint('facsimile_tools', __name__)
+facsimile_tools = Blueprint('facsimile_tools', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.facsimiles")
 
 

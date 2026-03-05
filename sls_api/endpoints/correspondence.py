@@ -4,7 +4,7 @@ from sqlalchemy.sql import text
 
 from sls_api.endpoints.generics import db_engine, get_project_id_from_name, reader_auth_required
 
-correspondence = Blueprint('correspondence', __name__)
+correspondence = Blueprint('correspondence', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.correspondence")
 
 # Work register metadata functions
