@@ -71,6 +71,7 @@ if projects_config_exists:
 
 if security_config_exists:
     from sls_api.endpoints.auth import auth
+    from sls_api.endpoints.session import session
     from sls_api.models import db, User
     with open(os.path.join("sls_api", "configs", "security.yml")) as config_file:
         security_config = yaml.load(config_file.read())
@@ -107,6 +108,7 @@ if security_config_exists:
         pass
 
     app.register_blueprint(auth)
+    app.register_blueprint(session)
 
     with app.app_context():
         # ensure database exists and is populated with test user
