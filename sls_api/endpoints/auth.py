@@ -82,7 +82,7 @@ def login_user():
     current_user = User.find_by_email(email)
     try:
         if not current_user.email_is_verified():
-            return jsonify({"msg": "Email address has not been verified. Check your email inbox for a verification link.", "err": "EMAIL_NOT_VERIFIED"}, 403)
+            return jsonify({"msg": "Email address has not been verified. Check your email inbox for a verification link.", "err": "EMAIL_NOT_VERIFIED"}), 403
         success = current_user.check_password(password)
     except Exception:
         # user not found
