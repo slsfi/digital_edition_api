@@ -225,6 +225,33 @@ def changed_by_size_or_hash(pre: Tuple[Optional[int], Optional[str]], path: str)
     return pre_md5 != post_md5
 
 
+def valid_jwt_required(refresh: bool = False, fresh: bool = False):
+    """
+    Function decorator that checks for a valid JWT, performing additional checks to ensure the user exists and the JWT isn't outdated
+    (i.e. checks that the user hasn't been deleted, and that their password hasn't been reset, and that their sessions haven't been invalidated)
+    """
+    def wrapper(fn):
+        @wraps(fn)
+        def jwt_validity_check(*args, **kwargs):
+            verify_jwt_in_request(fresh=fresh, refresh=refresh)
+            # get JWT identity so we can ensure email is verified also
+            identity = get_jwt_identity()
+            user = User.find_by_email(identity)
+            # get JWT IAT so we can verify token is issued after user first validity
+            jwt_issued_at = get_jwt()["iat"]
+            if not user:
+                # user does not exist
+                return jsonify({"msg": "You are not logged in with valid credentials"}), 403
+            elif not User.check_token_validity(identity, jwt_issued_at):
+                # token issued before first validity - password reset or other reset has been done
+                return jsonify({"msg": "You are not logged in with valid credentials."}), 403
+            else:
+                # valid user, run function
+                return fn(*args, **kwargs)
+        return jwt_validity_check
+    return wrapper
+
+
 def reader_auth_required():
     """
     Function decorator that checks for JWT authentication, provided that the API is set to require it

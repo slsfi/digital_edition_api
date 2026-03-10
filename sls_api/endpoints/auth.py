@@ -1,9 +1,10 @@
 import datetime
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt, get_jwt_identity, jwt_required
+from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
 import logging
 from sls_api import rate_limiter
 from sls_api.email import send_address_verification_email, send_password_reset_email
+from sls_api.endpoints.generics import valid_jwt_required
 from sls_api.models import User
 
 # minimum password length for users
@@ -17,9 +18,11 @@ logger = logging.getLogger("sls_api.auth")
 JWT-based Authorization
 
 Routes in the API protected by @jwt_required() can only be accessed with a proper JWT token in the header
+Routes in the API protected by @valid_jwt_required() can only be accessed with a proper JWT token in the header, provided their user account still exists, and their token is issued after the user's `tokens_valid_after` timestamp
 Routes in the API protected by @reader_auth_required() be only be accessed by logged-in users with email_verified=True, if reader_auth_required=True in the API config
-Routes in the API protected by @cms_required() can only be accessed by logged-in CMS users
-Routes in the API protected by @cms_required(edit=True) can only be accessed by logged-in CMS users with edit rights for the project
+Routes in the API protected by @cms_required() can only be accessed by logged-in users with email_verified=True and cms_user=True
+Routes in the API protected by @cms_required(edit=True) can only be accessed by logged-in users with email_verified=True and cms_user=True, that also have the name of the project in their `projects` list
+
 JWT Header format is "Authorization: Bearer <JWT_TOKEN>"
 """
 
@@ -115,16 +118,11 @@ def login_user():
 
 
 @auth.route("/refresh", methods=["POST"])
-@jwt_required(refresh=True)
+@valid_jwt_required(refresh=True)
 def refresh_token():
-    jwt_issued_at = get_jwt()["iat"]
     identity = get_jwt_identity()
     user = User.find_by_email(identity)
     if user:
-        # check token timestamp against user
-        token_valid = User.check_token_validity(identity, jwt_issued_at)
-        if not token_valid:
-            return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
         projects = user.get_projects()
         # update last_login_timestamp, a token refresh is equivalent to a login
         User.update_login_timestamp(identity)
@@ -140,20 +138,14 @@ def refresh_token():
 
 
 @auth.route("/verify_email", methods=["POST"])
-@jwt_required(fresh=True)
+@valid_jwt_required(fresh=True)
 def verify_email():
-    jwt_issued_at = get_jwt()["iat"]
     identity = get_jwt_identity()
-    user = User.find_by_email(identity)
-    if user:
-        # check token timestamp against user
-        token_valid = User.check_token_validity(identity, jwt_issued_at)
-        if not token_valid:
-            return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
-        User.mark_email_verified(identity)
+    success = User.mark_email_verified(identity)
+    if success:
         return jsonify({"msg": f"Email address {identity} verified. You may now log in."}), 200
     else:
-        return jsonify({"msg": f"Email address {identity} not a valid user in the system.", "err": "INCORRECT_CREDENTIALS"}), 400
+        return jsonify({"msg": f"Error when attempting to verify {identity}"}), 500
 
 
 @auth.route("/forgot_password", methods=["POST"])
@@ -184,20 +176,12 @@ def start_password_reset():
 
 
 @auth.route("/reset_password", methods=["POST"])
-@jwt_required(fresh=True)
+@valid_jwt_required(fresh=True)
 def finish_password_reset():
     """
     Finish password reset flow - verify temporary JWT and reset password to one given in JSON
     """
-    jwt_issued_at = get_jwt()["iat"]
     identity = get_jwt_identity()
-    user = User.find_by_email(identity)
-    if not user:
-        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
-    # check token timestamp against user
-    token_valid = User.check_token_validity(identity, jwt_issued_at)
-    if not token_valid:
-        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
     data = request.get_json()
     if not data:
         return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
@@ -206,13 +190,13 @@ def finish_password_reset():
         return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
     if len(password) < MINIMUM_PASSWORD_LENGTH:
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
-    password_set = User.reset_password(user.email, password)
+    password_set = User.reset_password(identity, password)
     if password_set:
         # reset token validity for user
-        User.reset_token_validity(user.email)
-        return jsonify({"msg": f"New password set for {user.email}"}), 200
+        User.reset_token_validity(identity)
+        return jsonify({"msg": f"New password set for {identity}"}), 200
     else:
-        return jsonify({"msg": f"Failed to set password for {user.email}"}), 500
+        return jsonify({"msg": f"Failed to set password for {identity}"}), 500
 
 
 @auth.route("/logout")
