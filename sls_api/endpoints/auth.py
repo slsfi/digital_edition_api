@@ -75,8 +75,8 @@ def register_user():
 
     try:
         new_user = User.create_new_user(name, email, password)
-        new_user.set_country(country)
-        new_user.set_intended_usage(indended_usage)
+        User.set_country(email, country)
+        User.set_intended_usage(email, indended_usage)
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
