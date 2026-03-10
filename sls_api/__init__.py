@@ -114,7 +114,7 @@ if security_config_exists:
         # ensure database exists and is populated with test user
         db.create_all()
         if User.find_by_email("test@test.com") is None:
-            User.create_new_user("test@test.com", "test")
+            User.create_new_user("Test user", "test@test.com", "test")
 
 if projects_config_exists and security_config_exists:
     """

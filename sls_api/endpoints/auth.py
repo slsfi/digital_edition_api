@@ -30,18 +30,33 @@ JWT Header format is "Authorization: Bearer <JWT_TOKEN>"
 @auth.route("/register", methods=["POST"])
 @rate_limiter.limit("30/minute")
 def register_user():
+    """
+    Register a new API user.
+    Takes the following required parameters in JSON payload:
+    - name: str                 - Name of user
+    - email: str                - Email address, used as username, must be unique
+    - password: str             - Password, must meet requirements (MINIMUM_PASSWORD_LENGTH)
+
+    Takes the following optional parameters in JSON payload:
+    - user_language: str        - ISO 639-1 language code, used to set language of email verification email
+    - country: str              - Country information
+    - indended_usage: str       - Indended use
+    """
     data = request.get_json()
     if not data:
         return jsonify({"msg": "No JSON in payload."}), 400
 
+    name = data.get("name", None)
     email = data.get("email", None)
     password = data.get("password", None)
     user_language = data.get("language", "en")      # ISO 639-1 language code
     if user_language not in ["en", "sv", "fi"]:
         logger.warning(f"User supplied invalid language {user_language} on register, defaulting to 'en'")
         user_language = "en"
+    country = data.get("country", None)
+    indended_usage = data.get("intended_usage", None)
 
-    if not email or not password:
+    if not email or not password or not name:
         logger.error("Invalid request to register user - no credentials provided")
         return jsonify({"msg": "email or password not in JSON payload.", "err": "NO_CREDENTIALS"}), 400
     # verify password meets requirements
@@ -59,7 +74,9 @@ def register_user():
             User.delete_user(data["email"])
 
     try:
-        new_user = User.create_new_user(email, password)
+        new_user = User.create_new_user(name, email, password)
+        new_user.set_country(country)
+        new_user.set_intended_usage(indended_usage)
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
