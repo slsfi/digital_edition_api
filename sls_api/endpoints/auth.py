@@ -60,7 +60,7 @@ def register_user():
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
-        send_address_verification_email(to_address=new_user.email, access_token=verification_token, language=user_language)
+        send_address_verification_email(to_address=new_user.email, access_token=verification_token, user_language=user_language)
         return jsonify(
             {
                 "msg": "User {!r} was created. Please check email inbox to verify email before login.".format(data["email"])
@@ -176,7 +176,7 @@ def start_password_reset():
         logger.warning(f"User supplied invalid language {user_language} with password reset request, defaulting to 'en'")
         user_language = "en"
     access_token = create_access_token(identity=user.email, expires_delta=datetime.timedelta(minutes=30), fresh=True)
-    success = send_password_reset_email(to_address=user.email, access_token=access_token, language=user_language)
+    success = send_password_reset_email(to_address=user.email, access_token=access_token, user_language=user_language)
     if success:
         return jsonify({"msg": "If an account exists for this email address, a password reset link has been sent."}), 200
     else:
