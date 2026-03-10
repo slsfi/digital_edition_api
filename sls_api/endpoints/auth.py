@@ -40,7 +40,7 @@ def register_user():
     Takes the following optional parameters in JSON payload:
     - user_language: str        - ISO 639-1 language code, used to set language of email verification email
     - country: str              - Country information
-    - indended_usage: str       - Indended use
+    - intended_usage: str       - Intended use
     """
     data = request.get_json()
     if not data:
@@ -54,7 +54,7 @@ def register_user():
         logger.warning(f"User supplied invalid language {user_language} on register, defaulting to 'en'")
         user_language = "en"
     country = data.get("country", None)
-    indended_usage = data.get("intended_usage", None)
+    intended_usage = data.get("intended_usage", None)
 
     if not email or not password or not name:
         logger.error("Invalid request to register user - no credentials provided")
@@ -76,7 +76,7 @@ def register_user():
     try:
         new_user = User.create_new_user(name, email, password)
         User.set_country(email, country)
-        User.set_intended_usage(email, indended_usage)
+        User.set_intended_usage(email, intended_usage)
         # create temporary access token for email verification
         verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
