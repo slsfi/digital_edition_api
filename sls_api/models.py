@@ -30,7 +30,7 @@ class User(db.Model):
     intended_usage = db.Columnt(db.UnicodeText, nullable=True, default=None, comment="Optional intended usage for user")
 
     @classmethod
-    def create_new_user(cls, name: str, email: str, password: str) -> User | None:
+    def create_new_user(cls, name: str, email: str, password: str) -> "User | None":
         """
         Create a new user object in the database and return it
         """
@@ -118,7 +118,7 @@ class User(db.Model):
             return False
 
     @classmethod
-    def find_by_email(cls, email: str) -> User | None:
+    def find_by_email(cls, email: str) -> "User | None":
         """
         Returns a User object if one exists for the given email, otherwise None
         """
