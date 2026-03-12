@@ -27,7 +27,7 @@ class User(db.Model):
     cms_user = db.Column(db.Boolean, nullable=False, default=False, comment="Whether or not this user should have CMS/Tools access")
     name = db.Column(db.UnicodeText, nullable=False, comment="Name of user")
     country = db.Column(db.UnicodeText, nullable=True, default=None, comment="Optional country field for user")
-    intended_usage = db.Columnt(db.UnicodeText, nullable=True, default=None, comment="Optional intended usage for user")
+    intended_usage = db.Column(db.UnicodeText, nullable=True, default=None, comment="Optional intended usage for user")
 
     @classmethod
     def create_new_user(cls, name: str, email: str, password: str) -> "User | None":
