@@ -30,14 +30,14 @@ def send_address_verification_email(to_address: str, access_token: str, user_lan
         return False
     verification_link = f"{FRONTEND_EXTERNAL_URL}/{user_language}/verify-email#jwt={access_token}"
     if user_language == "en":
-        email_subject = "Email verification for SLS Digital Editions"
-        email_body = f"Your email address has been registered on {FRONTEND_EXTERNAL_URL}.\n\nIn order to log in, please first verify your email address by clicking on this link (expires in 8 hours): {verification_link}"
+        email_subject = f"Verify your email address (SLS digital editions, {FRONTEND_EXTERNAL_URL}/)"
+        email_body = f"You have created a user account for SLS digital editions with this email address.\n\nThe account was created on the website:\n{FRONTEND_EXTERNAL_URL}/\n\nTo be able to log in, you must verify your email address by following the link below. The link is valid for 8 hours:\n\n{verification_link}\n\nIf you do not verify your email address within 8 hours, the link will expire. You will then need to create the account again on:\n{FRONTEND_EXTERNAL_URL}/{user_language}/register\n\nIf you did not create this user account yourself, you may disregard this email.\n\nIf you have any questions, please contact info@sls.fi.\n\nThis email was sent automatically by the Society of Swedish Literature in Finland (SLS). Please do not reply to this message."
     elif user_language == "sv":
-        email_subject = "Epost-verifiering för SLS Digitala Utgåvor"
-        email_body = f"Din epost adress har registrerats på {FRONTEND_EXTERNAL_URL}.\n\nFör att kunna logga in behöver du först klicka på denna länk (giltig i 8 timmar): {verification_link}"
+        email_subject = f"Verifiera din e-postadress (SLS digitala utgåvor, {FRONTEND_EXTERNAL_URL}/)"
+        email_body = f"Du har skapat ett användarkonto för SLS digitala utgåvor med den här e-postadressen.\n\nKontot skapades på webbplatsen:\n{FRONTEND_EXTERNAL_URL}/\n\nFör att kunna logga in måste du verifiera din e-postadress genom att följa länken nedan. Länken är giltig i 8 timmar:\n\n{verification_link}\n\nOm du inte verifierar din e-postadress inom 8 timmar upphör länken att gälla. Då måste du skapa kontot på nytt på:\n{FRONTEND_EXTERNAL_URL}/{user_language}/register\n\nOm du inte själv har skapat detta användarkonto kan du bortse från det här mejlet.\n\nVid frågor, kontakta info@sls.fi.\n\nDetta mejl har skickats automatiskt av Svenska litteratursällskapet i Finland (SLS). Vänligen svara inte på meddelandet."
     elif user_language == "fi":
-        email_subject = "Sähköpostivahvistus SLS Digital Editions-palveluun"
-        email_body = f"Sähköpostiosoitteesi on rekisteröity palveluun {FRONTEND_EXTERNAL_URL}.\n\nKirjautuaksesi sisään, vahvista ensin sähköpostiosoitteesi klikkaamalla tätä linkkiä (voimassa 8 tuntia): {verification_link}"
+        email_subject = f"Vahvista sähköpostiosoitteesi (SLS:n digitaaliset editiot, {FRONTEND_EXTERNAL_URL}/)"
+        email_body = f"Olet luonut käyttäjätilin SLS digitaalisia editioita varten tällä sähköpostiosoitteella.\n\nTili luotiin sivustolla:\n{FRONTEND_EXTERNAL_URL}/\n\nJotta voit kirjautua sisään, sinun täytyy vahvistaa sähköpostiosoitteesi alla olevan linkin kautta. Linkki on voimassa 8 tuntia:\n\n{verification_link}\n\nJos et vahvista sähköpostiosoitettasi 8 tunnin kuluessa, linkki vanhenee. Tämän jälkeen sinun täytyy luoda tili uudelleen osoitteessa:\n{FRONTEND_EXTERNAL_URL}/{user_language}/register\n\nJos et itse ole luonut tätä käyttäjätiliä, voit jättää tämän viestin huomiotta.\n\nJos sinulla on kysyttävää, ota yhteyttä osoitteeseen info@sls.fi.\n\nTämä on Svenska litteratursällskapet i Finlandin (SLS) automaattisesti lähettämä viesti. Älä vastaa tähän viestiin."
     success = send_email(to_address, email_subject, email_body)
     return success
 
@@ -52,14 +52,14 @@ def send_password_reset_email(to_address: str, access_token: str, user_language=
         return False
     reset_link = f"{FRONTEND_EXTERNAL_URL}/{user_language}/reset-password#jwt={access_token}"
     if user_language == "en":
-        email_subject = "Password reset link for SLS Digital Editions"
-        email_body = f"A password reset has been requested for your account on {FRONTEND_EXTERNAL_URL}.\n\nTo begin this process, please click this link (expires in 30 minutes): {reset_link}\n\nIf you did not request this password reset, you may ignore this email."
+        email_subject = f"Change password (SLS digital editions, {FRONTEND_EXTERNAL_URL}/)"
+        email_body = f"You have requested to change the password for your user account for SLS digital editions.\n\nThe request was made on the website:\n{FRONTEND_EXTERNAL_URL}/\n\nTo choose a new password, follow the link below. The link is valid for 30 minutes:\n\n{reset_link}\n\nIf you did not request this change yourself, you may disregard this email. No change will be made until you follow the link and complete the process.\n\nIf you have any questions, please contact info@sls.fi.\n\nThis email was sent automatically by the Society of Swedish Literature in Finland (SLS). Please do not reply to this message."
     elif user_language == "sv":
-        email_subject = "Lösenordsnollställning för SLS Digitala Utgåvor"
-        email_body = f"Du har begärt om att nollställa ditt lösenord på {FRONTEND_EXTERNAL_URL}.\n\nFör att påbörja denna process, vänligen klicka på denna länk (giltig i 30 minuter): {reset_link}\n\nOm du inte begärde denna lösenordsnollställning så kan du ignorera detta mejl."
+        email_subject = f"Ändra lösenord (SLS digitala utgåvor, {FRONTEND_EXTERNAL_URL}/)"
+        email_body = f"Du har begärt att ändra lösenordet för ditt användarkonto för SLS digitala utgåvor.\n\nBegäran gjordes på webbplatsen:\n{FRONTEND_EXTERNAL_URL}/\n\nFör att välja ett nytt lösenord, följ länken nedan. Länken är giltig i 30 minuter:\n\n{reset_link}\n\nOm du inte själv har begärt denna ändring kan du bortse från det här mejlet. Ingen ändring görs förrän du följer länken och slutför processen.\n\nVid frågor, kontakta info@sls.fi.\n\nDetta mejl har skickats automatiskt av Svenska litteratursällskapet i Finland (SLS). Vänligen svara inte på meddelandet."
     elif user_language == "fi":
-        email_subject = "Salasanan nollaus SLS Digital Editions-palveluun"
-        email_body = f"Käyttäjätilillesi sivustolla {FRONTEND_EXTERNAL_URL} on pyydetty salasanan palautusta.\n\nAloita prosessi klikkaamalla tätä linkkiä (voimassa 30 minuuttia): {reset_link}\n\nJos et ole pyytänyt salasanan palauttamista, voit jättää tämän sähköpostin huomiotta."
+        email_subject = f"Vaihda salasana (SLS:n digitaaliset editiot, {FRONTEND_EXTERNAL_URL}/)"
+        email_body = f"Olet pyytänyt vaihtamaan SLS:n digitaalisten editioiden käyttäjätilisi salasanan.\n\nPyyntö tehtiin sivustolla:\n{FRONTEND_EXTERNAL_URL}/\n\nValitse uusi salasana alla olevan linkin kautta. Linkki on voimassa 30 minuuttia:\n\n{reset_link}\n\nJos et ole itse pyytänyt tätä muutosta, voit jättää tämän viestin huomiotta. Salasanaa ei muuteta, ennen kuin avaat linkin ja viet prosessin loppuun.\n\nJos sinulla on kysyttävää, ota yhteyttä osoitteeseen info@sls.fi.\n\nTämä on Svenska litteratursällskapet i Finlandin (SLS) automaattisesti lähettämä viesti. Älä vastaa tähän viestiin."
     success = send_email(to_address, email_subject, email_body)
     return success
 
