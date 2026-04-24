@@ -14,7 +14,7 @@ setup(
         'flask-jwt-extended==4.7.1',
         'flask-limiter[redis]==4.1.1',
         'flask-sqlalchemy==3.1.1',
-        'lxml==6.0.2',
+        'lxml==6.1.0',
         'passlib==1.7.4',
         'Pillow==12.1.1',
         'psycopg2-binary==2.9.11',
