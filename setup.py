@@ -20,7 +20,7 @@ setup(
         'psycopg2-binary==2.9.11',
         'PyMySQL==1.1.2',
         'ruamel.yaml==0.19.1',
-        'requests==2.32.5',
+        'requests==2.33.0',
         'saxonche==12.9.0',
         'sqlalchemy==2.0.48',
         'uwsgi==2.0.31',
