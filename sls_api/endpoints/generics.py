@@ -62,6 +62,9 @@ XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
     "var_other": "xslt/poem_variants_other.xsl"
 }
 
+# Frontend URL used in links sent over email (address verification, password reset)
+FRONTEND_EXTERNAL_URL = os.environ.get("FRONTEND_URL", "")
+
 metadata = MetaData()
 
 logger = logging.getLogger("sls_api.generics")
@@ -222,40 +225,120 @@ def changed_by_size_or_hash(pre: Tuple[Optional[int], Optional[str]], path: str)
     return pre_md5 != post_md5
 
 
-def project_permission_required(fn):
+def valid_jwt_required(refresh: bool = False, fresh: bool = False):
     """
-    Function decorator that checks for JWT authorization and that the user has edit rights for the project.
-    The project the method concerns should be the first positional argument or a keyword argument.
+    Function decorator that checks for a valid JWT, performing additional checks to ensure the user exists and the JWT isn't outdated
+    (i.e. checks that the user hasn't been deleted, and that their password hasn't been reset, and that their sessions haven't been invalidated)
     """
-    @wraps(fn)
-    def decorated_function(*args, **kwargs):
-        verify_jwt_in_request()
-        # get JWT identity
-        identity = get_jwt_identity()
-        # get JWT claims to check for claimed project access
-        claims = get_jwt()
-        if int(os.environ.get("FLASK_DEBUG", 0)) == 1 and identity == "test@test.com":
-            # If in FLASK_DEBUG mode, test@test.com user has access to all projects
-            return fn(*args, **kwargs)
-        else:
-            # locate project arg in function arguments
-            if len(args) > 0:
-                project = args[0]
-            elif "project" in kwargs:
-                project = kwargs["project"]
+    def wrapper(fn):
+        @wraps(fn)
+        def jwt_validity_check(*args, **kwargs):
+            verify_jwt_in_request(fresh=fresh, refresh=refresh)
+            # get JWT identity so we can ensure email is verified also
+            identity = get_jwt_identity()
+            user = User.find_by_email(identity)
+            # get JWT IAT so we can verify token is issued after user first validity
+            jwt_issued_at = get_jwt()["iat"]
+            if not user:
+                # user does not exist
+                return jsonify({"msg": "You are not logged in with valid credentials"}), 403
+            elif not User.check_token_validity(identity, jwt_issued_at):
+                # token issued before first validity - password reset or other reset has been done
+                return jsonify({"msg": "You are not logged in with valid credentials."}), 403
             else:
-                return jsonify({"msg": "No project identified."}), 500
+                # valid user, run function
+                return fn(*args, **kwargs)
+        return jwt_validity_check
+    return wrapper
 
-            # check for permission
-            if "projects" not in claims or not claims["projects"]:
-                # according to JWT, no access to any projects
-                return jsonify({"msg": "No access to this project."}), 403
-            elif check_for_project_permission_in_database(identity, project):
-                # only run function if database says user *actually* has permissions
+
+def reader_auth_required():
+    """
+    Function decorator that checks for JWT authentication, provided that the API is set to require it
+    """
+    def wrapper(fn):
+        @wraps(fn)
+        def reader_auth_check(*args, **kwargs):
+            if not config.get("reader_auth_required", False):
                 return fn(*args, **kwargs)
             else:
-                return jsonify({"msg": "No access to this project."}), 403
-    return decorated_function
+                verify_jwt_in_request()
+                # get JWT identity so we can ensure email is verified also
+                identity = get_jwt_identity()
+                user = User.find_by_email(identity)
+                # get JWT IAT so we can verify token is issued after user first validity
+                jwt_issued_at = get_jwt()["iat"]
+                if not user:
+                    # user does not exist
+                    return jsonify({"msg": "You are not logged in with a verified email address."}), 403
+                elif not User.check_token_validity(identity, jwt_issued_at):
+                    # token issued before first validity - password reset or other reset has been done
+                    return jsonify({"msg": "You are not logged in with a verified email address."}), 403
+                elif user.email_is_verified():
+                    # verified user, valid credentials
+                    return fn(*args, **kwargs)
+                else:
+                    # fallback to not authorized in case we missed a possible case
+                    return jsonify({"msg": "You are not logged in with a verified email address."}), 403
+        return reader_auth_check
+    return wrapper
+
+
+def cms_required(edit: bool = False) -> Any:
+    """
+    Function decorator that checks if the user is a CMS user, and optionally whether they have editing rights for the project
+    The project the method concerns should be the first positional argument or a keyword argument.
+
+    :param edit:
+    If ``True``, allow the decorated endpoint to be accessed only if the CMS user has permission to the project. Defaults to ``False``.
+    """
+    def wrapper(fn):
+        @wraps(fn)
+        def decorator(*args, **kwargs):
+            verify_jwt_in_request()
+            # get JWT identity
+            identity = get_jwt_identity()
+            # get JWT claims to check for claimed project access
+            claims = get_jwt()
+            if int(os.environ.get("FLASK_DEBUG", 0)) == 1 and identity == "test@test.com":
+                # If in FLASK_DEBUG mode, test@test.com user has access to all projects
+                return fn(*args, **kwargs)
+            else:
+                # TODO check for source IP, CMS users should only come from company intranet
+                user = User.find_by_email(identity)
+                # if user doesn't exist, then no access
+                if not user:
+                    return jsonify({"msg": "No access to this project."}), 403
+                # if user token issued before first validity time, then no access
+                elif not User.check_token_validity(identity, claims["iat"]):
+                    return jsonify({"msg": "No access to this project."}), 403
+                # if this function is marked as needing editing permissions, check for project and then verify permissions
+                elif edit:
+                    # locate project arg in function arguments
+                    if len(args) > 0:
+                        project = args[0]
+                    elif "project" in kwargs:
+                        project = kwargs["project"]
+                    else:
+                        return jsonify({"msg": "No project identified."}), 500
+
+                    # check for permission
+                    if "projects" not in claims or not claims["projects"]:
+                        # according to JWT, no access to any projects
+                        return jsonify({"msg": "No access to this project."}), 403
+                    elif check_for_project_permission_in_database(identity, project):
+                        # only run function if database says user *actually* has permissions
+                        return fn(*args, **kwargs)
+                    else:
+                        return jsonify({"msg": "No access to this project."}), 403
+                else:
+                    # if user exists, check if user is a CMS user
+                    if user.cms_user:
+                        return fn(*args, **kwargs)
+                    else:
+                        return jsonify({"msg": "User is not a CMS user"}), 403
+        return decorator
+    return wrapper
 
 
 def check_for_project_permission_in_database(user_email, project_name) -> bool:

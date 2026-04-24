@@ -1,6 +1,9 @@
+import datetime
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import logging
 import os
 from ruamel.yaml import YAML
@@ -9,6 +12,16 @@ from sys import stdout
 app = Flask(__name__)
 CORS(app)
 yaml = YAML(typ="safe")
+
+# redis/valkey settings
+REDIS_HOST = os.environ.get("REDIS_HOST", "redis")
+REDIS_PORT = os.environ.get("REDIS_PORT", "6379")
+
+# JWT expiry settings
+# access tokens are valid for 30 minutes by default
+# refresh tokens are valid for 14 days by default
+JWT_ACCESS_TOKEN_EXPIRY = datetime.timedelta(minutes=30)
+JWT_REFRESH_TOKEN_EXPIRY = datetime.timedelta(days=14)
 
 # First, set up logging
 root_logger = logging.getLogger()
@@ -22,6 +35,14 @@ root_logger.addHandler(stream_handler)
 
 logger = logging.getLogger("sls_api")
 
+# enable rate limiting with high default limits
+rate_limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["60/second"],
+    storage_uri=f"redis://{REDIS_HOST}:{REDIS_PORT}/0"  # use database 0 for rate limits
+)
+
 # check what config files exists, so we know what blueprints to load
 projects_config_exists = os.path.exists(os.path.join("sls_api", "configs", "digital_editions.yml"))
 security_config_exists = os.path.exists(os.path.join("sls_api", "configs", "security.yml"))
@@ -30,26 +51,27 @@ security_config_exists = os.path.exists(os.path.join("sls_api", "configs", "secu
 # Selectively import and register endpoints based on which configs exist and can be loaded
 if projects_config_exists:
     from sls_api.endpoints.metadata import meta
-    app.register_blueprint(meta, url_prefix="/digitaledition")
+    app.register_blueprint(meta)
     from sls_api.endpoints.facsimiles import facsimiles
-    app.register_blueprint(facsimiles, url_prefix="/digitaledition")
+    app.register_blueprint(facsimiles)
     from sls_api.endpoints.media import media
-    app.register_blueprint(media, url_prefix="/digitaledition")
+    app.register_blueprint(media)
     from sls_api.endpoints.occurrences import occurrences
-    app.register_blueprint(occurrences, url_prefix="/digitaledition")
+    app.register_blueprint(occurrences)
     from sls_api.endpoints.search import search
-    app.register_blueprint(search, url_prefix="/digitaledition")
+    app.register_blueprint(search)
     from sls_api.endpoints.songs import songs
-    app.register_blueprint(songs, url_prefix="/digitaledition")
+    app.register_blueprint(songs)
     from sls_api.endpoints.text import text
-    app.register_blueprint(text, url_prefix="/digitaledition")
+    app.register_blueprint(text)
     from sls_api.endpoints.workregister import workregister
-    app.register_blueprint(workregister, url_prefix="/digitaledition")
+    app.register_blueprint(workregister)
     from sls_api.endpoints.correspondence import correspondence
-    app.register_blueprint(correspondence, url_prefix="/digitaledition")
+    app.register_blueprint(correspondence)
 
 if security_config_exists:
     from sls_api.endpoints.auth import auth
+    from sls_api.endpoints.session import session
     from sls_api.models import db, User
     with open(os.path.join("sls_api", "configs", "security.yml")) as config_file:
         security_config = yaml.load(config_file.read())
@@ -57,6 +79,8 @@ if security_config_exists:
         for setting, value in security_config.items():
             security_config[setting] = os.path.expandvars(value)
     app.config["JWT_SECRET_KEY"] = security_config["secret_key"]
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = JWT_ACCESS_TOKEN_EXPIRY
+    app.config["JWT_REFRESH_TOKEN_EXPIRES"] = JWT_REFRESH_TOKEN_EXPIRY
     app.config["JWT_TOKEN_LOCATION"] = 'headers'
     app.config["SQLALCHEMY_DATABASE_URI"] = security_config["user_database"]
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -83,32 +107,33 @@ if security_config_exists:
         logger.warning("Skipping uwsgi postfork as importing uwsgi failed...")
         pass
 
-    app.register_blueprint(auth, url_prefix="/auth")
+    app.register_blueprint(auth)
+    app.register_blueprint(session)
 
     with app.app_context():
         # ensure database exists and is populated with test user
         db.create_all()
         if User.find_by_email("test@test.com") is None:
-            User.create_new_user("test@test.com", "test")
+            User.create_new_user("Test user", "test@test.com", "test")
 
 if projects_config_exists and security_config_exists:
     """
     If we have both a projects config (digital_edition.yml) and a security config (security.yml), load tools endpoints for JWT-protected writing to database
     """
     from sls_api.endpoints.tools.collections import collection_tools
-    app.register_blueprint(collection_tools, url_prefix="/digitaledition")
+    app.register_blueprint(collection_tools)
     from sls_api.endpoints.tools.events import event_tools
-    app.register_blueprint(event_tools, url_prefix="/digitaledition")
+    app.register_blueprint(event_tools)
     from sls_api.endpoints.tools.facsimiles import facsimile_tools
-    app.register_blueprint(facsimile_tools, url_prefix="/digitaledition")
+    app.register_blueprint(facsimile_tools)
     from sls_api.endpoints.tools.files import file_tools
-    app.register_blueprint(file_tools, url_prefix="/digitaledition")
+    app.register_blueprint(file_tools)
     from sls_api.endpoints.tools.groups import group_tools
-    app.register_blueprint(group_tools, url_prefix="/digitaledition")
+    app.register_blueprint(group_tools)
     from sls_api.endpoints.tools.publications import publication_tools
-    app.register_blueprint(publication_tools, url_prefix="/digitaledition")
+    app.register_blueprint(publication_tools)
     from sls_api.endpoints.tools.publishing import publishing_tools
-    app.register_blueprint(publishing_tools, url_prefix="/digitaledition")
+    app.register_blueprint(publishing_tools)
 
 logger.info(" * Loaded endpoints: {}".format(", ".join(app.blueprints)))
 

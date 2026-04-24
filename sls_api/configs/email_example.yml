@@ -1,0 +1,6 @@
+# as per SMTP Relay instructions in https://learn.microsoft.com/en-us/exchange/mail-flow-best-practices/how-to-set-up-a-multifunction-device-or-application-to-send-email-using-microsoft-365-or-office-365
+# ensure API is using a static IP configured in your M365 Exchange to allow SMTP Relay to non-org email addresses
+SMTP_RELAY_ADDRESS: 'your-m365-tenant.mail.protection.outlook.com'
+SMTP_RELAY_PORT: 25
+SMTP_FROM_ADDRESS: 'noreply@your-org.com'
+SMTP_STARTTLS: True
