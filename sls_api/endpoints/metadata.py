@@ -763,17 +763,24 @@ def get_publication_metadata(project, publication_id, language='sv'):
         project_table = get_table("project")
         collection_table = get_table("publication_collection")
         publication_table = get_table("publication")
+        translation_text_table = get_table("translation_text")
 
         with db_engine.connect() as connection:
             statement = (
                 sqlalchemy.sql.select(
                     project_table.c.published.label("project_published"),
                     collection_table.c.id.label("collection_id"),
+                    sqlalchemy.sql.func.coalesce(
+                        translation_text_table.c.text,
+                        collection_table.c.name
+                    ).label("collection_title"),
                     collection_table.c.published.label("collection_published"),
                     publication_table.c.name.label("publication_title"),
                     publication_table.c.published.label("publication_published"),
                     publication_table.c.genre.label("publication_genre"),
-                    publication_table.c.original_publication_date.label("publication_date"),
+                    publication_table.c.original_publication_date.label(
+                        "publication_date"
+                    ),
                     publication_table.c.language.label("publication_language"),
                 )
                 .select_from(
@@ -785,6 +792,16 @@ def get_publication_metadata(project, publication_id, language='sv'):
                     .join(
                         publication_table,
                         publication_table.c.publication_collection_id == collection_table.c.id
+                    )
+                    .outerjoin(
+                        translation_text_table,
+                        sqlalchemy.sql.and_(
+                            collection_table.c.name_translation_id == (
+                                translation_text_table.c.translation_id
+                            ),
+                            translation_text_table.c.language == language,
+                            translation_text_table.c.deleted < 1
+                        )
                     )
                 )
                 .where(project_table.c.name == str(project))
@@ -806,7 +823,11 @@ def get_publication_metadata(project, publication_id, language='sv'):
         return jsonify({"error": "Content does not exist."}), 404
 
     can_show, message = can_show_published_values(
-        [row["project_published"], row["collection_published"], row["publication_published"]],
+        [
+            row["project_published"],
+            row["collection_published"],
+            row["publication_published"]
+        ],
         project_config["show_internally_published"]
     )
     if not can_show:
@@ -815,7 +836,11 @@ def get_publication_metadata(project, publication_id, language='sv'):
     return jsonify({
         "id": p_id,
         "collection_id": row["collection_id"],
-        "collection_legacy_id": row["col_legacy_id"]
+        "collection_title": row["collection_title"],
+        "publication_title": row["publication_title"],
+        "publication_genre": row["publication_genre"],
+        "publication_date": row["publication_date"],
+        "publication_language": row["publication_language"]
     }), 200
 
 
