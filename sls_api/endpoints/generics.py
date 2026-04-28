@@ -492,6 +492,48 @@ def cache_is_recent(source_file, xsl_file, cache_file):
     return True
 
 
+def can_show_published_values(
+        published_values: List[Optional[int]],
+        show_internally_published: bool
+) -> Tuple[bool, str]:
+    """
+    Determine whether content with one or more published-status values
+    should be visible.
+
+    Published status is evaluated across all relevant database rows, for
+    example project, collection, and publication. The lowest status wins:
+    if any part of the chain is unpublished, the content is unpublished;
+    if the lowest status is internally published, visibility depends on
+    the project's `show_internally_published` setting.
+
+    Status values:
+        - None or values below 1: unpublished
+        - 1: internally published
+        - 2 or higher: publicly available
+
+    Args:
+        published_values: Published-status values to evaluate.
+        show_internally_published: Whether internally published content
+            should be visible for this project.
+
+    Returns:
+        A tuple of (can_show, message), where message is empty if the
+        content can be shown.
+    """
+    status = (
+        -1
+        if not published_values or any(v is None for v in published_values)
+        else min(published_values)
+    )
+
+    if status < 1:
+        return False, "Content is not published."
+    elif status == 1 and not show_internally_published:
+        return False, "Content is not publicly available."
+    else:
+        return True, ""
+
+
 def get_published_status(
         project: str,
         collection_id: str,
@@ -589,14 +631,7 @@ def get_published_status(
         if publication_id is not None:
             pub_values.append(row["pub"])
 
-        status = -1 if any(v is None for v in pub_values) else min(pub_values)
-
-        if status < 1:
-            message = "Content is not published."
-        elif status == 1 and not show_internal:
-            message = "Content is not publicly available."
-        else:
-            can_show = True
+        can_show, message = can_show_published_values(pub_values, show_internal)
 
     return can_show, message, col_legacy_id
 

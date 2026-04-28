@@ -9,10 +9,10 @@ import sqlalchemy.sql
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, \
-    get_project_id_from_name, path_hierarchy, select_all_from_table, \
-    flatten_json, get_first_valid_item_from_toc, int_or_none, \
-    is_valid_language, reader_auth_required
+from sls_api.endpoints.generics import can_show_published_values, \
+    db_engine, get_project_config, get_project_id_from_name, path_hierarchy, \
+    select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
+    int_or_none, get_table, is_valid_language, reader_auth_required
 
 meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
@@ -736,6 +736,87 @@ def get_urn(project, url, legacy_id=None):
             return_data.append(row._asdict())
     connection.close()
     return jsonify(return_data), 200
+
+
+@meta.route("/<project>/publications/<publication_id>/metadata/<language>", methods=["GET"])
+@meta.route("/<project>/publications/<publication_id>/metadata", methods=["GET"])
+@reader_auth_required()
+def get_publication_metadata(project, publication_id, language='sv'):
+    """
+    Get metadata for a given publication.
+    """
+    project_config = get_project_config(project)
+    if project_config is None:
+        return jsonify({"error": f"The project '{project}' does not exist."}), 400
+
+    if project_config.get("file_root") is None:
+        return jsonify({"error": f"File root missing from '{project}' project config."}), 500
+
+    p_id = int_or_none(publication_id)
+    if p_id is None or p_id < 1:
+        return jsonify({"error": "Invalid publication_id."}), 400
+
+    if language is not None and not is_valid_language(language):
+        return jsonify({"error": "Invalid language."}), 400
+
+    try:
+        project_table = get_table("project")
+        collection_table = get_table("publication_collection")
+        publication_table = get_table("publication")
+
+        with db_engine.connect() as connection:
+            statement = (
+                sqlalchemy.sql.select(
+                    project_table.c.published.label("project_published"),
+                    collection_table.c.id.label("collection_id"),
+                    collection_table.c.published.label("collection_published"),
+                    publication_table.c.name.label("publication_title"),
+                    publication_table.c.published.label("publication_published"),
+                    publication_table.c.genre.label("publication_genre"),
+                    publication_table.c.original_publication_date.label("publication_date"),
+                    publication_table.c.language.label("publication_language"),
+                )
+                .select_from(
+                    project_table
+                    .join(
+                        collection_table,
+                        collection_table.c.project_id == project_table.c.id,
+                    )
+                    .join(
+                        publication_table,
+                        publication_table.c.publication_collection_id == collection_table.c.id
+                    )
+                )
+                .where(project_table.c.name == str(project))
+                .where(publication_table.c.id == p_id)
+                .where(project_table.c.deleted < 1)
+                .where(collection_table.c.deleted < 1)
+                .where(publication_table.c.deleted < 1)
+            )
+            row = connection.execute(statement).mappings().first()
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication metadata for %s/%s",
+            project,
+            publication_id
+        )
+        return jsonify({"error": "Unexpected error getting publication metadata."}), 500
+
+    if row is None:
+        return jsonify({"error": "Content does not exist."}), 404
+
+    can_show, message = can_show_published_values(
+        [row["project_published"], row["collection_published"], row["publication_published"]],
+        project_config["show_internally_published"]
+    )
+    if not can_show:
+        return jsonify({"error": message}), 403
+
+    return jsonify({
+        "id": p_id,
+        "collection_id": row["collection_id"],
+        "collection_legacy_id": row["col_legacy_id"]
+    }), 200
 
 
 def list_tooltips(table):
