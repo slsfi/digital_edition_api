@@ -849,6 +849,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
         with db_engine.connect() as connection:
             manuscript_statement = (
                 sqlalchemy.sql.select(
+                    manuscript_table.c.id,
                     manuscript_table.c.name,
                     manuscript_table.c.original_filename,
                     manuscript_table.c.sort_order,
@@ -881,6 +882,59 @@ def get_publication_metadata(project, publication_id, language='sv'):
             "error": "Unexpected error getting publication metadata."
         }), 500
 
+    # Get facsimiles linked to the publication
+    try:
+        facsimile_table = get_table("publication_facsimile")
+        facsimile_collection_table = get_table(
+            "publication_facsimile_collection"
+        )
+
+        with db_engine.connect() as connection:
+            facsimile_statement = (
+                sqlalchemy.sql.select(
+                    facsimile_table.c.id,
+                    facsimile_table.c.publication_facsimile_collection_id,
+                    facsimile_table.c.publication_manuscript_id,
+                    facsimile_table.c.page_nr,
+                    facsimile_table.c.priority,
+                    facsimile_collection_table.c.title,
+                    facsimile_collection_table.c.number_of_pages,
+                    facsimile_collection_table.c.description,
+                    facsimile_collection_table.c.external_url,
+                )
+                .select_from(
+                    facsimile_table.join(
+                        facsimile_collection_table,
+                        facsimile_table.c.publication_facsimile_collection_id == (
+                            facsimile_collection_table.c.id
+                        )
+                    )
+                )
+                .where(facsimile_table.c.publication_id == p_id)
+                .where(facsimile_table.c.deleted < 1)
+                .where(facsimile_collection_table.c.deleted < 1)
+                .order_by(
+                    facsimile_table.c.priority,
+                    facsimile_table.c.id
+                )
+            )
+            facsimiles = [
+                dict(facsimile)
+                for facsimile in connection.execute(
+                    facsimile_statement
+                ).mappings().all()
+            ]
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication facsimiles for %s/%s",
+            project,
+            publication_id
+        )
+        return jsonify({
+            "error": "Unexpected error getting publication metadata."
+        }), 500
+
+    # Response
     return jsonify({
         "publication_id": p_id,
         "collection_id": row["collection_id"],
@@ -890,7 +944,8 @@ def get_publication_metadata(project, publication_id, language='sv'):
         "publication_genre": row["publication_genre"],
         "publication_date": row["publication_date"],
         "publication_language": row["publication_language"],
-        "manuscripts": manuscripts
+        "manuscripts": manuscripts,
+        "facsimiles": facsimiles
     }), 200
 
 
