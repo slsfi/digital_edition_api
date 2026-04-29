@@ -1015,8 +1015,9 @@ def construct_publication_metadata_response(
         # declared in the parameters, and returns the final metadata as stringified
         # JSON. This way the XSLT stylesheet has the final control over which
         # metadata fields are returned and in which form.
-        json_text_metadata = saxon_doc.call_template_returning_string(
-            parameters=json.dumps(db_metadata_with_uris)
+        metadata_json = json.dumps(db_metadata_with_uris, ensure_ascii=False)
+        transformed_metadata_json_text = saxon_doc.call_template_returning_string(
+            parameters={"db-json": metadata_json}
         )
     except Exception:
         logger.exception("Unexpected error invoking a transformation while getting publication metadata.")
@@ -1024,12 +1025,12 @@ def construct_publication_metadata_response(
 
     # Validate the stringified JSON by parsing it
     try:
-        json_metadata = json.loads(json_text_metadata)
+        transformed_metadata_json = json.loads(transformed_metadata_json_text)
     except json.JSONDecodeError:
         logger.exception("Invalid JSON from XSLT while getting publication metadata.")
         return {"error": "Unexpected error getting publication metadata: metadata transform produced invalid JSON."}, 500
 
-    return json_metadata, 200
+    return transformed_metadata_json, 200
 
 
 def update_publication_related_table(
