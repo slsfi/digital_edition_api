@@ -208,9 +208,9 @@ class SaxonXMLDocument:
 
     def call_template_returning_string(
             self,
-            template: Optional[str]=None,
-            xslt_exec: Optional[PyXsltExecutable]=None,
-            parameters: Optional[Dict]=None
+            template: Optional[str] = None,
+            xslt_exec: Optional[PyXsltExecutable] = None,
+            parameters: Optional[Dict] = None
     ) -> str:
         """
         Invoke a transformation by calling a named template and return the result
@@ -233,7 +233,7 @@ class SaxonXMLDocument:
         exec = xslt_exec or self.compiled_xslt
         if exec is None:
             raise Exception("No XSLT executable could be resolved.")
-        
+
         # Initialize parameters as an empty dictionary if None is passed
         parameters = parameters or {}
 
@@ -284,7 +284,7 @@ class SaxonXMLDocument:
         """
         if self.xslt30_proc is None:
             self.xslt30_proc = self.saxon_proc.new_xslt30_processor()
-        
+
         self.compiled_xslt = self.xslt30_proc.compile_stylesheet(
             stylesheet_file=xslt_path,
             encoding="utf-8"

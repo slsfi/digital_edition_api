@@ -1004,7 +1004,7 @@ def construct_publication_metadata_response(
     try:
         # Initialise a SaxonXMLDocument instance
         saxon_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc,
-                                                    xslt30_proc=saxon_xslt_proc)
+                                                       xslt30_proc=saxon_xslt_proc)
 
         # Compile the XSLT into a Saxon XSLT executable
         saxon_doc.compile_stylesheet(xsl_path)
