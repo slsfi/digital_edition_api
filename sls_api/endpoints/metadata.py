@@ -934,6 +934,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
 
     # Dictionary with publication metadata from the database
     db_metadata = {
+        "metadata_language": language,
         "publication_id": p_id,
         "collection_id": row["collection_id"],
         "collection_title": row["collection_title"],
