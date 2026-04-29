@@ -972,9 +972,36 @@ def construct_publication_metadata_response(
         db_metadata: Dict[str, Any],
         project_config: Mapping
 ) -> Tuple[Dict[str, Any], int]:
+    """
+    Build the final publication metadata response object.
+
+    The endpoint first collects publication metadata from the database and
+    passes it to this helper. If Saxon XSLT support is enabled for the project
+    and the project-specific `publication-metadata.xsl` stylesheet exists, the
+    helper enriches XML path fields with internal file URIs and passes the
+    metadata JSON to the stylesheet. The stylesheet can then read additional
+    metadata from XML files and return the final response object as JSON.
+
+    If Saxon support or the stylesheet is unavailable, the database metadata is
+    returned directly. In both paths, internal file path fields and generated
+    `*_uri` fields are removed before the response is returned.
+
+    Args:
+        db_metadata: Metadata collected from the database. May contain nested
+            dictionaries and lists, including internal XML file path fields.
+        project_config: Project configuration mapping. Uses `file_root`,
+            `use_saxon_xslt`, and the project XSLT location.
+
+    Returns:
+        A tuple of `(response_data, status_code)`. On success,
+        `response_data` is the sanitized metadata response and status is 200.
+        On transformation or JSON parsing failure, `response_data` contains an
+        error message and status is 500.
+    """
     file_root = project_config.get("file_root", "")
     use_saxon_xslt = project_config.get("use_saxon_xslt", False)
     relative_xsl_path = XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS.get("publication_metadata")
+    xml_path_fields = ["publication_filepath", "original_filename"]
 
     xsl_path = safe_join(file_root, relative_xsl_path) if relative_xsl_path else None
 
@@ -987,9 +1014,7 @@ def construct_publication_metadata_response(
         not use_saxon_xslt or
         not saxon_proc
     ):
-        return db_metadata, 200
-
-    xml_path_fields = ["publication_filepath", "original_filename"]
+        return remove_file_path_fields(db_metadata, xml_path_fields), 200
 
     try:
         db_metadata_with_uris = enrich_db_metadata_with_uris(
@@ -1015,9 +1040,9 @@ def construct_publication_metadata_response(
         # declared in the parameters, and returns the final metadata as stringified
         # JSON. This way the XSLT stylesheet has the final control over which
         # metadata fields are returned and in which form.
-        metadata_json = json.dumps(db_metadata_with_uris, ensure_ascii=False)
+        db_metadata_json = json.dumps(db_metadata_with_uris, ensure_ascii=False)
         transformed_metadata_json_text = saxon_doc.call_template_returning_string(
-            parameters={"db-json": metadata_json}
+            parameters={"db-json": db_metadata_json}
         )
     except Exception:
         logger.exception("Unexpected error invoking a transformation while getting publication metadata.")
@@ -1030,7 +1055,7 @@ def construct_publication_metadata_response(
         logger.exception("Invalid JSON from XSLT while getting publication metadata.")
         return {"error": "Unexpected error getting publication metadata: metadata transform produced invalid JSON."}, 500
 
-    return transformed_metadata_json, 200
+    return remove_file_path_fields(transformed_metadata_json, xml_path_fields), 200
 
 
 def update_publication_related_table(
@@ -1838,6 +1863,59 @@ def enrich_db_metadata_with_uris(
         return value
 
     transformed = transform(db_metadata)
+    if not isinstance(transformed, dict):
+        raise TypeError("Expected transformed top-level metadata to be a dict")
+
+    return transformed
+
+
+def remove_file_path_fields(
+    metadata: Mapping[str, Any],
+    xml_path_fields: Iterable[str],
+) -> Dict[str, Any]:
+    """
+    Return a deep-copied metadata structure with private file path fields
+    removed.
+
+    The publication metadata XSLT receives internal file paths and generated
+    file URIs so it can read XML files with Saxon. Those paths should not be
+    exposed in the public API response. This helper recursively removes keys
+    listed in ``xml_path_fields`` and any generated ``*_uri`` keys from nested
+    dictionaries and lists.
+
+    Args:
+        metadata: Metadata response object.
+        xml_path_fields: Field names containing database-relative file paths.
+
+    Returns:
+        A new dictionary without internal file path or file URI fields.
+
+    Raises:
+        TypeError: If ``metadata`` is not a mapping at the top level.
+    """
+    if not isinstance(metadata, Mapping):
+        raise TypeError("metadata must be a mapping")
+
+    xml_path_field_set = set(xml_path_fields)
+
+    def transform(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            result = {}
+
+            for key, item in value.items():
+                if key in xml_path_field_set or str(key).endswith("_uri"):
+                    continue
+
+                result[key] = transform(item)
+
+            return result
+
+        if isinstance(value, list):
+            return [transform(item) for item in value]
+
+        return value
+
+    transformed = transform(metadata)
     if not isinstance(transformed, dict):
         raise TypeError("Expected transformed top-level metadata to be a dict")
 
