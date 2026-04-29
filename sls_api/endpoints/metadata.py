@@ -745,6 +745,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     """
     Get metadata for a given publication.
     """
+    # Validate parameters
     project_config = get_project_config(project)
     if project_config is None:
         return jsonify({"error": f"The project '{project}' does not exist."}), 400
@@ -759,6 +760,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if language is not None and not is_valid_language(language):
         return jsonify({"error": "Invalid language."}), 400
 
+    # Get core data of publication and collection from the database
     try:
         project_table = get_table("project")
         collection_table = get_table("publication_collection")
@@ -776,6 +778,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
                     ).label("collection_title"),
                     collection_table.c.published.label("collection_published"),
                     publication_table.c.name.label("publication_title"),
+                    publication_table.c.original_filename.label("publication_filepath"),
                     publication_table.c.published.label("publication_published"),
                     publication_table.c.genre.label("publication_genre"),
                     publication_table.c.original_publication_date.label(
@@ -833,14 +836,61 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if not can_show:
         return jsonify({"error": message}), 403
 
+    manuscript_published_status = (
+        1
+        if project_config["show_internally_published"]
+        else 2
+    )
+
+    # Get manuscripts linked to the publication
+    try:
+        manuscript_table = get_table("publication_manuscript")
+
+        with db_engine.connect() as connection:
+            manuscript_statement = (
+                sqlalchemy.sql.select(
+                    manuscript_table.c.name,
+                    manuscript_table.c.original_filename,
+                    manuscript_table.c.sort_order,
+                    manuscript_table.c.language,
+                    manuscript_table.c.published,
+                )
+                .where(manuscript_table.c.publication_id == p_id)
+                .where(manuscript_table.c.deleted < 1)
+                .where(
+                    manuscript_table.c.published >= manuscript_published_status
+                )
+                .order_by(
+                    manuscript_table.c.sort_order,
+                    manuscript_table.c.name
+                )
+            )
+            manuscripts = [
+                dict(manuscript)
+                for manuscript in connection.execute(
+                    manuscript_statement
+                ).mappings().all()
+            ]
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication manuscripts for %s/%s",
+            project,
+            publication_id
+        )
+        return jsonify({
+            "error": "Unexpected error getting publication metadata."
+        }), 500
+
     return jsonify({
-        "id": p_id,
+        "publication_id": p_id,
         "collection_id": row["collection_id"],
         "collection_title": row["collection_title"],
         "publication_title": row["publication_title"],
+        "publication_filepath": row["publication_filepath"],
         "publication_genre": row["publication_genre"],
         "publication_date": row["publication_date"],
-        "publication_language": row["publication_language"]
+        "publication_language": row["publication_language"],
+        "manuscripts": manuscripts
     }), 200
 
 
