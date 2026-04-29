@@ -12,7 +12,8 @@ from werkzeug.security import safe_join
 from sls_api.endpoints.generics import can_show_published_values, \
     db_engine, get_project_config, get_project_id_from_name, path_hierarchy, \
     select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
-    int_or_none, get_table, is_valid_language, reader_auth_required
+    int_or_none, get_table, is_valid_language, reader_auth_required, \
+    construct_publication_metadata_response
 
 meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
@@ -825,22 +826,19 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if row is None:
         return jsonify({"error": "Content does not exist."}), 404
 
+    show_internal = project_config.get("show_internally_published", False)
     can_show, message = can_show_published_values(
         [
             row["project_published"],
             row["collection_published"],
             row["publication_published"]
         ],
-        project_config["show_internally_published"]
+        show_internal
     )
     if not can_show:
         return jsonify({"error": message}), 403
 
-    manuscript_published_status = (
-        1
-        if project_config["show_internally_published"]
-        else 2
-    )
+    manuscript_published_status = (1 if show_internal else 2)
 
     # Get manuscripts linked to the publication
     try:
@@ -934,8 +932,8 @@ def get_publication_metadata(project, publication_id, language='sv'):
             "error": "Unexpected error getting publication metadata."
         }), 500
 
-    # Response
-    return jsonify({
+    # Dictionary with publication metadata from the database
+    db_metadata = {
         "publication_id": p_id,
         "collection_id": row["collection_id"],
         "collection_title": row["collection_title"],
@@ -946,7 +944,13 @@ def get_publication_metadata(project, publication_id, language='sv'):
         "publication_language": row["publication_language"],
         "manuscripts": manuscripts,
         "facsimiles": facsimiles
-    }), 200
+    }
+
+    response_data, response_status = construct_publication_metadata_response(
+        db_metadata,
+        project_config
+    )
+    return jsonify(response_data), response_status
 
 
 def list_tooltips(table):

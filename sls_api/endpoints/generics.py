@@ -7,18 +7,20 @@ from functools import wraps
 import glob
 import hashlib
 import io
+import json
 import logging
 from lxml import etree
-from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 import os
+from pathlib import Path
 import re
 from ruamel.yaml import YAML
+from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 from sls_api.models import User
 from sqlalchemy import create_engine, Connection, MetaData, RowMapping, Table
 from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 from werkzeug.security import safe_join
 
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -47,9 +49,9 @@ DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
 # HTML than prerendered HTML from the XML files).
 PRERENDERED_HTML_PATH_IN_PROJECT_ROOT = "html/documents"
 
-# Map of paths to XSLT stylesheets for HTML transformations for different
-# text types. The paths to the XSLT stylesheets are relative to the
-# project root.
+# Map of paths to XSLT stylesheets for XML->HTML transformations for
+# different text types. The paths to the XSLT stylesheets are relative
+# to the project root.
 XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
     "com": "xslt/com.xsl",
     "est": "xslt/est.xsl",
@@ -60,6 +62,13 @@ XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
     "tit": "xslt/title.xsl",
     "var_base": "xslt/poem_variants_est.xsl",
     "var_other": "xslt/poem_variants_other.xsl"
+}
+
+# Map of paths to XSLT stylesheets for XML->JSON transformations for
+# different text types. The paths to the XSLT stylesheets are relative
+# to the project root.
+XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS = {
+    "publication_metadata": "xslt/publication-metadata.xsl"
 }
 
 # Frontend URL used in links sent over email (address verification, password reset)
@@ -959,6 +968,70 @@ def get_frontmatter_page_content(
     )
 
 
+def construct_publication_metadata_response(
+        db_metadata: Dict[str, Any],
+        project_config: Mapping
+) -> Tuple[Dict[str, Any], int]:
+    file_root = project_config.get("file_root", "")
+    use_saxon_xslt = project_config.get("use_saxon_xslt", False)
+    relative_xsl_path = XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS.get("publication_metadata")
+
+    xsl_path = safe_join(file_root, relative_xsl_path) if relative_xsl_path else None
+
+    # If the Saxon XSLT processor is not enabled/availabe or XSLT for pulling
+    # additional data from the XML-files and transforming the JSON response
+    # is not available, respond with just the metadata from the database.
+    if (
+        not xsl_path or
+        os.path.isfile(xsl_path) is False or
+        not use_saxon_xslt or
+        not saxon_proc
+    ):
+        return db_metadata, 200
+
+    xml_path_fields = ["publication_filepath", "original_filename"]
+
+    try:
+        db_metadata_with_uris = enrich_db_metadata_with_uris(
+            db_metadata=db_metadata,
+            file_root=file_root,
+            xml_path_fields=xml_path_fields,
+        )
+    except Exception:
+        logger.exception("Unexpected error converting XML file paths to URIs while getting publication metadata.")
+        return {"error": "Unexpected error getting publication metadata."}, 500
+
+    try:
+        # Initialise a SaxonXMLDocument instance
+        saxon_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc,
+                                                    xslt30_proc=saxon_xslt_proc)
+
+        # Compile the XSLT into a Saxon XSLT executable
+        saxon_doc.compile_stylesheet(xsl_path)
+
+        # Invoke a transformation by calling the initial-template of the XSLT
+        # stylesheet. The stylesheet reads the database metadata from the
+        # stringified JSON passed as a parameter, reads data from XML-files
+        # declared in the parameters, and returns the final metadata as stringified
+        # JSON. This way the XSLT stylesheet has the final control over which
+        # metadata fields are returned and in which form.
+        json_text_metadata = saxon_doc.call_template_returning_string(
+            parameters=json.dumps(db_metadata_with_uris)
+        )
+    except Exception:
+        logger.exception("Unexpected error invoking a transformation while getting publication metadata.")
+        return {"error": "Unexpected error getting publication metadata."}, 500
+
+    # Validate the stringified JSON by parsing it
+    try:
+        json_metadata = json.loads(json_text_metadata)
+    except json.JSONDecodeError:
+        logger.exception("Invalid JSON from XSLT while getting publication metadata.")
+        return {"error": "Unexpected error getting publication metadata: metadata transform produced invalid JSON."}, 500
+
+    return json_metadata, 200
+
+
 def update_publication_related_table(
         connection: Connection,
         text_type: str,
@@ -1668,3 +1741,103 @@ def ensure_trailing_newline(text: str) -> str:
 
     # Otherwise, default to LF
     return text + "\n"
+
+
+def to_file_uri(file_root: Union[str, Path], rel_path: Optional[str]) -> Optional[str]:
+    """
+    Convert a database-relative file path into an absolute ``file://`` URI.
+
+    The relative path is joined to the configured project file root using
+    :func:`werkzeug.security.safe_join` so the final path remains within the
+    trusted root directory. The resulting filesystem path is then resolved to
+    an absolute path and converted to a ``file://`` URI suitable for XSLT/XPath
+    functions such as ``fn:doc()``.
+
+    Args:
+        file_root: Absolute root directory under which project files are stored.
+            May be given as a string or :class:`pathlib.Path`.
+        rel_path: Relative file path from the database. If ``None`` or an empty
+            string, the function returns ``None``.
+
+    Returns:
+        An absolute file URI such as
+        ``file:///srv/project/documents/publications/text1.xml``, or ``None``
+        if ``rel_path`` is ``None`` or empty.
+
+    Raises:
+        ValueError: If ``rel_path`` is unsafe or resolves outside ``file_root``.
+    """
+    if not rel_path:
+        return None
+
+    abs_path = safe_join(str(file_root), rel_path)
+    if abs_path is None:
+        raise ValueError("Unsafe path outside file root: {!r}".format(rel_path))
+
+    return Path(abs_path).resolve().as_uri()
+
+
+def enrich_db_metadata_with_uris(
+    db_metadata: Mapping[str, Any],
+    file_root: Union[str, Path],
+    xml_path_fields: Iterable[str],
+) -> Dict[str, Any]:
+    """
+    Return a deep-copied metadata structure with ``*_uri`` fields added.
+
+    This function recursively traverses a metadata structure composed of nested
+    dictionaries and lists. Whenever it encounters a dictionary key whose name
+    appears in ``xml_path_fields``, it preserves the original value and adds a
+    sibling key named ``<field>_uri`` whose value is the absolute ``file://``
+    URI derived from that relative path.
+
+    Only string values are converted. Nested dictionaries and lists are
+    processed recursively so XML path fields are handled no matter where they
+    occur within the metadata structure.
+
+    Args:
+        db_metadata: Metadata loaded from the database. This may be a nested
+            structure containing dictionaries and lists.
+        file_root: Absolute root directory under which project files are stored.
+            May be given as a string or :class:`pathlib.Path`.
+        xml_path_fields: Field names whose values should be interpreted as
+            database-relative XML file paths and expanded with corresponding
+            ``*_uri`` keys.
+
+    Returns:
+        A new dictionary containing the same metadata as ``db_metadata`` plus
+        derived ``*_uri`` fields for matching XML path entries found anywhere
+        in the nested structure.
+
+    Raises:
+        ValueError: If any matching XML path is unsafe or resolves outside
+            ``file_root``.
+        TypeError: If ``db_metadata`` is not a mapping at the top level.
+    """
+    if not isinstance(db_metadata, Mapping):
+        raise TypeError("db_metadata must be a mapping")
+
+    xml_path_field_set = set(xml_path_fields)
+
+    def transform(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            result = {}
+
+            for key, item in value.items():
+                result[key] = transform(item)
+
+                if key in xml_path_field_set and isinstance(item, str) and item:
+                    result["{}_uri".format(key)] = to_file_uri(file_root, item)
+
+            return result
+
+        if isinstance(value, list):
+            return [transform(item) for item in value]
+
+        return value
+
+    transformed = transform(db_metadata)
+    if not isinstance(transformed, dict):
+        raise TypeError("Expected transformed top-level metadata to be a dict")
+
+    return transformed

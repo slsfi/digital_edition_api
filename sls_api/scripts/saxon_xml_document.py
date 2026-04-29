@@ -2,7 +2,7 @@ import io
 import re
 from typing import Any, Dict, List, Optional
 
-from saxonche import PySaxonApiError, PySaxonProcessor, PyXdmNode, PyXdmValue, PyXsltExecutable
+from saxonche import PySaxonApiError, PySaxonProcessor, PyXdmNode, PyXdmValue, PyXsltExecutable, PyXslt30Processor
 
 
 class SaxonXMLDocument:
@@ -21,6 +21,10 @@ class SaxonXMLDocument:
     - saxon_proc (PySaxonProcessor): An instance of PySaxonProcessor for
       SaxonC operations.
     - namespaces (list): List of namespaces to declare for XPath evaluation.
+    - xslt30_proc (PyXslt30Processor): Optional instance of a Saxon XSLT 3.0
+      processor. Must have been created with the class `saxon_proc`.
+    - compiled_xslt (PyXsltExecutable): Optional compiled XSLT stylesheet.
+      Must have been created with the class `xslt30_proc`.
 
     Methods:
     - load_xml_file(filepath): Loads an XML document from a file and parses it.
@@ -57,13 +61,16 @@ class SaxonXMLDocument:
       initialization.
     - namespaces (list, optional): A list of dictionaries containing namespace
       mappings. Defaults to TEI and XML namespaces.
+    - xslt30_proc (PyXslt30Processorl, optional): An instance of a Saxon XSLT
+      3.0 processor. Must have been created with the passed PySaxonProcessor.
     """
 
     def __init__(
             self,
             saxon_proc: PySaxonProcessor,
             xml_filepath: str = "",
-            namespaces: Optional[List[Dict[str, str]]] = None
+            namespaces: Optional[List[Dict[str, str]]] = None,
+            xslt30_proc: Optional[PyXslt30Processor] = None
     ):
         """
         Initializes a SaxonXMLDocument instance.
@@ -92,6 +99,8 @@ class SaxonXMLDocument:
             {"prefix": "xml", "uri": "http://www.w3.org/XML/1998/namespace"},
             {"prefix": "tei", "uri": "http://www.tei-c.org/ns/1.0"}
         ]
+        self.xslt30_proc: Optional[PyXslt30Processor] = xslt30_proc
+        self.compiled_xslt: Optional[PyXsltExecutable] = None
 
         if xml_filepath:
             try:
@@ -197,6 +206,47 @@ class SaxonXMLDocument:
                                                     format_output)
         self._save_to_file(output_filepath=output_filepath)
 
+    def call_template_returning_string(
+            self,
+            template: Optional[str]=None,
+            xslt_exec: Optional[PyXsltExecutable]=None,
+            parameters: Optional[Dict]=None
+    ) -> str:
+        """
+        Invoke a transformation by calling a named template and return the result
+        as a string.
+
+        Parameters:
+        - template (str, optional): The name of the template to invoke. If None
+          is supplied then call the initial-template. Defaults to None.
+        - xslt_exec (PyXsltExecutable, optional): The compiled XSLT executable
+          to use for the transformation. If None is supplied then the XSLT
+          executable instantiated on the class will be used. Throws if no XSLT
+          executable can be resolved. Defaults to None.
+        - parameters (dict, optional): A dictionary with parameters for the XSLT
+          executable. Defaults to None.
+
+        Returns:
+        - str: Result of the transformation as a string.
+        """
+        # Use the class XSLT executable if none passed
+        exec = xslt_exec or self.compiled_xslt
+        if exec is None:
+            raise Exception("No XSLT executable could be resolved.")
+        
+        # Initialize parameters as an empty dictionary if None is passed
+        parameters = parameters or {}
+
+        # Clear any parameters previously set on the XSLT executable
+        exec.clear_parameters()
+
+        if parameters:
+            self._set_xslt_parameters_from_dict(exec, parameters)
+
+        result = exec.call_template_returning_string(template_name=template,
+                                                     encoding="utf-8")
+        return result
+
     def add_namespace(self, ns_prefix: str, ns_uri: str):
         """
         Adds the provided namespace to the `namespaces` attribute of the
@@ -220,6 +270,27 @@ class SaxonXMLDocument:
             }
         )
         return True
+
+    def compile_stylesheet(self, xslt_path: str) -> PyXsltExecutable:
+        """
+        Compiles the XSLT stylesheet to a PyXsltExecutable. If the class
+        has no PyXslt30Processor, one is created.
+
+        Parameters:
+        - xslt_path (str): path to the XSLT stylesheet to be compiled.
+
+        Returns:
+        - PyXsltExecutable: The compiled stylesheet.
+        """
+        if self.xslt30_proc is None:
+            self.xslt30_proc = self.saxon_proc.new_xslt30_processor()
+        
+        self.compiled_xslt = self.xslt30_proc.compile_stylesheet(
+            stylesheet_file=xslt_path,
+            encoding="utf-8"
+        )
+
+        return self.compiled_xslt
 
     def get_all_comment_ids(self) -> List[int]:
         """
