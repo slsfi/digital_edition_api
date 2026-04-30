@@ -1247,13 +1247,13 @@ def get_publication_metadata_from_db(
     return {
         "metadata_language": language,
         "publication_id": publication_id,
-        "collection_id": base_row["collection_id"],
-        "collection_title": base_row["collection_title"],
         "publication_title": base_row["publication_title"],
         "publication_filepath": base_row["publication_filepath"],
         "publication_genre": base_row["publication_genre"],
         "publication_date": base_row["publication_date"],
         "publication_language": base_row["publication_language"],
+        "collection_id": base_row["collection_id"],
+        "collection_title": base_row["collection_title"],
         "facsimiles": facsimiles,
         "manuscripts": manuscripts,
         "variants": variants
