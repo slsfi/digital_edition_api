@@ -9,11 +9,13 @@ import sqlalchemy.sql
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import can_show_published_values, \
+from sls_api.endpoints.generics import \
+    can_show_publication_metadata_row, construct_publication_metadata_response, \
     db_engine, get_project_config, get_project_id_from_name, path_hierarchy, \
+    get_prerendered_publication_metadata_content, \
+    get_publication_metadata_base_row, get_publication_metadata_from_db, \
     select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
-    int_or_none, get_table, is_valid_language, reader_auth_required, \
-    construct_publication_metadata_response
+    int_or_none, get_table, is_valid_language, reader_auth_required
 
 meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
@@ -751,7 +753,8 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if project_config is None:
         return jsonify({"error": f"The project '{project}' does not exist."}), 400
 
-    if project_config.get("file_root") is None:
+    file_root = project_config.get("file_root")
+    if file_root is None:
         return jsonify({"error": f"File root missing from '{project}' project config."}), 500
 
     p_id = int_or_none(publication_id)
@@ -761,191 +764,47 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if language is not None and not is_valid_language(language):
         return jsonify({"error": "Invalid language."}), 400
 
-    # Get core data of publication and collection from the database
-    try:
-        project_table = get_table("project")
-        collection_table = get_table("publication_collection")
-        publication_table = get_table("publication")
-        translation_text_table = get_table("translation_text")
+    base_row, message, status_code = get_publication_metadata_base_row(
+        project,
+        p_id,
+        language
+    )
+    if base_row is None:
+        return jsonify({"error": message}), status_code
 
-        with db_engine.connect() as connection:
-            statement = (
-                sqlalchemy.sql.select(
-                    project_table.c.published.label("project_published"),
-                    collection_table.c.id.label("collection_id"),
-                    sqlalchemy.sql.func.coalesce(
-                        translation_text_table.c.text,
-                        collection_table.c.name
-                    ).label("collection_title"),
-                    collection_table.c.published.label("collection_published"),
-                    publication_table.c.name.label("publication_title"),
-                    publication_table.c.original_filename.label("publication_filepath"),
-                    publication_table.c.published.label("publication_published"),
-                    publication_table.c.genre.label("publication_genre"),
-                    publication_table.c.original_publication_date.label(
-                        "publication_date"
-                    ),
-                    publication_table.c.language.label("publication_language"),
-                )
-                .select_from(
-                    project_table
-                    .join(
-                        collection_table,
-                        collection_table.c.project_id == project_table.c.id,
-                    )
-                    .join(
-                        publication_table,
-                        publication_table.c.publication_collection_id == collection_table.c.id
-                    )
-                    .outerjoin(
-                        translation_text_table,
-                        sqlalchemy.sql.and_(
-                            collection_table.c.name_translation_id == (
-                                translation_text_table.c.translation_id
-                            ),
-                            translation_text_table.c.language == language,
-                            translation_text_table.c.deleted < 1
-                        )
-                    )
-                )
-                .where(project_table.c.name == str(project))
-                .where(publication_table.c.id == p_id)
-                .where(project_table.c.deleted < 1)
-                .where(collection_table.c.deleted < 1)
-                .where(publication_table.c.deleted < 1)
-            )
-            row = connection.execute(statement).mappings().first()
-    except Exception:
-        logger.exception(
-            "Unexpected error getting publication metadata for %s/%s",
-            project,
-            publication_id
-        )
-        return jsonify({"error": "Unexpected error getting publication metadata."}), 500
-
-    if row is None:
-        return jsonify({"error": "Content does not exist."}), 404
-
-    show_internal = project_config.get("show_internally_published", False)
-    can_show, message = can_show_published_values(
-        [
-            row["project_published"],
-            row["collection_published"],
-            row["publication_published"]
-        ],
-        show_internal
+    can_show, message = can_show_publication_metadata_row(
+        base_row,
+        project_config
     )
     if not can_show:
         return jsonify({"error": message}), 403
 
-    manuscript_published_status = (1 if show_internal else 2)
+    prerender_json = project_config.get("prerender_json", False)
 
-    # Get manuscripts linked to the publication
-    try:
-        manuscript_table = get_table("publication_manuscript")
+    if prerender_json:
+        prerendered_metadata = get_prerendered_publication_metadata_content(
+            file_root,
+            p_id,
+            language
+        )
+        if prerendered_metadata is not None:
+            return jsonify(prerendered_metadata), 200
 
-        with db_engine.connect() as connection:
-            manuscript_statement = (
-                sqlalchemy.sql.select(
-                    manuscript_table.c.id,
-                    manuscript_table.c.name,
-                    manuscript_table.c.original_filename,
-                    manuscript_table.c.sort_order,
-                    manuscript_table.c.language,
-                    manuscript_table.c.published,
-                )
-                .where(manuscript_table.c.publication_id == p_id)
-                .where(manuscript_table.c.deleted < 1)
-                .where(
-                    manuscript_table.c.published >= manuscript_published_status
-                )
-                .order_by(
-                    manuscript_table.c.sort_order,
-                    manuscript_table.c.name
-                )
-            )
-            manuscripts = [
-                dict(manuscript)
-                for manuscript in connection.execute(
-                    manuscript_statement
-                ).mappings().all()
-            ]
-    except Exception:
-        logger.exception(
-            "Unexpected error getting publication manuscripts for %s/%s",
+    db_metadata, message, status_code = get_publication_metadata_from_db(
+        project,
+        p_id,
+        language,
+        project_config,
+        base_row=base_row
+    )
+    if db_metadata is None:
+        logger.error(
+            "Unable to build publication metadata for %s/%s: %s",
             project,
-            publication_id
+            p_id,
+            message
         )
-        return jsonify({
-            "error": "Unexpected error getting publication metadata."
-        }), 500
-
-    # Get facsimiles linked to the publication
-    try:
-        facsimile_table = get_table("publication_facsimile")
-        facsimile_collection_table = get_table(
-            "publication_facsimile_collection"
-        )
-
-        with db_engine.connect() as connection:
-            facsimile_statement = (
-                sqlalchemy.sql.select(
-                    facsimile_table.c.id,
-                    facsimile_table.c.publication_facsimile_collection_id,
-                    facsimile_table.c.publication_manuscript_id,
-                    facsimile_table.c.page_nr,
-                    facsimile_table.c.priority,
-                    facsimile_collection_table.c.title,
-                    facsimile_collection_table.c.number_of_pages,
-                    facsimile_collection_table.c.description,
-                    facsimile_collection_table.c.external_url,
-                )
-                .select_from(
-                    facsimile_table.join(
-                        facsimile_collection_table,
-                        facsimile_table.c.publication_facsimile_collection_id == (
-                            facsimile_collection_table.c.id
-                        )
-                    )
-                )
-                .where(facsimile_table.c.publication_id == p_id)
-                .where(facsimile_table.c.deleted < 1)
-                .where(facsimile_collection_table.c.deleted < 1)
-                .order_by(
-                    facsimile_table.c.priority,
-                    facsimile_table.c.id
-                )
-            )
-            facsimiles = [
-                dict(facsimile)
-                for facsimile in connection.execute(
-                    facsimile_statement
-                ).mappings().all()
-            ]
-    except Exception:
-        logger.exception(
-            "Unexpected error getting publication facsimiles for %s/%s",
-            project,
-            publication_id
-        )
-        return jsonify({
-            "error": "Unexpected error getting publication metadata."
-        }), 500
-
-    # Dictionary with publication metadata from the database
-    db_metadata = {
-        "metadata_language": language,
-        "publication_id": p_id,
-        "collection_id": row["collection_id"],
-        "collection_title": row["collection_title"],
-        "publication_title": row["publication_title"],
-        "publication_filepath": row["publication_filepath"],
-        "publication_genre": row["publication_genre"],
-        "publication_date": row["publication_date"],
-        "publication_language": row["publication_language"],
-        "manuscripts": manuscripts,
-        "facsimiles": facsimiles
-    }
+        return jsonify({"error": message}), status_code
 
     response_data, response_status = construct_publication_metadata_response(
         db_metadata,

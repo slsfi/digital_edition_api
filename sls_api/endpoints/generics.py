@@ -16,7 +16,7 @@ import re
 from ruamel.yaml import YAML
 from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 from sls_api.models import User
-from sqlalchemy import create_engine, Connection, MetaData, RowMapping, Table
+from sqlalchemy import create_engine, Connection, func, MetaData, RowMapping, Table
 from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
@@ -48,6 +48,12 @@ DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
 # in the "xml" folder. Hence "html/documents" (we might also have other
 # HTML than prerendered HTML from the XML files).
 PRERENDERED_HTML_PATH_IN_PROJECT_ROOT = "html/documents"
+
+# Folder paths from the project root to folders where prerendered JSON
+# output is located.
+PRERENDERED_JSON_PATH_MAP_IN_PROJECT_ROOT = {
+    "publication_metadata": "json/publication-metadata"
+}
 
 # Map of paths to XSLT stylesheets for XML->HTML transformations for
 # different text types. The paths to the XSLT stylesheets are relative
@@ -968,9 +974,319 @@ def get_frontmatter_page_content(
     )
 
 
+def get_project_frontend_languages(project_config: Mapping) -> List[str]:
+    """
+    Return valid frontend language codes configured for a project.
+
+    Projects can configure ``frontend_languages`` as an array of language
+    codes. If the setting is missing, malformed, empty, or contains no valid
+    language codes, Swedish is used as the default.
+    """
+    languages = project_config.get("frontend_languages", ["sv"])
+    if isinstance(languages, str):
+        languages = [languages]
+    if not isinstance(languages, list):
+        return ["sv"]
+
+    valid_languages = []
+    for language in languages:
+        if (
+            isinstance(language, str) and
+            is_valid_language(language) and
+            language not in valid_languages
+        ):
+            valid_languages.append(language)
+
+    return valid_languages or ["sv"]
+
+
+def get_publication_metadata_base_row(
+        project: str,
+        publication_id: int,
+        language: str
+) -> Tuple[Optional[RowMapping], str, int]:
+    """
+    Fetch the publication and collection row used by publication metadata.
+
+    The row includes the published status values needed for visibility checks.
+    """
+    try:
+        project_table = get_table("project")
+        collection_table = get_table("publication_collection")
+        publication_table = get_table("publication")
+        translation_text_table = get_table("translation_text")
+
+        with db_engine.connect() as connection:
+            statement = (
+                select(
+                    project_table.c.published.label("project_published"),
+                    collection_table.c.id.label("collection_id"),
+                    func.coalesce(
+                        translation_text_table.c.text,
+                        collection_table.c.name
+                    ).label("collection_title"),
+                    collection_table.c.published.label("collection_published"),
+                    publication_table.c.name.label("publication_title"),
+                    publication_table.c.original_filename.label(
+                        "publication_filepath"
+                    ),
+                    publication_table.c.published.label("publication_published"),
+                    publication_table.c.genre.label("publication_genre"),
+                    publication_table.c.original_publication_date.label(
+                        "publication_date"
+                    ),
+                    publication_table.c.language.label("publication_language"),
+                )
+                .select_from(
+                    project_table
+                    .join(
+                        collection_table,
+                        collection_table.c.project_id == project_table.c.id,
+                    )
+                    .join(
+                        publication_table,
+                        publication_table.c.publication_collection_id == (
+                            collection_table.c.id
+                        )
+                    )
+                    .outerjoin(
+                        translation_text_table,
+                        and_(
+                            collection_table.c.name_translation_id == (
+                                translation_text_table.c.translation_id
+                            ),
+                            translation_text_table.c.language == language,
+                            translation_text_table.c.deleted < 1
+                        )
+                    )
+                )
+                .where(project_table.c.name == str(project))
+                .where(publication_table.c.id == publication_id)
+                .where(project_table.c.deleted < 1)
+                .where(collection_table.c.deleted < 1)
+                .where(publication_table.c.deleted < 1)
+            )
+            row = connection.execute(statement).mappings().first()
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication metadata for %s/%s",
+            project,
+            publication_id
+        )
+        return None, "Unexpected error getting publication metadata.", 500
+
+    if row is None:
+        return None, "Content does not exist.", 404
+
+    return row, "", 200
+
+
+def can_show_publication_metadata_row(
+        row: RowMapping,
+        project_config: Mapping
+) -> Tuple[bool, str]:
+    """
+    Return whether the publication metadata row passes visibility checks.
+    """
+    show_internal = project_config.get("show_internally_published", False)
+    return can_show_published_values(
+        [
+            row["project_published"],
+            row["collection_published"],
+            row["publication_published"]
+        ],
+        show_internal
+    )
+
+
+def get_publication_metadata_from_db(
+        project: str,
+        publication_id: int,
+        language: str,
+        project_config: Mapping,
+        base_row: Optional[RowMapping] = None
+) -> Tuple[Optional[Dict[str, Any]], str, int]:
+    """
+    Build the database metadata object for a publication metadata response.
+
+    The returned data may still contain internal XML path fields. Callers
+    should pass it through ``construct_publication_metadata_response`` before
+    returning it publicly.
+    """
+    if base_row is None:
+        base_row, message, status_code = get_publication_metadata_base_row(
+            project,
+            publication_id,
+            language
+        )
+        if base_row is None:
+            return None, message, status_code
+
+    can_show, message = can_show_publication_metadata_row(
+        base_row,
+        project_config
+    )
+    if not can_show:
+        return None, message, 403
+
+    manuscript_published_status = (
+        1 if project_config.get("show_internally_published", False) else 2
+    )
+
+    try:
+        manuscript_table = get_table("publication_manuscript")
+        facsimile_table = get_table("publication_facsimile")
+        facsimile_collection_table = get_table(
+            "publication_facsimile_collection"
+        )
+
+        with db_engine.connect() as connection:
+            manuscript_statement = (
+                select(
+                    manuscript_table.c.id,
+                    manuscript_table.c.name,
+                    manuscript_table.c.original_filename,
+                    manuscript_table.c.sort_order,
+                    manuscript_table.c.language,
+                    manuscript_table.c.published,
+                )
+                .where(manuscript_table.c.publication_id == publication_id)
+                .where(manuscript_table.c.deleted < 1)
+                .where(
+                    manuscript_table.c.published >= manuscript_published_status
+                )
+                .order_by(
+                    manuscript_table.c.sort_order,
+                    manuscript_table.c.name
+                )
+            )
+            manuscripts = [
+                dict(manuscript)
+                for manuscript in connection.execute(
+                    manuscript_statement
+                ).mappings().all()
+            ]
+
+            facsimile_statement = (
+                select(
+                    facsimile_table.c.id,
+                    facsimile_table.c.publication_facsimile_collection_id,
+                    facsimile_table.c.publication_manuscript_id,
+                    facsimile_table.c.page_nr,
+                    facsimile_table.c.priority,
+                    facsimile_collection_table.c.title,
+                    facsimile_collection_table.c.number_of_pages,
+                    facsimile_collection_table.c.description,
+                    facsimile_collection_table.c.external_url,
+                )
+                .select_from(
+                    facsimile_table.join(
+                        facsimile_collection_table,
+                        facsimile_table.c.publication_facsimile_collection_id == (
+                            facsimile_collection_table.c.id
+                        )
+                    )
+                )
+                .where(facsimile_table.c.publication_id == publication_id)
+                .where(facsimile_table.c.deleted < 1)
+                .where(facsimile_collection_table.c.deleted < 1)
+                .order_by(
+                    facsimile_table.c.priority,
+                    facsimile_table.c.id
+                )
+            )
+            facsimiles = [
+                dict(facsimile)
+                for facsimile in connection.execute(
+                    facsimile_statement
+                ).mappings().all()
+            ]
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication metadata details for %s/%s",
+            project,
+            publication_id
+        )
+        return None, "Unexpected error getting publication metadata.", 500
+
+    return {
+        "metadata_language": language,
+        "publication_id": publication_id,
+        "collection_id": base_row["collection_id"],
+        "collection_title": base_row["collection_title"],
+        "publication_title": base_row["publication_title"],
+        "publication_filepath": base_row["publication_filepath"],
+        "publication_genre": base_row["publication_genre"],
+        "publication_date": base_row["publication_date"],
+        "publication_language": base_row["publication_language"],
+        "manuscripts": manuscripts,
+        "facsimiles": facsimiles
+    }, "", 200
+
+
+def get_prerendered_json_content(
+        project_file_root: str,
+        json_type: str,
+        json_filename: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Return parsed prerendered JSON content, or ``None`` if unavailable.
+    """
+    json_dir = PRERENDERED_JSON_PATH_MAP_IN_PROJECT_ROOT.get(json_type)
+    if json_dir is None:
+        logger.error("No prerendered JSON folder configured for %s", json_type)
+        return None
+
+    file_path = safe_join(project_file_root, json_dir, json_filename)
+    if file_path is None:
+        logger.error("safe_join returned None for JSON path %r", json_filename)
+        return None
+
+    if not os.path.isfile(file_path):
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as json_file:
+            content = json.load(json_file)
+    except json.JSONDecodeError:
+        logger.exception("Invalid prerendered JSON in %s", file_path)
+        return None
+    except OSError as e:
+        logger.exception("OS error reading %s: %s", file_path, e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error when reading %s", file_path)
+        return None
+
+    if not isinstance(content, dict):
+        logger.error("Prerendered JSON in %s is not an object.", file_path)
+        return None
+
+    return content
+
+
+def get_prerendered_publication_metadata_content(
+        project_file_root: str,
+        publication_id: int,
+        language: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Return prerendered publication metadata for one publication and language.
+    """
+    json_filename = f"{publication_id}_{language}_metadata.json"
+    return get_prerendered_json_content(
+        project_file_root,
+        "publication_metadata",
+        json_filename
+    )
+
+
 def construct_publication_metadata_response(
         db_metadata: Dict[str, Any],
-        project_config: Mapping
+        project_config: Mapping,
+        saxon_processor: Optional[PySaxonProcessor] = None,
+        xslt_processor: Optional[PyXslt30Processor] = None,
+        xslt_exec: Optional[PyXsltExecutable] = None
 ) -> Tuple[Dict[str, Any], int]:
     """
     Build the final publication metadata response object.
@@ -991,6 +1307,17 @@ def construct_publication_metadata_response(
             dictionaries and lists, including internal XML file path fields.
         project_config: Project configuration mapping. Uses `file_root`,
             `use_saxon_xslt`, and the project XSLT location.
+        saxon_processor: Optional Saxon processor to use for the XSLT
+            transformation. If not passed, the module-level `saxon_proc`
+            processor is used.
+        xslt_processor: Optional Saxon XSLT 3.0 processor to use when compiling
+            the stylesheet. If not passed, the module-level `saxon_xslt_proc`
+            processor is used. When supplied, it must have been created from
+            the same Saxon processor instance that this function uses.
+        xslt_exec: Optional precompiled Saxon XSLT executable. When supplied,
+            the stylesheet is not compiled inside this function. The executable
+            must be compatible with the Saxon processor used for the
+            transformation.
 
     Returns:
         A tuple of `(response_data, status_code)`. On success,
@@ -1002,17 +1329,24 @@ def construct_publication_metadata_response(
     use_saxon_xslt = project_config.get("use_saxon_xslt", False)
     relative_xsl_path = XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS.get("publication_metadata")
     xml_path_fields = ["publication_filepath", "original_filename"]
+    saxon_processor = saxon_processor or saxon_proc
+    xslt_processor = xslt_processor or saxon_xslt_proc
 
     xsl_path = safe_join(file_root, relative_xsl_path) if relative_xsl_path else None
 
-    # If the Saxon XSLT processor is not enabled/availabe or XSLT for pulling
+    # If the Saxon XSLT processor is not enabled/available or XSLT for pulling
     # additional data from the XML-files and transforming the JSON response
     # is not available, respond with just the metadata from the database.
     if (
-        not xsl_path or
-        os.path.isfile(xsl_path) is False or
+        (
+            xslt_exec is None and
+            (
+                not xsl_path or
+                os.path.isfile(xsl_path) is False
+            )
+        ) or
         not use_saxon_xslt or
-        not saxon_proc
+        not saxon_processor
     ):
         return remove_file_path_fields(db_metadata, xml_path_fields), 200
 
@@ -1028,11 +1362,15 @@ def construct_publication_metadata_response(
 
     try:
         # Initialise a SaxonXMLDocument instance
-        saxon_doc: SaxonXMLDocument = SaxonXMLDocument(saxon_proc,
-                                                       xslt30_proc=saxon_xslt_proc)
+        saxon_doc: SaxonXMLDocument = SaxonXMLDocument(
+            saxon_processor,
+            xslt30_proc=xslt_processor
+        )
 
-        # Compile the XSLT into a Saxon XSLT executable
-        saxon_doc.compile_stylesheet(xsl_path)
+        # Compile the XSLT into a Saxon XSLT executable if the caller
+        # did not provide a precompiled executable.
+        if xslt_exec is None:
+            xslt_exec = saxon_doc.compile_stylesheet(xsl_path)
 
         # Invoke a transformation by calling the initial-template of the XSLT
         # stylesheet. The stylesheet reads the database metadata from the
@@ -1040,9 +1378,10 @@ def construct_publication_metadata_response(
         # declared in the parameters, and returns the final metadata as stringified
         # JSON. This way the XSLT stylesheet has the final control over which
         # metadata fields are returned and in which form.
-        db_metadata_json = json.dumps(db_metadata_with_uris, ensure_ascii=False)
+        db_metadata_json_text = json.dumps(db_metadata_with_uris, ensure_ascii=False)
         transformed_metadata_json_text = saxon_doc.call_template_returning_string(
-            parameters={"db-json": db_metadata_json}
+            xslt_exec=xslt_exec,
+            parameters={"db-json": db_metadata_json_text}
         )
     except Exception:
         logger.exception("Unexpected error invoking a transformation while getting publication metadata.")
