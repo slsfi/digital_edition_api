@@ -15,7 +15,7 @@ from sls_api.endpoints.generics import \
     get_prerendered_publication_metadata_content, \
     get_publication_metadata_base_row, get_publication_metadata_from_db, \
     select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
-    int_or_none, get_table, is_valid_language, reader_auth_required
+    int_or_none, is_valid_language, reader_auth_required
 
 meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
