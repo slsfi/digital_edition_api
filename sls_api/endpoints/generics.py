@@ -507,9 +507,24 @@ def cache_is_recent(source_file, xsl_file, cache_file):
     return True
 
 
+def resolve_project_published_threshold(project_config: Mapping) -> int:
+    """
+    Return the lowest published status visible for a project.
+
+    Status values are cumulative: ``0`` means unpublished content can be shown,
+    ``1`` means internally published content can be shown, and ``2`` means only
+    externally published content can be shown.
+    """
+    if project_config.get("show_unpublished", False):
+        return 0
+    if project_config.get("show_internally_published", False):
+        return 1
+    return 2
+
+
 def can_show_published_values(
         published_values: List[Optional[int]],
-        show_published_status: int
+        show_published_threshold: int
 ) -> Tuple[bool, str]:
     """
     Determine whether content with one or more published-status values
@@ -528,7 +543,8 @@ def can_show_published_values(
 
     Args:
         published_values: Published-status values to evaluate.
-        show_published_status: Lowest published status visible for the project.
+        show_published_threshold: Lowest published status visible for
+            the project.
 
     Returns:
         A tuple of (can_show, message), where message is empty if the
@@ -540,27 +556,12 @@ def can_show_published_values(
         else min(published_values)
     )
 
-    if status >= show_published_status:
+    if status >= show_published_threshold:
         return True, ""
     elif status < 1:
         return False, "Content is not published."
     else:
         return False, "Content is not publicly available."
-
-
-def resolve_project_published_threshold(project_config: Mapping) -> int:
-    """
-    Return the lowest published status visible for a project.
-
-    Status values are cumulative: ``0`` means unpublished content can be shown,
-    ``1`` means internally published content can be shown, and ``2`` means only
-    externally published content can be shown.
-    """
-    if project_config.get("show_unpublished", False):
-        return 0
-    if project_config.get("show_internally_published", False):
-        return 1
-    return 2
 
 
 def get_published_status(
@@ -1037,7 +1038,7 @@ def get_publication_metadata_base_row(
 
     The row includes the published status values needed for visibility checks.
     """
-    show_published_status = resolve_project_published_threshold(project_config)
+    show_published_threshold = resolve_project_published_threshold(project_config)
 
     try:
         project_table = get_table("project")
@@ -1087,7 +1088,7 @@ def get_publication_metadata_base_row(
                                 comment_table.c.id
                             ),
                             comment_table.c.deleted < 1,
-                            comment_table.c.published >= show_published_status
+                            comment_table.c.published >= show_published_threshold
                         )
                     )
                     .outerjoin(
@@ -1170,7 +1171,7 @@ def get_publication_metadata_from_db(
     if not can_show:
         return None, message, 403
 
-    show_published_status = resolve_project_published_threshold(project_config)
+    show_published_threshold = resolve_project_published_threshold(project_config)
 
     try:
         manuscript_table = get_table("publication_manuscript")
@@ -1193,7 +1194,7 @@ def get_publication_metadata_from_db(
                 .where(manuscript_table.c.publication_id == publication_id)
                 .where(manuscript_table.c.deleted < 1)
                 .where(
-                    manuscript_table.c.published >= show_published_status
+                    manuscript_table.c.published >= show_published_threshold
                 )
                 .order_by(
                     manuscript_table.c.sort_order,
@@ -1219,7 +1220,7 @@ def get_publication_metadata_from_db(
                 .where(variant_table.c.publication_id == publication_id)
                 .where(variant_table.c.deleted < 1)
                 .where(
-                    variant_table.c.published >= show_published_status
+                    variant_table.c.published >= show_published_threshold
                 )
                 .order_by(
                     variant_table.c.sort_order,
