@@ -509,7 +509,7 @@ def cache_is_recent(source_file, xsl_file, cache_file):
 
 def can_show_published_values(
         published_values: List[Optional[int]],
-        show_internally_published: bool
+        show_published_status: int
 ) -> Tuple[bool, str]:
     """
     Determine whether content with one or more published-status values
@@ -517,19 +517,18 @@ def can_show_published_values(
 
     Published status is evaluated across all relevant database rows, for
     example project, collection, and publication. The lowest status wins:
-    if any part of the chain is unpublished, the content is unpublished;
-    if the lowest status is internally published, visibility depends on
-    the project's `show_internally_published` setting.
+    if any part of the chain has a status below the project's effective
+    show-published threshold, the content cannot be shown.
 
     Status values:
-        - None or values below 1: unpublished
+        - None: invalid/missing published status
+        - 0: unpublished
         - 1: internally published
         - 2 or higher: publicly available
 
     Args:
         published_values: Published-status values to evaluate.
-        show_internally_published: Whether internally published content
-            should be visible for this project.
+        show_published_status: Lowest published status visible for the project.
 
     Returns:
         A tuple of (can_show, message), where message is empty if the
@@ -541,12 +540,12 @@ def can_show_published_values(
         else min(published_values)
     )
 
-    if status < 1:
-        return False, "Content is not published."
-    elif status == 1 and not show_internally_published:
-        return False, "Content is not publicly available."
-    else:
+    if status >= show_published_status:
         return True, ""
+    elif status < 1:
+        return False, "Content is not published."
+    else:
+        return False, "Content is not publicly available."
 
 
 def get_show_published_status(project_config: Mapping) -> int:
@@ -588,6 +587,9 @@ def get_published_status(
     Collections/publications can be shown if they're externally
     published (published==2), or if they're internally published
     (published==1) and show_internally_published is True
+
+    TODO: Change this to use ``get_show_published_status(project_config)``
+    so ``show_unpublished`` is handled consistently with newer endpoints.
     """
     project_config = get_project_config(project)
     if project_config is None:
@@ -648,7 +650,9 @@ def get_published_status(
         logger.exception(message)
         return False, message, None
 
-    show_internal = project_config["show_internally_published"]
+    show_published_status = (
+        1 if project_config["show_internally_published"] else 2
+    )
     can_show = False
     message = ""
     col_legacy_id = None
@@ -661,7 +665,10 @@ def get_published_status(
         if publication_id is not None:
             pub_values.append(row["pub"])
 
-        can_show, message = can_show_published_values(pub_values, show_internal)
+        can_show, message = can_show_published_values(
+            pub_values,
+            show_published_status
+        )
 
     return can_show, message, col_legacy_id
 
@@ -1118,14 +1125,13 @@ def can_show_publication_metadata_row(
     """
     Return whether the publication metadata row passes visibility checks.
     """
-    show_internal = project_config.get("show_internally_published", False)
     return can_show_published_values(
         [
             row["project_published"],
             row["collection_published"],
             row["publication_published"]
         ],
-        show_internal
+        get_show_published_status(project_config)
     )
 
 
