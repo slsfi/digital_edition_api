@@ -548,7 +548,7 @@ def can_show_published_values(
         return False, "Content is not publicly available."
 
 
-def get_show_published_status(project_config: Mapping) -> int:
+def resolve_project_published_threshold(project_config: Mapping) -> int:
     """
     Return the lowest published status visible for a project.
 
@@ -588,8 +588,8 @@ def get_published_status(
     published (published==2), or if they're internally published
     (published==1) and show_internally_published is True
 
-    TODO: Change this to use ``get_show_published_status(project_config)``
-    so ``show_unpublished`` is handled consistently with newer endpoints.
+    TODO: Change this to use ``resolve_project_published_threshold(project_config)``
+    so ``show_unpublished`` in config is handled consistently.
     """
     project_config = get_project_config(project)
     if project_config is None:
@@ -650,6 +650,10 @@ def get_published_status(
         logger.exception(message)
         return False, message, None
 
+    # TODO: Change this to use `resolve_project_published_threshold(project_config)`
+    # so `show_unpublished` in config is also respected. This might alter behaviour
+    # for projects that have `show_unpublished: True` and `show_internally_published: False`
+    # in the project config. Check if there are such projects before making this change.
     show_published_status = (
         1 if project_config["show_internally_published"] else 2
     )
@@ -1033,7 +1037,7 @@ def get_publication_metadata_base_row(
 
     The row includes the published status values needed for visibility checks.
     """
-    show_published_status = get_show_published_status(project_config)
+    show_published_status = resolve_project_published_threshold(project_config)
 
     try:
         project_table = get_table("project")
@@ -1131,7 +1135,7 @@ def can_show_publication_metadata_row(
             row["collection_published"],
             row["publication_published"]
         ],
-        get_show_published_status(project_config)
+        resolve_project_published_threshold(project_config)
     )
 
 
@@ -1166,7 +1170,7 @@ def get_publication_metadata_from_db(
     if not can_show:
         return None, message, 403
 
-    show_published_status = get_show_published_status(project_config)
+    show_published_status = resolve_project_published_threshold(project_config)
 
     try:
         manuscript_table = get_table("publication_manuscript")
