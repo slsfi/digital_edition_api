@@ -1286,17 +1286,18 @@ def construct_publication_metadata_response(
         project_config: Mapping,
         saxon_processor: Optional[PySaxonProcessor] = None,
         xslt_processor: Optional[PyXslt30Processor] = None,
-        xslt_exec: Optional[PyXsltExecutable] = None
+        xslt_exec: Optional[PyXsltExecutable] = None,
+        use_xslt_transformation: bool = True
 ) -> Tuple[Dict[str, Any], int]:
     """
     Build the final publication metadata response object.
 
     The endpoint first collects publication metadata from the database and
-    passes it to this helper. If Saxon XSLT support is enabled for the project
-    and the project-specific `publication-metadata.xsl` stylesheet exists, the
-    helper enriches XML path fields with internal file URIs and passes the
-    metadata JSON to the stylesheet. The stylesheet can then read additional
-    metadata from XML files and return the final response object as JSON.
+    passes it to this helper. If Saxon is available and the project-specific
+    `publication-metadata.xsl` stylesheet exists, the helper enriches XML path
+    fields with internal file URIs and passes the metadata JSON to the
+    stylesheet. The stylesheet can then read additional metadata from XML files
+    and return the final response object as JSON.
 
     If Saxon support or the stylesheet is unavailable, the database metadata is
     returned directly. In both paths, internal file path fields and generated
@@ -1306,18 +1307,22 @@ def construct_publication_metadata_response(
         db_metadata: Metadata collected from the database. May contain nested
             dictionaries and lists, including internal XML file path fields.
         project_config: Project configuration mapping. Uses `file_root`,
-            `use_saxon_xslt`, and the project XSLT location.
+            from which the project XSLT location is resolved.
         saxon_processor: Optional Saxon processor to use for the XSLT
             transformation. If not passed, the module-level `saxon_proc`
             processor is used.
         xslt_processor: Optional Saxon XSLT 3.0 processor to use when compiling
-            the stylesheet. If not passed, the module-level `saxon_xslt_proc`
-            processor is used. When supplied, it must have been created from
-            the same Saxon processor instance that this function uses.
+            the stylesheet. If neither `saxon_processor` nor `xslt_processor`
+            is passed, the module-level `saxon_xslt_proc` processor is used.
+            When supplied, it must have been created from the same Saxon
+            processor instance that this function uses.
         xslt_exec: Optional precompiled Saxon XSLT executable. When supplied,
             the stylesheet is not compiled inside this function. The executable
             must be compatible with the Saxon processor used for the
             transformation.
+        use_xslt_transformation: Whether to attempt metadata enrichment with
+            `publication-metadata.xsl`. If False, the sanitized database
+            metadata is returned directly.
 
     Returns:
         A tuple of `(response_data, status_code)`. On success,
@@ -1326,18 +1331,19 @@ def construct_publication_metadata_response(
         error message and status is 500.
     """
     file_root = project_config.get("file_root", "")
-    use_saxon_xslt = project_config.get("use_saxon_xslt", False)
     relative_xsl_path = XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS.get("publication_metadata")
     xml_path_fields = ["publication_filepath", "original_filename"]
-    saxon_processor = saxon_processor or saxon_proc
-    xslt_processor = xslt_processor or saxon_xslt_proc
+    if saxon_processor is None:
+        saxon_processor = saxon_proc
+        if xslt_processor is None:
+            xslt_processor = saxon_xslt_proc
 
     xsl_path = safe_join(file_root, relative_xsl_path) if relative_xsl_path else None
 
-    # If the Saxon XSLT processor is not enabled/available or XSLT for pulling
-    # additional data from the XML-files and transforming the JSON response
-    # is not available, respond with just the metadata from the database.
+    # If Saxon, the metadata stylesheet, or XSLT enrichment is not available,
+    # respond with just the metadata from the database.
     if (
+        not use_xslt_transformation or
         (
             xslt_exec is None and
             (
@@ -1345,7 +1351,6 @@ def construct_publication_metadata_response(
                 os.path.isfile(xsl_path) is False
             )
         ) or
-        not use_saxon_xslt or
         not saxon_processor
     ):
         return remove_file_path_fields(db_metadata, xml_path_fields), 200

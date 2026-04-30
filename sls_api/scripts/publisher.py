@@ -951,16 +951,15 @@ def prerender_publication_metadata(
         )
         return None
 
-    response_project_config = project_config
-    if saxon_proc is None or saxon_xslt_exec is None:
-        response_project_config = dict(project_config)
-        response_project_config["use_saxon_xslt"] = False
-
     response_data, response_status = construct_publication_metadata_response(
         db_metadata,
-        response_project_config,
+        project_config,
         saxon_processor=saxon_proc,
-        xslt_exec=saxon_xslt_exec
+        xslt_exec=saxon_xslt_exec,
+        use_xslt_transformation=(
+            saxon_proc is not None and
+            saxon_xslt_exec is not None
+        )
     )
     if response_status != 200:
         logger.error(
@@ -1220,7 +1219,8 @@ def check_publication_mtimes_and_publish_files(
     # Flag for prerendering JSON data
     prerender_json: bool = project_config.get("prerender_json", False)
 
-    # Flag for using the Saxon XSLT processor for prerender transformations
+    # Flag for using the Saxon XSLT processor for XML-to-HTML prerender
+    # transformations.
     use_saxon_for_prerender: bool = project_config.get("use_saxon_xslt", False)
 
     frontend_languages = get_project_frontend_languages(project_config)
@@ -1383,7 +1383,7 @@ def check_publication_mtimes_and_publish_files(
     if (
         use_xslt_processing or
         (prerender_html and use_saxon_for_prerender) or
-        (prerender_json and use_saxon_for_prerender)
+        prerender_json
     ):
         # Initialise a Saxon processor and Saxon XSLT 3.0 processor
         # Documentation for SaxonC's Python API:
@@ -1421,7 +1421,7 @@ def check_publication_mtimes_and_publish_files(
             )
         )
 
-    if prerender_json and use_saxon_for_prerender:
+    if prerender_json:
         # Compile the XSLT stylesheets used to prerender JSON data.
         # The compiled Saxon stylesheets are stored in a dictionary where
         # the JSON output types are keys and the compiled stylesheets are
