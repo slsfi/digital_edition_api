@@ -746,7 +746,7 @@ def get_urn(project, url, legacy_id=None):
 @reader_auth_required()
 def get_publication_metadata(project, publication_id, language='sv'):
     """
-    Get metadata for a given publication.
+    Get metadata for a given publication in a specific language.
     """
     # Validate parameters
     project_config = get_project_config(project)
@@ -764,6 +764,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if language is not None and not is_valid_language(language):
         return jsonify({"error": "Invalid language."}), 400
 
+    # Get base metadata including visibility status from the database
     base_row, message, status_code = get_publication_metadata_base_row(
         project,
         p_id,
@@ -779,6 +780,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if not can_show:
         return jsonify({"error": message}), 403
 
+    # Try serving metadata from prerendered file if prerendering enabled
     prerender_json = project_config.get("prerender_json", False)
 
     if prerender_json:
@@ -790,6 +792,8 @@ def get_publication_metadata(project, publication_id, language='sv'):
         if prerendered_metadata is not None:
             return jsonify(prerendered_metadata), 200
 
+    # Fall back to constructing metadata on demand
+    # Get additional metadata (manuscripts, facsimiles...) from the database
     db_metadata, message, status_code = get_publication_metadata_from_db(
         project,
         p_id,
@@ -806,6 +810,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
         )
         return jsonify({"error": message}), status_code
 
+    # Construct the final response object
     response_data, response_status = construct_publication_metadata_response(
         db_metadata,
         project_config
