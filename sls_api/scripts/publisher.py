@@ -1710,19 +1710,22 @@ def check_publication_mtimes_and_publish_files(
 
         if prerender_json:
             # * Prerender publication metadata
-            # This is done regardless of force_publish value.
 
-            for language in frontend_languages:
-                metadata_file = prerender_publication_metadata(
-                    project,
-                    project_config,
-                    publication_id,
-                    language,
-                    saxon_proc,
-                    publication_metadata_xslt_exec
-                )
-                if metadata_file is not None:
-                    json_changes.add(metadata_file)
+            # This is done regardless of force_publish value. Prerendering
+            # metadata for multilingual reading-texts is not supported.
+
+            if not is_multilingual:
+                for language in frontend_languages:
+                    metadata_file = prerender_publication_metadata(
+                        project,
+                        project_config,
+                        publication_id,
+                        language,
+                        saxon_proc,
+                        publication_metadata_xslt_exec
+                    )
+                    if metadata_file is not None:
+                        json_changes.add(metadata_file)
 
         # ****** VARIANTS ******
         # Process all variants belonging to this publication
