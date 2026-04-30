@@ -654,7 +654,7 @@ def get_published_status(
     # so `show_unpublished` in config is also respected. This might alter behaviour
     # for projects that have `show_unpublished: True` and `show_internally_published: False`
     # in the project config. Check if there are such projects before making this change.
-    show_published_status = (
+    show_published_threshold = (
         1 if project_config["show_internally_published"] else 2
     )
     can_show = False
@@ -671,7 +671,7 @@ def get_published_status(
 
         can_show, message = can_show_published_values(
             pub_values,
-            show_published_status
+            show_published_threshold
         )
 
     return can_show, message, col_legacy_id
