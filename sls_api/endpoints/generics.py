@@ -1129,12 +1129,13 @@ def get_publication_metadata_from_db(
     if not can_show:
         return None, message, 403
 
-    manuscript_published_status = (
+    show_published_status = (
         1 if project_config.get("show_internally_published", False) else 2
     )
 
     try:
         manuscript_table = get_table("publication_manuscript")
+        variant_table = get_table("publication_version")
         facsimile_table = get_table("publication_facsimile")
         facsimile_collection_table = get_table(
             "publication_facsimile_collection"
@@ -1144,16 +1145,16 @@ def get_publication_metadata_from_db(
             manuscript_statement = (
                 select(
                     manuscript_table.c.id,
-                    manuscript_table.c.name,
+                    manuscript_table.c.name.label("title"),
                     manuscript_table.c.original_filename,
+                    manuscript_table.c.section_id,
                     manuscript_table.c.sort_order,
                     manuscript_table.c.language,
-                    manuscript_table.c.published,
                 )
                 .where(manuscript_table.c.publication_id == publication_id)
                 .where(manuscript_table.c.deleted < 1)
                 .where(
-                    manuscript_table.c.published >= manuscript_published_status
+                    manuscript_table.c.published >= show_published_status
                 )
                 .order_by(
                     manuscript_table.c.sort_order,
@@ -1167,15 +1168,49 @@ def get_publication_metadata_from_db(
                 ).mappings().all()
             ]
 
+            variant_statement = (
+                select(
+                    variant_table.c.id,
+                    variant_table.c.name.label("title"),
+                    variant_table.c.original_filename,
+                    variant_table.c.section_id,
+                    variant_table.c.sort_order,
+                    variant_table.c.type,
+                )
+                .where(variant_table.c.publication_id == publication_id)
+                .where(variant_table.c.deleted < 1)
+                .where(
+                    variant_table.c.published >= show_published_status
+                )
+                .order_by(
+                    variant_table.c.sort_order,
+                    variant_table.c.type
+                )
+            )
+            variants = [
+                dict(variant)
+                for variant in connection.execute(
+                    variant_statement
+                ).mappings().all()
+            ]
+
             facsimile_statement = (
                 select(
                     facsimile_table.c.id,
-                    facsimile_table.c.publication_facsimile_collection_id,
+                    facsimile_table.c.publication_facsimile_collection_id.label(
+                        "facs_coll_id"
+                    ),
                     facsimile_table.c.publication_manuscript_id,
+                    facsimile_table.c.publication_version_id.label(
+                        "publication_variant_id"
+                    ),
                     facsimile_table.c.page_nr,
                     facsimile_table.c.priority,
+                    facsimile_table.c.section_id,
                     facsimile_collection_table.c.title,
-                    facsimile_collection_table.c.number_of_pages,
+                    facsimile_collection_table.c.number_of_pages.label(
+                        "number_of_images"
+                    ),
                     facsimile_collection_table.c.description,
                     facsimile_collection_table.c.external_url,
                 )
@@ -1219,8 +1254,9 @@ def get_publication_metadata_from_db(
         "publication_genre": base_row["publication_genre"],
         "publication_date": base_row["publication_date"],
         "publication_language": base_row["publication_language"],
+        "facsimiles": facsimiles,
         "manuscripts": manuscripts,
-        "facsimiles": facsimiles
+        "variants": variants
     }, "", 200
 
 
