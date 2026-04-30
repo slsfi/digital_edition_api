@@ -768,7 +768,8 @@ def get_publication_metadata(project, publication_id, language='sv'):
     base_row, message, status_code = get_publication_metadata_base_row(
         project,
         p_id,
-        language
+        language,
+        project_config
     )
     if base_row is None:
         return jsonify({"error": message}), status_code

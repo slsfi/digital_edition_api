@@ -1003,17 +1003,23 @@ def get_project_frontend_languages(project_config: Mapping) -> List[str]:
 def get_publication_metadata_base_row(
         project: str,
         publication_id: int,
-        language: str
+        language: str,
+        project_config: Mapping
 ) -> Tuple[Optional[RowMapping], str, int]:
     """
     Fetch the publication and collection row used by publication metadata.
 
     The row includes the published status values needed for visibility checks.
     """
+    show_published_status = (
+        1 if project_config.get("show_internally_published", False) else 2
+    )
+
     try:
         project_table = get_table("project")
         collection_table = get_table("publication_collection")
         publication_table = get_table("publication")
+        comment_table = get_table("publication_comment")
         translation_text_table = get_table("translation_text")
 
         with db_engine.connect() as connection:
@@ -1036,6 +1042,7 @@ def get_publication_metadata_base_row(
                         "publication_date"
                     ),
                     publication_table.c.language.label("publication_language"),
+                    comment_table.c.original_filename.label("comment_filepath"),
                 )
                 .select_from(
                     project_table
@@ -1047,6 +1054,16 @@ def get_publication_metadata_base_row(
                         publication_table,
                         publication_table.c.publication_collection_id == (
                             collection_table.c.id
+                        )
+                    )
+                    .outerjoin(
+                        comment_table,
+                        and_(
+                            publication_table.c.publication_comment_id == (
+                                comment_table.c.id
+                            ),
+                            comment_table.c.deleted < 1,
+                            comment_table.c.published >= show_published_status
                         )
                     )
                     .outerjoin(
@@ -1117,7 +1134,8 @@ def get_publication_metadata_from_db(
         base_row, message, status_code = get_publication_metadata_base_row(
             project,
             publication_id,
-            language
+            language,
+            project_config
         )
         if base_row is None:
             return None, message, status_code
@@ -1252,6 +1270,7 @@ def get_publication_metadata_from_db(
         "publication_genre": base_row["publication_genre"],
         "publication_date": base_row["publication_date"],
         "publication_language": base_row["publication_language"],
+        "comment_filepath": base_row["comment_filepath"],
         "collection_id": base_row["collection_id"],
         "collection_title": base_row["collection_title"],
         "facsimiles": facsimiles,
@@ -1368,7 +1387,11 @@ def construct_publication_metadata_response(
     """
     file_root = project_config.get("file_root", "")
     relative_xsl_path = XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS.get("publication_metadata")
-    xml_path_fields = ["publication_filepath", "original_filename"]
+    xml_path_fields = [
+        "publication_filepath",
+        "comment_filepath",
+        "original_filename"
+    ]
     if saxon_processor is None:
         saxon_processor = saxon_proc
         if xslt_processor is None:
