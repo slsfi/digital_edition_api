@@ -47,8 +47,15 @@ topelius:
     # as web XML files when it runs, and the API endpoints serve the
     # prerendered HTML files (as a fallback, the HTML is transformed on the
     # fly from XML if the prerendered HTML files are missing or can’t be read).
-    # Defaults to `False`.
+    # Defaults to `False` if missing.
     prerender_html: False
+    # Boolean indicating if JSON data prerendering is enabled for the project.
+    # Currently used for publication metadata JSON. Defaults to `False` if missing.
+    prerender_json: False
+    # Frontend languages for this project. The publisher uses these language
+    # codes when prerendering language-specific JSON files, such as publication
+    # metadata. Defaults to `["sv"]` if missing.
+    frontend_languages: ["sv"]
     # Boolean indicating if chapter divisions are used in the project’s
     # XML texts or not. Defaults to `True`.
     xml_chapter_divs: True
