@@ -549,6 +549,21 @@ def can_show_published_values(
         return True, ""
 
 
+def get_show_published_status(project_config: Mapping) -> int:
+    """
+    Return the lowest published status visible for a project.
+
+    Status values are cumulative: ``0`` means unpublished content can be shown,
+    ``1`` means internally published content can be shown, and ``2`` means only
+    externally published content can be shown.
+    """
+    if project_config.get("show_unpublished", False):
+        return 0
+    if project_config.get("show_internally_published", False):
+        return 1
+    return 2
+
+
 def get_published_status(
         project: str,
         collection_id: str,
@@ -1011,9 +1026,7 @@ def get_publication_metadata_base_row(
 
     The row includes the published status values needed for visibility checks.
     """
-    show_published_status = (
-        1 if project_config.get("show_internally_published", False) else 2
-    )
+    show_published_status = get_show_published_status(project_config)
 
     try:
         project_table = get_table("project")
@@ -1147,9 +1160,7 @@ def get_publication_metadata_from_db(
     if not can_show:
         return None, message, 403
 
-    show_published_status = (
-        1 if project_config.get("show_internally_published", False) else 2
-    )
+    show_published_status = get_show_published_status(project_config)
 
     try:
         manuscript_table = get_table("publication_manuscript")
