@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import sys
@@ -14,14 +15,19 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import config, db_engine, \
     changed_by_size_or_hash, \
+    construct_publication_metadata_response, \
     ensure_trailing_newline, \
     file_fingerprint, \
+    get_project_frontend_languages, \
     get_project_id_from_name, \
+    get_publication_metadata_from_db, \
     get_table, \
     int_or_none, \
     transform_xml, \
     PRERENDERED_HTML_PATH_IN_PROJECT_ROOT, \
-    XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS
+    PRERENDERED_JSON_PATH_MAP_IN_PROJECT_ROOT, \
+    XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS, \
+    XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS
 from sls_api.endpoints.tools.files import run_git_command, update_files_in_git_repo
 from sls_api.scripts.CTeiDocument import CTeiDocument
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -344,28 +350,27 @@ def construct_notes_xml(comments: List[Dict[str, Any]], comment_positions: Dict[
 def compile_xslt_stylesheets(
         project_file_root: str,
         xslt_proc: Optional[PyXslt30Processor],
-        xml_to_html_stylesheets: bool = False
+        xsl_map: Mapping[str, str]
 ) -> Dict[str, Optional[PyXsltExecutable]]:
     """
     Compiles the XSLT stylesheets in the project files to Saxon XSLT
-    executables. If `xml_to_html_stylesheets` is True, it compiles the
-    stylesheets that transform web XML files to HTML, otherwise it
-    compiles the stylesheets that transform the original XML files to
-    web XML files.
+    executables.
+
+    Args:
+        project_file_root: Absolute root path of the project files. The
+            stylesheet paths in `xsl_map` are resolved relative to this path.
+        xslt_proc: Saxon XSLT 3.0 processor used to compile the stylesheets.
+            If None, no stylesheets are compiled and all values in the returned
+            dictionary are None.
+        xsl_map: Mapping where each key identifies a stylesheet type and each
+            value is the stylesheet path relative to `project_file_root`.
 
     Returns:
-    - A dictionary where the text types (est, com, ms ...) are keys
-    and the compiled stylesheets are values. If a stylesheet for a
-    text type can't be compiled, it's value will be set to None.
+    - A dictionary where the XSLT map keys are keys and the compiled
+    stylesheets are values. If a stylesheet can't be compiled, its value
+    will be set to None.
     """
     xslt_execs: Dict[str, Optional[PyXsltExecutable]] = {}
-
-    if xml_to_html_stylesheets:
-        # Stylesheets for web XML to HTML transformation
-        xsl_map = XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS
-    else:
-        # Stylesheets for web XML transformation
-        xsl_map = XSL_PATH_MAP_FOR_PUBLISHING
 
     for type_key, xsl_path in xsl_map.items():
         xsl_full_path = safe_join(project_file_root, xsl_path)
@@ -886,6 +891,115 @@ def transform_and_save(
     return None
 
 
+def save_prerendered_json(
+        output_filepath: str,
+        content: Mapping[str, Any]
+) -> Optional[str]:
+    """
+    Save prerendered JSON and return the file path if the file changed.
+    """
+    pre_sig = file_fingerprint(output_filepath)
+    output_dirpath = os.path.dirname(output_filepath)
+
+    try:
+        if output_dirpath:
+            os.makedirs(output_dirpath, exist_ok=True)
+    except Exception:
+        logger.exception("Error making dirs for path %s", output_dirpath)
+        return None
+
+    try:
+        json_text = json.dumps(content,
+                               ensure_ascii=False,
+                               indent=2,
+                               sort_keys=True)
+        with open(output_filepath, "w", encoding="utf-8") as outfile:
+            outfile.write(ensure_trailing_newline(json_text))
+    except Exception:
+        logger.exception("Unexpected error saving %s", output_filepath)
+        return None
+
+    if changed_by_size_or_hash(pre_sig, output_filepath):
+        return output_filepath
+
+    return None
+
+
+def prerender_publication_metadata(
+        project: str,
+        project_config: Mapping[str, Any],
+        publication_id: int,
+        language: str,
+        saxon_proc: Optional[PySaxonProcessor],
+        saxon_xslt_exec: Optional[PyXsltExecutable]
+) -> Optional[str]:
+    """
+    Transform and save publication metadata JSON for one publication language.
+    """
+    db_metadata, message, status_code = get_publication_metadata_from_db(
+        project,
+        publication_id,
+        language,
+        project_config
+    )
+    if db_metadata is None:
+        logger.error(
+            "Failed to prerender publication metadata for %s/%s/%s: %s "
+            "(status %s).",
+            project,
+            publication_id,
+            language,
+            message,
+            status_code
+        )
+        return None
+
+    response_data, response_status = construct_publication_metadata_response(
+        db_metadata,
+        project_config,
+        saxon_processor=saxon_proc,
+        xslt_exec=saxon_xslt_exec,
+        use_xslt_transformation=(
+            saxon_proc is not None and
+            saxon_xslt_exec is not None
+        )
+    )
+    if response_status != 200:
+        logger.error(
+            "Failed to prerender publication metadata for %s/%s/%s: "
+            "metadata transformation returned status %s.",
+            project,
+            publication_id,
+            language,
+            response_status
+        )
+        return None
+
+    json_dir = PRERENDERED_JSON_PATH_MAP_IN_PROJECT_ROOT.get(
+        "publication_metadata"
+    )
+    if json_dir is None:
+        logger.error("No JSON output path configured for publication metadata.")
+        return None
+
+    output_filepath = safe_join(
+        project_config.get("file_root", ""),
+        json_dir,
+        f"{publication_id}_{language}_metadata.json"
+    )
+    if output_filepath is None:
+        logger.error(
+            "Failed to prerender publication metadata for %s/%s/%s: "
+            "unable to form safe JSON path.",
+            project,
+            publication_id,
+            language
+        )
+        return None
+
+    return save_prerendered_json(output_filepath, response_data)
+
+
 def prerender_xml_to_html(
         project_config: Mapping[str, Any],
         xml_filepath: str,
@@ -1095,7 +1209,7 @@ def check_publication_mtimes_and_publish_files(
         return False
 
     # If publication_ids is a tuple of ints, we're (re)publishing a
-    # certain publication(s).Explicitly set force_publish in this
+    # certain publication(s). Explicitly set force_publish in this
     # instance, so we force-generate files for publishing (this
     # overrides mtime checks).
     publish_certain_ids: bool = isinstance(publication_ids, tuple)
@@ -1105,13 +1219,25 @@ def check_publication_mtimes_and_publish_files(
     # Flag for prerendering XML to HTML
     prerender_html: bool = project_config.get("prerender_html", False)
 
-    # Flag for using the Saxon XSLT processor for prerender transformations
+    # Flag for prerendering JSON data
+    prerender_json: bool = project_config.get("prerender_json", False)
+
+    # Flag for using the Saxon XSLT processor for XML-to-HTML prerender
+    # transformations.
     use_saxon_for_prerender: bool = project_config.get("use_saxon_xslt", False)
+
+    frontend_languages = get_project_frontend_languages(project_config)
 
     if prerender_html:
         xslt_proc_name = "Saxon" if use_saxon_for_prerender else "lxml"
         logger.info("Prerendering enabled, using %s for transformations.",
                     xslt_proc_name)
+
+    if prerender_json:
+        logger.info(
+            "JSON prerendering enabled. Frontend languages: %s",
+            ", ".join(frontend_languages)
+        )
 
     # Clear cache of collection legacy ids
     clear_collection_legacy_id_cache()
@@ -1255,8 +1381,13 @@ def check_publication_mtimes_and_publish_files(
     xslt_proc: Optional[PyXslt30Processor] = None
     xml_xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]] = None
     html_xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]] = None
+    json_xslt_execs: Optional[Dict[str, Optional[PyXsltExecutable]]] = None
 
-    if use_xslt_processing or (prerender_html and use_saxon_for_prerender):
+    if (
+        use_xslt_processing or
+        (prerender_html and use_saxon_for_prerender) or
+        prerender_json
+    ):
         # Initialise a Saxon processor and Saxon XSLT 3.0 processor
         # Documentation for SaxonC's Python API:
         # https://www.saxonica.com/saxon-c/doc12/html/saxonc.html
@@ -1271,7 +1402,11 @@ def check_publication_mtimes_and_publish_files(
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
         xml_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
-            compile_xslt_stylesheets(file_root, xslt_proc)
+            compile_xslt_stylesheets(
+                file_root,
+                xslt_proc,
+                XSL_PATH_MAP_FOR_PUBLISHING
+            )
         )
 
     if prerender_html and use_saxon_for_prerender:
@@ -1282,15 +1417,37 @@ def check_publication_mtimes_and_publish_files(
         # stylesheets are values. If a stylesheet for a text type can't be
         # compiled, it's value will be set to None.
         html_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
-            compile_xslt_stylesheets(file_root,
-                                     xslt_proc,
-                                     xml_to_html_stylesheets=True)
+            compile_xslt_stylesheets(
+                file_root,
+                xslt_proc,
+                XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS
+            )
         )
+
+    if prerender_json:
+        # Compile the XSLT stylesheets used to prerender JSON data.
+        # The compiled Saxon stylesheets are stored in a dictionary where
+        # the JSON output types are keys and the compiled stylesheets are
+        # values. If a stylesheet can't be compiled, its value will be None.
+        json_xslt_execs: Dict[str, Optional[PyXsltExecutable]] = (
+            compile_xslt_stylesheets(
+                file_root,
+                xslt_proc,
+                XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS
+            )
+        )
+        if json_xslt_execs.get("publication_metadata") is None:
+            logger.warning(
+                "Publication metadata XSLT could not be compiled. "
+                "Prerendering publication metadata JSON from database fields only."
+            )
 
     # Keep a list of changed XML files for later git commit
     xml_changes = set()
     # Keep a list of changed HTML files for later git commit
     html_changes = set()
+    # Keep a list of changed JSON files for later git commit
+    json_changes = set()
 
     pub_count = len(publication_rows)
     ms_count = len(manuscript_rows)
@@ -1303,7 +1460,11 @@ def check_publication_mtimes_and_publish_files(
     # to the generated web XML files.
 
     if pub_count:
-        logger.info("Processing reading texts, comments and variants of publications.")
+        logger.info("Processing reading texts, comments, and variants of publications.")
+
+    publication_metadata_xslt_exec = (
+        (json_xslt_execs or {}).get("publication_metadata")
+    )
 
     for idx, row in enumerate(publication_rows, start=1):
         p_row = dict(row)
@@ -1549,6 +1710,25 @@ def check_publication_mtimes_and_publish_files(
                                                       saxon_proc,
                                                       html_xslt_execs)
                 html_changes.update(com_html_file)
+
+        if prerender_json:
+            # * Prerender publication metadata
+
+            # This is done regardless of force_publish value. Prerendering
+            # metadata for multilingual reading-texts is not supported.
+
+            if not is_multilingual:
+                for language in frontend_languages:
+                    metadata_file = prerender_publication_metadata(
+                        project,
+                        project_config,
+                        publication_id,
+                        language,
+                        saxon_proc,
+                        publication_metadata_xslt_exec
+                    )
+                    if metadata_file is not None:
+                        json_changes.add(metadata_file)
 
         # ****** VARIANTS ******
         # Process all variants belonging to this publication
@@ -1933,6 +2113,14 @@ def check_publication_mtimes_and_publish_files(
         else:
             logger.info("No HTML changes made in publisher script run.")
 
+    if prerender_json:
+        # Log a summary of changed JSON-files.
+        if json_changes:
+            sorted_json_changes = sorted(json_changes)
+            logger.info("JSON changes made in publisher script run (%d):\n%s", len(json_changes), ", ".join(sorted_json_changes))
+        else:
+            logger.info("No JSON changes made in publisher script run.")
+
     # Log a summary of warnings and errors
     if logger_flags.had_warning and logger_flags.had_error:
         logger.info("*** There were WARNINGS and ERRORS during publisher script run! ***")
@@ -1941,8 +2129,8 @@ def check_publication_mtimes_and_publish_files(
     elif logger_flags.had_warning:
         logger.info("*** There were WARNINGS during publisher script run! ***")
 
-    # Merge the sets containing XML and HTML changes
-    all_changes = xml_changes.union(html_changes)
+    # Merge the sets containing XML, HTML and JSON changes
+    all_changes = xml_changes.union(html_changes).union(json_changes)
 
     if not no_git and len(all_changes) > 0:
         outputs = []
