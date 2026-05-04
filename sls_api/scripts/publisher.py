@@ -909,7 +909,10 @@ def save_prerendered_json(
         return None
 
     try:
-        json_text = json.dumps(content, ensure_ascii=False, indent=2)
+        json_text = json.dumps(content,
+                               ensure_ascii=False,
+                               indent=2,
+                               sort_keys=True)
         with open(output_filepath, "w", encoding="utf-8") as outfile:
             outfile.write(ensure_trailing_newline(json_text))
     except Exception:
