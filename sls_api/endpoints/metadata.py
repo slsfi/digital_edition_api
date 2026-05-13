@@ -9,10 +9,13 @@ import sqlalchemy.sql
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, \
-    get_project_id_from_name, path_hierarchy, select_all_from_table, \
-    flatten_json, get_first_valid_item_from_toc, int_or_none, \
-    is_valid_language, reader_auth_required
+from sls_api.endpoints.generics import \
+    can_show_publication_metadata_row, construct_publication_metadata_response, \
+    db_engine, get_project_config, get_project_id_from_name, path_hierarchy, \
+    get_prerendered_publication_metadata_content, \
+    get_publication_metadata_base_row, get_publication_metadata_from_db, \
+    select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
+    int_or_none, is_valid_language, reader_auth_required
 
 meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
@@ -736,6 +739,84 @@ def get_urn(project, url, legacy_id=None):
             return_data.append(row._asdict())
     connection.close()
     return jsonify(return_data), 200
+
+
+@meta.route("/<project>/publications/<publication_id>/metadata/<language>", methods=["GET"])
+@meta.route("/<project>/publications/<publication_id>/metadata", methods=["GET"])
+@reader_auth_required()
+def get_publication_metadata(project, publication_id, language='sv'):
+    """
+    Get metadata for a given publication in a specific language.
+    """
+    # Validate parameters
+    project_config = get_project_config(project)
+    if project_config is None:
+        return jsonify({"error": f"The project '{project}' does not exist."}), 400
+
+    file_root = project_config.get("file_root")
+    if file_root is None:
+        return jsonify({"error": f"File root missing from '{project}' project config."}), 500
+
+    p_id = int_or_none(publication_id)
+    if p_id is None or p_id < 1:
+        return jsonify({"error": "Invalid publication_id."}), 400
+
+    if language is not None and not is_valid_language(language):
+        return jsonify({"error": "Invalid language."}), 400
+
+    # Get base metadata including visibility status from the database
+    base_row, message, status_code = get_publication_metadata_base_row(
+        project,
+        p_id,
+        language,
+        project_config
+    )
+    if base_row is None:
+        return jsonify({"error": message}), status_code
+
+    can_show, message = can_show_publication_metadata_row(
+        base_row,
+        project_config
+    )
+    if not can_show:
+        return jsonify({"error": message}), 403
+
+    # Try serving metadata from prerendered file if prerendering enabled
+    prerender_json = project_config.get("prerender_json", False)
+
+    if prerender_json:
+        prerendered_metadata = get_prerendered_publication_metadata_content(
+            file_root,
+            p_id,
+            language
+        )
+        if prerendered_metadata is not None:
+            return jsonify(prerendered_metadata), 200
+
+    # Fall back to constructing metadata on demand
+    # Get additional metadata (manuscripts, facsimiles...) from the database
+    db_metadata, message, status_code = get_publication_metadata_from_db(
+        project,
+        p_id,
+        language,
+        project_config,
+        base_row=base_row
+    )
+    if db_metadata is None:
+        logger.error(
+            "Unable to build publication metadata for %s/%s: %s",
+            project,
+            p_id,
+            message
+        )
+        return jsonify({"error": message}), status_code
+
+    # Construct the final response object
+    response_data, response_status = construct_publication_metadata_response(
+        db_metadata,
+        project_config
+    )
+    return jsonify(response_data), response_status
 
 
 def list_tooltips(table):

@@ -7,18 +7,20 @@ from functools import wraps
 import glob
 import hashlib
 import io
+import json
 import logging
 from lxml import etree
-from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 import os
+from pathlib import Path
 import re
 from ruamel.yaml import YAML
+from saxonche import PySaxonProcessor, PyXslt30Processor, PyXsltExecutable
 from sls_api.models import User
-from sqlalchemy import create_engine, Connection, MetaData, RowMapping, Table
+from sqlalchemy import create_engine, Connection, func, MetaData, RowMapping, Table
 from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 from werkzeug.security import safe_join
 
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -47,9 +49,15 @@ DEFAULT_COLLATION = "sv-x-icu"  # Generic Swedish Unicode collation
 # HTML than prerendered HTML from the XML files).
 PRERENDERED_HTML_PATH_IN_PROJECT_ROOT = "html/documents"
 
-# Map of paths to XSLT stylesheets for HTML transformations for different
-# text types. The paths to the XSLT stylesheets are relative to the
-# project root.
+# Folder paths from the project root to folders where prerendered JSON
+# output is located.
+PRERENDERED_JSON_PATH_MAP_IN_PROJECT_ROOT = {
+    "publication_metadata": "json/publication-metadata"
+}
+
+# Map of paths to XSLT stylesheets for XML->HTML transformations for
+# different text types. The paths to the XSLT stylesheets are relative
+# to the project root.
 XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
     "com": "xslt/com.xsl",
     "est": "xslt/est.xsl",
@@ -60,6 +68,13 @@ XSL_PATH_MAP_FOR_HTML_TRANSFORMATIONS = {
     "tit": "xslt/title.xsl",
     "var_base": "xslt/poem_variants_est.xsl",
     "var_other": "xslt/poem_variants_other.xsl"
+}
+
+# Map of paths to XSLT stylesheets for XML->JSON transformations for
+# different text types. The paths to the XSLT stylesheets are relative
+# to the project root.
+XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS = {
+    "publication_metadata": "xslt/publication-metadata.xsl"
 }
 
 # Frontend URL used in links sent over email (address verification, password reset)
@@ -492,6 +507,63 @@ def cache_is_recent(source_file, xsl_file, cache_file):
     return True
 
 
+def resolve_project_published_threshold(project_config: Mapping) -> int:
+    """
+    Return the lowest published status visible for a project.
+
+    Status values are cumulative: ``0`` means unpublished content can be shown,
+    ``1`` means internally published content can be shown, and ``2`` means only
+    externally published content can be shown.
+    """
+    if project_config.get("show_unpublished", False):
+        return 0
+    if project_config.get("show_internally_published", False):
+        return 1
+    return 2
+
+
+def can_show_published_values(
+        published_values: List[Optional[int]],
+        show_published_threshold: int
+) -> Tuple[bool, str]:
+    """
+    Determine whether content with one or more published-status values
+    should be visible.
+
+    Published status is evaluated across all relevant database rows, for
+    example project, collection, and publication. The lowest status wins:
+    if any part of the chain has a status below the project's effective
+    show-published threshold, the content cannot be shown.
+
+    Status values:
+        - None: invalid/missing published status
+        - 0: unpublished
+        - 1: internally published
+        - 2 or higher: publicly available
+
+    Args:
+        published_values: Published-status values to evaluate.
+        show_published_threshold: Lowest published status visible for
+            the project.
+
+    Returns:
+        A tuple of (can_show, message), where message is empty if the
+        content can be shown.
+    """
+    status = (
+        -1
+        if not published_values or any(v is None for v in published_values)
+        else min(published_values)
+    )
+
+    if status >= show_published_threshold:
+        return True, ""
+    elif status < 1:
+        return False, "Content is not published."
+    else:
+        return False, "Content is not publicly available."
+
+
 def get_published_status(
         project: str,
         collection_id: str,
@@ -516,6 +588,9 @@ def get_published_status(
     Collections/publications can be shown if they're externally
     published (published==2), or if they're internally published
     (published==1) and show_internally_published is True
+
+    TODO: Change this to use ``resolve_project_published_threshold(project_config)``
+    so ``show_unpublished`` in config is handled consistently.
     """
     project_config = get_project_config(project)
     if project_config is None:
@@ -576,7 +651,13 @@ def get_published_status(
         logger.exception(message)
         return False, message, None
 
-    show_internal = project_config["show_internally_published"]
+    # TODO: Change this to use `resolve_project_published_threshold(project_config)`
+    # so `show_unpublished` in config is also respected. This might alter behaviour
+    # for projects that have `show_unpublished: True` and `show_internally_published: False`
+    # in the project config. Check if there are such projects before making this change.
+    show_published_threshold = (
+        1 if project_config["show_internally_published"] else 2
+    )
     can_show = False
     message = ""
     col_legacy_id = None
@@ -589,14 +670,10 @@ def get_published_status(
         if publication_id is not None:
             pub_values.append(row["pub"])
 
-        status = -1 if any(v is None for v in pub_values) else min(pub_values)
-
-        if status < 1:
-            message = "Content is not published."
-        elif status == 1 and not show_internal:
-            message = "Content is not publicly available."
-        else:
-            can_show = True
+        can_show, message = can_show_published_values(
+            pub_values,
+            show_published_threshold
+        )
 
     return can_show, message, col_legacy_id
 
@@ -922,6 +999,488 @@ def get_frontmatter_page_content(
         project_config=project_config,
         xslt_parameters=xslt_params
     )
+
+
+def get_project_frontend_languages(project_config: Mapping) -> List[str]:
+    """
+    Return valid frontend language codes configured for a project.
+
+    Projects can configure ``frontend_languages`` as an array of language
+    codes. If the setting is missing, malformed, empty, or contains no valid
+    language codes, Swedish is used as the default.
+    """
+    languages = project_config.get("frontend_languages", ["sv"])
+    if isinstance(languages, str):
+        languages = [languages]
+    if not isinstance(languages, list):
+        return ["sv"]
+
+    valid_languages = []
+    for language in languages:
+        if (
+            isinstance(language, str) and
+            is_valid_language(language) and
+            language not in valid_languages
+        ):
+            valid_languages.append(language)
+
+    return valid_languages or ["sv"]
+
+
+def get_publication_metadata_base_row(
+        project: str,
+        publication_id: int,
+        language: str,
+        project_config: Mapping
+) -> Tuple[Optional[RowMapping], str, int]:
+    """
+    Fetch the publication and collection row used by publication metadata.
+
+    The row includes the published status values needed for visibility checks.
+    """
+    show_published_threshold = resolve_project_published_threshold(project_config)
+
+    try:
+        project_table = get_table("project")
+        collection_table = get_table("publication_collection")
+        publication_table = get_table("publication")
+        comment_table = get_table("publication_comment")
+        translation_text_table = get_table("translation_text")
+
+        with db_engine.connect() as connection:
+            statement = (
+                select(
+                    project_table.c.published.label("project_published"),
+                    collection_table.c.id.label("collection_id"),
+                    func.coalesce(
+                        translation_text_table.c.text,
+                        collection_table.c.name
+                    ).label("collection_title"),
+                    collection_table.c.published.label("collection_published"),
+                    publication_table.c.name.label("publication_title"),
+                    publication_table.c.original_filename.label(
+                        "publication_filepath"
+                    ),
+                    publication_table.c.published.label("publication_published"),
+                    publication_table.c.genre.label("publication_genre"),
+                    publication_table.c.original_publication_date.label(
+                        "publication_date"
+                    ),
+                    publication_table.c.language.label("publication_language"),
+                    comment_table.c.original_filename.label("comment_filepath"),
+                )
+                .select_from(
+                    project_table
+                    .join(
+                        collection_table,
+                        collection_table.c.project_id == project_table.c.id,
+                    )
+                    .join(
+                        publication_table,
+                        publication_table.c.publication_collection_id == (
+                            collection_table.c.id
+                        )
+                    )
+                    .outerjoin(
+                        comment_table,
+                        and_(
+                            publication_table.c.publication_comment_id == (
+                                comment_table.c.id
+                            ),
+                            comment_table.c.deleted < 1,
+                            comment_table.c.published >= show_published_threshold
+                        )
+                    )
+                    .outerjoin(
+                        translation_text_table,
+                        and_(
+                            collection_table.c.name_translation_id == (
+                                translation_text_table.c.translation_id
+                            ),
+                            translation_text_table.c.language == language,
+                            translation_text_table.c.deleted < 1
+                        )
+                    )
+                )
+                .where(project_table.c.name == str(project))
+                .where(publication_table.c.id == publication_id)
+                .where(project_table.c.deleted < 1)
+                .where(collection_table.c.deleted < 1)
+                .where(publication_table.c.deleted < 1)
+            )
+            row = connection.execute(statement).mappings().first()
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication metadata for %s/%s",
+            project,
+            publication_id
+        )
+        return None, "Unexpected error getting publication metadata.", 500
+
+    if row is None:
+        return None, "Content does not exist.", 404
+
+    return row, "", 200
+
+
+def can_show_publication_metadata_row(
+        row: RowMapping,
+        project_config: Mapping
+) -> Tuple[bool, str]:
+    """
+    Return whether the publication metadata row passes visibility checks.
+    """
+    return can_show_published_values(
+        [
+            row["project_published"],
+            row["collection_published"],
+            row["publication_published"]
+        ],
+        resolve_project_published_threshold(project_config)
+    )
+
+
+def get_publication_metadata_from_db(
+        project: str,
+        publication_id: int,
+        language: str,
+        project_config: Mapping,
+        base_row: Optional[RowMapping] = None
+) -> Tuple[Optional[Dict[str, Any]], str, int]:
+    """
+    Build the database metadata object for a publication metadata response.
+
+    The returned data may still contain internal XML path fields. Callers
+    should pass it through ``construct_publication_metadata_response`` before
+    returning it publicly.
+    """
+    if base_row is None:
+        base_row, message, status_code = get_publication_metadata_base_row(
+            project,
+            publication_id,
+            language,
+            project_config
+        )
+        if base_row is None:
+            return None, message, status_code
+
+    can_show, message = can_show_publication_metadata_row(
+        base_row,
+        project_config
+    )
+    if not can_show:
+        return None, message, 403
+
+    show_published_threshold = resolve_project_published_threshold(project_config)
+
+    try:
+        manuscript_table = get_table("publication_manuscript")
+        variant_table = get_table("publication_version")
+        facsimile_table = get_table("publication_facsimile")
+        facsimile_collection_table = get_table(
+            "publication_facsimile_collection"
+        )
+
+        with db_engine.connect() as connection:
+            manuscript_statement = (
+                select(
+                    manuscript_table.c.id,
+                    manuscript_table.c.name.label("title"),
+                    manuscript_table.c.original_filename,
+                    manuscript_table.c.section_id,
+                    manuscript_table.c.sort_order,
+                    manuscript_table.c.language,
+                )
+                .where(manuscript_table.c.publication_id == publication_id)
+                .where(manuscript_table.c.deleted < 1)
+                .where(
+                    manuscript_table.c.published >= show_published_threshold
+                )
+                .order_by(
+                    manuscript_table.c.sort_order,
+                    manuscript_table.c.name
+                )
+            )
+            manuscripts = [
+                dict(manuscript)
+                for manuscript in connection.execute(
+                    manuscript_statement
+                ).mappings().all()
+            ]
+
+            variant_statement = (
+                select(
+                    variant_table.c.id,
+                    variant_table.c.name.label("title"),
+                    variant_table.c.original_filename,
+                    variant_table.c.section_id,
+                    variant_table.c.sort_order,
+                    variant_table.c.type,
+                )
+                .where(variant_table.c.publication_id == publication_id)
+                .where(variant_table.c.deleted < 1)
+                .where(
+                    variant_table.c.published >= show_published_threshold
+                )
+                .order_by(
+                    variant_table.c.sort_order,
+                    variant_table.c.type
+                )
+            )
+            variants = [
+                dict(variant)
+                for variant in connection.execute(
+                    variant_statement
+                ).mappings().all()
+            ]
+
+            facsimile_statement = (
+                select(
+                    facsimile_table.c.id,
+                    facsimile_table.c.publication_facsimile_collection_id.label(
+                        "facs_coll_id"
+                    ),
+                    facsimile_table.c.publication_manuscript_id,
+                    facsimile_table.c.publication_version_id.label(
+                        "publication_variant_id"
+                    ),
+                    facsimile_table.c.page_nr,
+                    facsimile_table.c.priority,
+                    facsimile_table.c.section_id,
+                    facsimile_collection_table.c.title,
+                    facsimile_collection_table.c.number_of_pages.label(
+                        "number_of_images"
+                    ),
+                    facsimile_collection_table.c.description,
+                    facsimile_collection_table.c.external_url,
+                )
+                .select_from(
+                    facsimile_table.join(
+                        facsimile_collection_table,
+                        facsimile_table.c.publication_facsimile_collection_id == (
+                            facsimile_collection_table.c.id
+                        )
+                    )
+                )
+                .where(facsimile_table.c.publication_id == publication_id)
+                .where(facsimile_table.c.deleted < 1)
+                .where(facsimile_collection_table.c.deleted < 1)
+                .order_by(
+                    facsimile_table.c.priority,
+                    facsimile_table.c.id
+                )
+            )
+            facsimiles = [
+                dict(facsimile)
+                for facsimile in connection.execute(
+                    facsimile_statement
+                ).mappings().all()
+            ]
+    except Exception:
+        logger.exception(
+            "Unexpected error getting publication metadata details for %s/%s",
+            project,
+            publication_id
+        )
+        return None, "Unexpected error getting publication metadata.", 500
+
+    return {
+        "metadata_language": language,
+        "publication_id": publication_id,
+        "publication_title": base_row["publication_title"],
+        "publication_filepath": base_row["publication_filepath"],
+        "publication_genre": base_row["publication_genre"],
+        "publication_date": base_row["publication_date"],
+        "publication_language": base_row["publication_language"],
+        "comment_filepath": base_row["comment_filepath"],
+        "collection_id": base_row["collection_id"],
+        "collection_title": base_row["collection_title"],
+        "facsimiles": facsimiles,
+        "manuscripts": manuscripts,
+        "variants": variants
+    }, "", 200
+
+
+def get_prerendered_json_content(
+        project_file_root: str,
+        json_type: str,
+        json_filename: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Return parsed prerendered JSON content, or ``None`` if unavailable.
+    """
+    json_dir = PRERENDERED_JSON_PATH_MAP_IN_PROJECT_ROOT.get(json_type)
+    if json_dir is None:
+        logger.error("No prerendered JSON folder configured for %s", json_type)
+        return None
+
+    file_path = safe_join(project_file_root, json_dir, json_filename)
+    if file_path is None:
+        logger.error("safe_join returned None for JSON path %r", json_filename)
+        return None
+
+    if not os.path.isfile(file_path):
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as json_file:
+            content = json.load(json_file)
+    except json.JSONDecodeError:
+        logger.exception("Invalid prerendered JSON in %s", file_path)
+        return None
+    except OSError as e:
+        logger.exception("OS error reading %s: %s", file_path, e)
+        return None
+    except Exception:
+        logger.exception("Unexpected error when reading %s", file_path)
+        return None
+
+    if not isinstance(content, dict):
+        logger.error("Prerendered JSON in %s is not an object.", file_path)
+        return None
+
+    return content
+
+
+def get_prerendered_publication_metadata_content(
+        project_file_root: str,
+        publication_id: int,
+        language: str
+) -> Optional[Dict[str, Any]]:
+    """
+    Return prerendered publication metadata for one publication and language.
+    """
+    json_filename = f"{publication_id}_{language}_metadata.json"
+    return get_prerendered_json_content(
+        project_file_root,
+        "publication_metadata",
+        json_filename
+    )
+
+
+def construct_publication_metadata_response(
+        db_metadata: Dict[str, Any],
+        project_config: Mapping,
+        saxon_processor: Optional[PySaxonProcessor] = None,
+        xslt_processor: Optional[PyXslt30Processor] = None,
+        xslt_exec: Optional[PyXsltExecutable] = None,
+        use_xslt_transformation: bool = True
+) -> Tuple[Dict[str, Any], int]:
+    """
+    Build the final publication metadata response object.
+
+    The endpoint first collects publication metadata from the database and
+    passes it to this helper. If Saxon is available and the project-specific
+    `publication-metadata.xsl` stylesheet exists, the helper enriches XML path
+    fields with internal file URIs and passes the metadata JSON to the
+    stylesheet. The stylesheet can then read additional metadata from XML files
+    and return the final response object as JSON.
+
+    If Saxon support or the stylesheet is unavailable, the database metadata is
+    returned directly. In both paths, internal file path fields and generated
+    `*_uri` fields are removed before the response is returned.
+
+    Args:
+        db_metadata: Metadata collected from the database. May contain nested
+            dictionaries and lists, including internal XML file path fields.
+        project_config: Project configuration mapping. Uses `file_root`,
+            from which the project XSLT location is resolved.
+        saxon_processor: Optional Saxon processor to use for the XSLT
+            transformation. If not passed, the module-level `saxon_proc`
+            processor is used.
+        xslt_processor: Optional Saxon XSLT 3.0 processor to use when compiling
+            the stylesheet. If neither `saxon_processor` nor `xslt_processor`
+            is passed, the module-level `saxon_xslt_proc` processor is used.
+            When supplied, it must have been created from the same Saxon
+            processor instance that this function uses.
+        xslt_exec: Optional precompiled Saxon XSLT executable. When supplied,
+            the stylesheet is not compiled inside this function. The executable
+            must be compatible with the Saxon processor used for the
+            transformation.
+        use_xslt_transformation: Whether to attempt metadata enrichment with
+            `publication-metadata.xsl`. If False, the sanitized database
+            metadata is returned directly.
+
+    Returns:
+        A tuple of `(response_data, status_code)`. On success,
+        `response_data` is the sanitized metadata response and status is 200.
+        On transformation or JSON parsing failure, `response_data` contains an
+        error message and status is 500.
+    """
+    file_root = project_config.get("file_root", "")
+    relative_xsl_path = XSL_PATH_MAP_FOR_JSON_TRANSFORMATIONS.get("publication_metadata")
+    xml_path_fields = [
+        "publication_filepath",
+        "comment_filepath",
+        "original_filename"
+    ]
+    if saxon_processor is None:
+        saxon_processor = saxon_proc
+        if xslt_processor is None:
+            xslt_processor = saxon_xslt_proc
+
+    xsl_path = safe_join(file_root, relative_xsl_path) if relative_xsl_path else None
+
+    # If Saxon, the metadata stylesheet, or XSLT enrichment is not available,
+    # respond with just the metadata from the database.
+    if (
+        not use_xslt_transformation or
+        (
+            xslt_exec is None and
+            (
+                not xsl_path or
+                os.path.isfile(xsl_path) is False
+            )
+        ) or
+        not saxon_processor
+    ):
+        return remove_file_path_fields(db_metadata, xml_path_fields), 200
+
+    try:
+        db_metadata_with_uris = enrich_db_metadata_with_uris(
+            db_metadata=db_metadata,
+            file_root=file_root,
+            xml_path_fields=xml_path_fields,
+        )
+    except Exception:
+        logger.exception("Unexpected error converting XML file paths to URIs while getting publication metadata.")
+        return {"error": "Unexpected error getting publication metadata."}, 500
+
+    try:
+        # Initialise a SaxonXMLDocument instance
+        saxon_doc: SaxonXMLDocument = SaxonXMLDocument(
+            saxon_processor,
+            xslt30_proc=xslt_processor
+        )
+
+        # Compile the XSLT into a Saxon XSLT executable if the caller
+        # did not provide a precompiled executable.
+        if xslt_exec is None:
+            xslt_exec = saxon_doc.compile_stylesheet(xsl_path)
+
+        # Invoke a transformation by calling the initial-template of the XSLT
+        # stylesheet. The stylesheet reads the database metadata from the
+        # stringified JSON passed as a parameter, reads data from XML-files
+        # declared in the parameters, and returns the final metadata as stringified
+        # JSON. This way the XSLT stylesheet has the final control over which
+        # metadata fields are returned and in which form.
+        db_metadata_json_text = json.dumps(db_metadata_with_uris, ensure_ascii=False)
+        transformed_metadata_json_text = saxon_doc.call_template_returning_string(
+            xslt_exec=xslt_exec,
+            parameters={"db-json": db_metadata_json_text}
+        )
+    except Exception:
+        logger.exception("Unexpected error invoking a transformation while getting publication metadata.")
+        return {"error": "Unexpected error getting publication metadata."}, 500
+
+    # Validate the stringified JSON by parsing it
+    try:
+        transformed_metadata_json = json.loads(transformed_metadata_json_text)
+    except json.JSONDecodeError:
+        logger.exception("Invalid JSON from XSLT while getting publication metadata.")
+        return {"error": "Unexpected error getting publication metadata: metadata transform produced invalid JSON."}, 500
+
+    return remove_file_path_fields(transformed_metadata_json, xml_path_fields), 200
 
 
 def update_publication_related_table(
@@ -1633,3 +2192,156 @@ def ensure_trailing_newline(text: str) -> str:
 
     # Otherwise, default to LF
     return text + "\n"
+
+
+def to_file_uri(file_root: Union[str, Path], rel_path: Optional[str]) -> Optional[str]:
+    """
+    Convert a database-relative file path into an absolute ``file://`` URI.
+
+    The relative path is joined to the configured project file root using
+    :func:`werkzeug.security.safe_join` so the final path remains within the
+    trusted root directory. The resulting filesystem path is then resolved to
+    an absolute path and converted to a ``file://`` URI suitable for XSLT/XPath
+    functions such as ``fn:doc()``.
+
+    Args:
+        file_root: Absolute root directory under which project files are stored.
+            May be given as a string or :class:`pathlib.Path`.
+        rel_path: Relative file path from the database. If ``None`` or an empty
+            string, the function returns ``None``.
+
+    Returns:
+        An absolute file URI such as
+        ``file:///srv/project/documents/publications/text1.xml``, or ``None``
+        if ``rel_path`` is ``None`` or empty.
+
+    Raises:
+        ValueError: If ``rel_path`` is unsafe or resolves outside ``file_root``.
+    """
+    if not rel_path:
+        return None
+
+    abs_path = safe_join(str(file_root), rel_path)
+    if abs_path is None:
+        raise ValueError("Unsafe path outside file root: {!r}".format(rel_path))
+
+    return Path(abs_path).resolve().as_uri()
+
+
+def enrich_db_metadata_with_uris(
+    db_metadata: Mapping[str, Any],
+    file_root: Union[str, Path],
+    xml_path_fields: Iterable[str],
+) -> Dict[str, Any]:
+    """
+    Return a deep-copied metadata structure with ``*_uri`` fields added.
+
+    This function recursively traverses a metadata structure composed of nested
+    dictionaries and lists. Whenever it encounters a dictionary key whose name
+    appears in ``xml_path_fields``, it preserves the original value and adds a
+    sibling key named ``<field>_uri`` whose value is the absolute ``file://``
+    URI derived from that relative path.
+
+    Only string values are converted. Nested dictionaries and lists are
+    processed recursively so XML path fields are handled no matter where they
+    occur within the metadata structure.
+
+    Args:
+        db_metadata: Metadata loaded from the database. This may be a nested
+            structure containing dictionaries and lists.
+        file_root: Absolute root directory under which project files are stored.
+            May be given as a string or :class:`pathlib.Path`.
+        xml_path_fields: Field names whose values should be interpreted as
+            database-relative XML file paths and expanded with corresponding
+            ``*_uri`` keys.
+
+    Returns:
+        A new dictionary containing the same metadata as ``db_metadata`` plus
+        derived ``*_uri`` fields for matching XML path entries found anywhere
+        in the nested structure.
+
+    Raises:
+        ValueError: If any matching XML path is unsafe or resolves outside
+            ``file_root``.
+        TypeError: If ``db_metadata`` is not a mapping at the top level.
+    """
+    if not isinstance(db_metadata, Mapping):
+        raise TypeError("db_metadata must be a mapping")
+
+    xml_path_field_set = set(xml_path_fields)
+
+    def transform(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            result = {}
+
+            for key, item in value.items():
+                result[key] = transform(item)
+
+                if key in xml_path_field_set and isinstance(item, str) and item:
+                    result["{}_uri".format(key)] = to_file_uri(file_root, item)
+
+            return result
+
+        if isinstance(value, list):
+            return [transform(item) for item in value]
+
+        return value
+
+    transformed = transform(db_metadata)
+    if not isinstance(transformed, dict):
+        raise TypeError("Expected transformed top-level metadata to be a dict")
+
+    return transformed
+
+
+def remove_file_path_fields(
+    metadata: Mapping[str, Any],
+    xml_path_fields: Iterable[str],
+) -> Dict[str, Any]:
+    """
+    Return a deep-copied metadata structure with private file path fields
+    removed.
+
+    The publication metadata XSLT receives internal file paths and generated
+    file URIs so it can read XML files with Saxon. Those paths should not be
+    exposed in the public API response. This helper recursively removes keys
+    listed in ``xml_path_fields`` and any generated ``*_uri`` keys from nested
+    dictionaries and lists.
+
+    Args:
+        metadata: Metadata response object.
+        xml_path_fields: Field names containing database-relative file paths.
+
+    Returns:
+        A new dictionary without internal file path or file URI fields.
+
+    Raises:
+        TypeError: If ``metadata`` is not a mapping at the top level.
+    """
+    if not isinstance(metadata, Mapping):
+        raise TypeError("metadata must be a mapping")
+
+    xml_path_field_set = set(xml_path_fields)
+
+    def transform(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            result = {}
+
+            for key, item in value.items():
+                if key in xml_path_field_set or str(key).endswith("_uri"):
+                    continue
+
+                result[key] = transform(item)
+
+            return result
+
+        if isinstance(value, list):
+            return [transform(item) for item in value]
+
+        return value
+
+    transformed = transform(metadata)
+    if not isinstance(transformed, dict):
+        raise TypeError("Expected transformed top-level metadata to be a dict")
+
+    return transformed
