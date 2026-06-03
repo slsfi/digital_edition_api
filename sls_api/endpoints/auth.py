@@ -113,7 +113,7 @@ def login_user():
     else:
         # update last_login_timestamp for user
         User.update_login_timestamp(email)
-    
+
     projects = current_user.get_projects()  # get current projects for user, to be sent along with JWT
 
     if current_user.cms_user:
