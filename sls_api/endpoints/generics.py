@@ -257,7 +257,7 @@ def valid_jwt_required(refresh: bool = False, fresh: bool = False):
             if not user:
                 # user does not exist
                 return jsonify({"msg": "You are not logged in with valid credentials"}), 403
-            elif not User.check_token_validity(identity, jwt_issued_at):
+            elif not User.check_token_validity(user.email, jwt_issued_at):
                 # token issued before first validity - password reset or other reset has been done
                 return jsonify({"msg": "You are not logged in with valid credentials."}), 403
             else:
@@ -286,7 +286,7 @@ def reader_auth_required():
                 if not user:
                     # user does not exist
                     return jsonify({"msg": "You are not logged in with a verified email address."}), 403
-                elif not User.check_token_validity(identity, jwt_issued_at):
+                elif not User.check_token_validity(user.email, jwt_issued_at):
                     # token issued before first validity - password reset or other reset has been done
                     return jsonify({"msg": "You are not logged in with a verified email address."}), 403
                 elif user.email_is_verified():
@@ -321,7 +321,7 @@ def cms_required(edit: bool = False) -> Any:
             if not user:
                 return jsonify({"msg": "No access to this project."}), 403
             # if user token issued before first validity time, then no access
-            elif not User.check_token_validity(identity, claims["iat"]):
+            elif not User.check_token_validity(user.email, claims["iat"]):
                 return jsonify({"msg": "No access to this project."}), 403
             # if this function is marked as needing editing permissions, check for project and then verify permissions
             elif edit:

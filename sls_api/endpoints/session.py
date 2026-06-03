@@ -40,7 +40,7 @@ def _has_valid_session(require_cms: bool = False) -> bool:
         return False
 
     # Reject invalidated tokens
-    if not User.check_token_validity(identity, jwt_issued_at):
+    if not User.check_token_validity(user.email, jwt_issued_at):
         return False
 
     # Unverified users are treated as unauthorized for app session
