@@ -113,20 +113,24 @@ def login_user():
     else:
         # update last_login_timestamp for user
         User.update_login_timestamp(email)
+    
+    projects = current_user.get_projects()  # get current projects for user, to be sent along with JWT
 
     if current_user.cms_user:
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
                 "access_token": create_access_token(identity=current_user.ident),
-                "refresh_token": create_refresh_token(identity=current_user.ident, expires_delta=datetime.timedelta(days=3))
+                "refresh_token": create_refresh_token(identity=current_user.ident, expires_delta=datetime.timedelta(days=3)),
+                "user_projects": projects
             }), 200
     else:
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
                 "access_token": create_access_token(identity=current_user.ident),
-                "refresh_token": create_refresh_token(identity=current_user.ident)
+                "refresh_token": create_refresh_token(identity=current_user.ident),
+                "user_projects": projects
             }), 200
 
 
