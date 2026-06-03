@@ -114,23 +114,19 @@ def login_user():
         # update last_login_timestamp for user
         User.update_login_timestamp(email)
 
-    projects = current_user.get_projects()  # get current projects for user to add as additional claims
-
     if current_user.cms_user:
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
-                "access_token": create_access_token(identity=current_user.email, additional_claims={"projects": projects}),
-                "refresh_token": create_refresh_token(identity=current_user.email, additional_claims={"projects": projects}, expires_delta=datetime.timedelta(days=3)),
-                "user_projects": projects
+                "access_token": create_access_token(identity=current_user.ident),
+                "refresh_token": create_refresh_token(identity=current_user.ident, expires_delta=datetime.timedelta(days=3))
             }), 200
     else:
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
-                "access_token": create_access_token(identity=current_user.email, additional_claims={"projects": projects}),
-                "refresh_token": create_refresh_token(identity=current_user.email, additional_claims={"projects": projects}),
-                "user_projects": projects
+                "access_token": create_access_token(identity=current_user.ident),
+                "refresh_token": create_refresh_token(identity=current_user.ident)
             }), 200
 
 
@@ -138,16 +134,14 @@ def login_user():
 @valid_jwt_required(refresh=True)
 def refresh_token():
     identity = get_jwt_identity()
-    user = User.find_by_email(identity)
+    user = User.find_by_id(identity)
     if user:
-        projects = user.get_projects()
         # update last_login_timestamp, a token refresh is equivalent to a login
         User.update_login_timestamp(identity)
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(identity),
-                "access_token": create_access_token(identity=identity, additional_claims={"projects": projects}),
-                "user_projects": projects
+                "access_token": create_access_token(identity=identity)
             }
         ), 200
     else:
@@ -158,11 +152,15 @@ def refresh_token():
 @valid_jwt_required(fresh=True)
 def verify_email():
     identity = get_jwt_identity()
-    success = User.mark_email_verified(identity)
-    if success:
-        return jsonify({"msg": f"Email address {identity} verified. You may now log in."}), 200
+    user = User.find_by_id(identity)
+    if user:
+        success = User.mark_email_verified(user.email)
+        if success:
+            return jsonify({"msg": f"Email address {user.email} verified. You may now log in."}), 200
+        else:
+            return jsonify({"msg": f"Error when attempting to verify {user.email}"}), 500
     else:
-        return jsonify({"msg": f"Error when attempting to verify {identity}"}), 500
+        return jsonify({"msg": f"Error when attempting to verify email."}), 500
 
 
 @auth.route("/forgot_password", methods=["POST"])
@@ -223,7 +221,7 @@ def logout():
     Reset a user's token validity, making all current logins invalid
     """
     identity = get_jwt_identity()
-    user = User.find_by_email(identity)
+    user = User.find_by_id(identity)
     if user:
         success = User.reset_token_validity(identity)
         if success:
