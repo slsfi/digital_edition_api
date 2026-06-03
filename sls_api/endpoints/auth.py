@@ -78,7 +78,7 @@ def register_user():
         User.set_country(email, country)
         User.set_intended_usage(email, intended_usage)
         # create temporary access token for email verification
-        verification_token = create_access_token(identity=new_user.email, expires_delta=datetime.timedelta(hours=8), fresh=True)
+        verification_token = create_access_token(identity=str(new_user.ident), expires_delta=datetime.timedelta(hours=8), fresh=True)
         # send token to user by email
         send_address_verification_email(to_address=new_user.email, access_token=verification_token, user_language=user_language)
         return jsonify(
