@@ -186,7 +186,7 @@ def start_password_reset():
     if user_language not in ["en", "sv", "fi"]:
         logger.warning(f"User supplied invalid language {user_language} with password reset request, defaulting to 'en'")
         user_language = "en"
-    access_token = create_access_token(identity=user.email, expires_delta=datetime.timedelta(minutes=30), fresh=True)
+    access_token = create_access_token(identity=str(user.ident), expires_delta=datetime.timedelta(minutes=30), fresh=True)
     success = send_password_reset_email(to_address=user.email, access_token=access_token, user_language=user_language)
     if success:
         return jsonify({"msg": "If an account exists for this email address, a password reset link has been sent."}), 200
@@ -209,7 +209,8 @@ def finish_password_reset():
         return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
     if len(password) < MINIMUM_PASSWORD_LENGTH:
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
-    password_set = User.reset_password(identity, password)
+    user = User.find_by_id(int(identity["sub"]))
+    password_set = User.reset_password(user.email, password)
     if password_set:
         # reset token validity for user
         User.reset_token_validity(identity)
