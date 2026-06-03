@@ -73,7 +73,7 @@ def list_user_projects():
     # Get user in order to fetch projects from auth database
     identity = get_jwt_identity()
     user = User.find_by_id(int(identity["sub"]))
-    user_projects = list(User.projects)
+    user_projects = list(user.projects)
     project_table = get_table("project")
 
     try:
