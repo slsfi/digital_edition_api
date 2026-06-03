@@ -337,7 +337,7 @@ def cms_required(edit: bool = False) -> Any:
                 if "projects" not in claims or not claims["projects"]:
                     # according to JWT, no access to any projects
                     return jsonify({"msg": "No access to this project."}), 403
-                elif check_for_project_permission_in_database(identity, project):
+                elif check_for_project_permission_in_database(user.email, project):
                     # only run function if database says user *actually* has permissions
                     return fn(*args, **kwargs)
                 else:
