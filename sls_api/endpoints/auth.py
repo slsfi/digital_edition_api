@@ -141,7 +141,7 @@ def refresh_token():
     user = User.find_by_id(int(identity["sub"]))
     if user:
         # update last_login_timestamp, a token refresh is equivalent to a login
-        User.update_login_timestamp(identity)
+        User.update_login_timestamp(user.email)
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(identity),
