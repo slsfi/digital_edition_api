@@ -160,7 +160,7 @@ def verify_email():
         else:
             return jsonify({"msg": f"Error when attempting to verify {user.email}"}), 500
     else:
-        return jsonify({"msg": f"Error when attempting to verify email."}), 500
+        return jsonify({"msg": "Error when attempting to verify email."}), 500
 
 
 @auth.route("/forgot_password", methods=["POST"])

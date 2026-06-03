@@ -116,7 +116,7 @@ class User(db.Model):
             return True
         else:
             return False
-        
+
     @classmethod
     def find_by_id(cls, id: int) -> "User | None":
         """
