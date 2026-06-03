@@ -213,7 +213,7 @@ def finish_password_reset():
     password_set = User.reset_password(user.email, password)
     if password_set:
         # reset token validity for user
-        User.reset_token_validity(identity)
+        User.reset_token_validity(user.email)
         return jsonify({"msg": f"New password set for {identity}"}), 200
     else:
         return jsonify({"msg": f"Failed to set password for {identity}"}), 500
@@ -228,7 +228,7 @@ def logout():
     identity = get_jwt_identity()
     user = User.find_by_id(int(identity["sub"]))
     if user:
-        success = User.reset_token_validity(identity)
+        success = User.reset_token_validity(user.email)
         if success:
             return jsonify({"msg": "User logged out"}), 200
         else:
