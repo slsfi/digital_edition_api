@@ -251,7 +251,7 @@ def valid_jwt_required(refresh: bool = False, fresh: bool = False):
             verify_jwt_in_request(fresh=fresh, refresh=refresh)
             # get JWT identity so we can check token validity timestamps
             identity = get_jwt_identity()
-            user = User.find_by_id(identity)
+            user = User.find_by_id(int(identity["sub"]))
             # get JWT IAT so we can verify token is issued after user first validity
             jwt_issued_at = get_jwt()["iat"]
             if not user:
@@ -280,7 +280,7 @@ def reader_auth_required():
                 verify_jwt_in_request()
                 # get JWT identity so we can ensure email is verified also
                 identity = get_jwt_identity()
-                user = User.find_by_id(identity)
+                user = User.find_by_id(int(identity["sub"]))
                 # get JWT IAT so we can verify token is issued after user first validity
                 jwt_issued_at = get_jwt()["iat"]
                 if not user:
@@ -316,7 +316,7 @@ def cms_required(edit: bool = False) -> Any:
             # get JWT claims to check for claimed project access
             claims = get_jwt()
             # TODO check for source IP, CMS users should only come from company intranet
-            user = User.find_by_id(identity)
+            user = User.find_by_id(int(identity["sub"]))
             # if user doesn't exist, then no access
             if not user:
                 return jsonify({"msg": "No access to this project."}), 403

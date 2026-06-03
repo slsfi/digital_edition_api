@@ -120,16 +120,16 @@ def login_user():
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
-                "access_token": create_access_token(identity=current_user.ident),
-                "refresh_token": create_refresh_token(identity=current_user.ident, expires_delta=datetime.timedelta(days=3)),
+                "access_token": create_access_token(identity=str(current_user.ident)),
+                "refresh_token": create_refresh_token(identity=str(current_user.ident), expires_delta=datetime.timedelta(days=3)),
                 "user_projects": projects
             }), 200
     else:
         return jsonify(
             {
                 "msg": "Logged in as {!r}".format(data["email"]),
-                "access_token": create_access_token(identity=current_user.ident),
-                "refresh_token": create_refresh_token(identity=current_user.ident),
+                "access_token": create_access_token(identity=str(current_user.ident)),
+                "refresh_token": create_refresh_token(identity=str(current_user.ident)),
                 "user_projects": projects
             }), 200
 
@@ -138,7 +138,7 @@ def login_user():
 @valid_jwt_required(refresh=True)
 def refresh_token():
     identity = get_jwt_identity()
-    user = User.find_by_id(identity)
+    user = User.find_by_id(int(identity["sub"]))
     if user:
         # update last_login_timestamp, a token refresh is equivalent to a login
         User.update_login_timestamp(identity)
@@ -156,7 +156,7 @@ def refresh_token():
 @valid_jwt_required(fresh=True)
 def verify_email():
     identity = get_jwt_identity()
-    user = User.find_by_id(identity)
+    user = User.find_by_id(int(identity["sub"]))
     if user:
         success = User.mark_email_verified(user.email)
         if success:
@@ -225,7 +225,7 @@ def logout():
     Reset a user's token validity, making all current logins invalid
     """
     identity = get_jwt_identity()
-    user = User.find_by_id(identity)
+    user = User.find_by_id(int(identity["sub"]))
     if user:
         success = User.reset_token_validity(identity)
         if success:

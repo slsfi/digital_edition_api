@@ -494,7 +494,8 @@ def update_file(project, file_path):
 
     author_email = request_data.get("author", None)
     if not author_email:
-        user = User.find_by_id(get_jwt_identity())
+        identity = get_jwt_identity()
+        user = User.find_by_id(int(identity["sub"]))
         author_email = user.email
     message = request_data.get("message", "File update by {}".format(author_email))
     force = bool(request_data.get("force", False))
@@ -1178,7 +1179,7 @@ def handle_collection_toc(project, collection_id, language=None):
                 return create_error_response("Error: renaming file failed while saving data to disk.", 500)
 
             # Get author and construct git commit message
-            user = User.find_by_id(identity)
+            user = User.find_by_id(int(identity["sub"]))
             author_email = str(user.email)
             author = f"{author_email.split('@')[0]} <{author_email}>"
             message = f"ToC {filename} update by {author_email}"
