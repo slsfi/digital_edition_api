@@ -313,7 +313,7 @@ def cms_required(edit: bool = False) -> Any:
             verify_jwt_in_request()
             # get JWT identity
             identity = get_jwt_identity()
-            # get JWT claims to check for claimed project access
+            # get JWT claims to check for issuance time
             claims = get_jwt()
             # TODO check for source IP, CMS users should only come from company intranet
             user = User.find_by_id(int(identity["sub"]))
