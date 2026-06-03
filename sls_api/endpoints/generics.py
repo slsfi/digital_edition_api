@@ -280,7 +280,7 @@ def reader_auth_required():
                 verify_jwt_in_request()
                 # get JWT identity so we can ensure email is verified also
                 identity = get_jwt_identity()
-                user = User.ident(identity)
+                user = User.find_by_id(identity)
                 # get JWT IAT so we can verify token is issued after user first validity
                 jwt_issued_at = get_jwt()["iat"]
                 if not user:
