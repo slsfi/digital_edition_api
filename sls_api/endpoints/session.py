@@ -32,7 +32,7 @@ def _has_valid_session(require_cms: bool = False) -> bool:
     identity = get_jwt_identity()
     jwt_issued_at = claims.get("iat")
 
-    user = User.find_by_id(int(identity["sub"]))
+    user = User.find_by_id(int(identity))
     if not user:
         return False
 

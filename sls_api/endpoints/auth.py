@@ -138,7 +138,7 @@ def login_user():
 @valid_jwt_required(refresh=True)
 def refresh_token():
     identity = get_jwt_identity()
-    user = User.find_by_id(int(identity["sub"]))
+    user = User.find_by_id(int(identity))
     if user:
         # update last_login_timestamp, a token refresh is equivalent to a login
         User.update_login_timestamp(user.email)
@@ -156,7 +156,7 @@ def refresh_token():
 @valid_jwt_required(fresh=True)
 def verify_email():
     identity = get_jwt_identity()
-    user = User.find_by_id(int(identity["sub"]))
+    user = User.find_by_id(int(identity))
     if user:
         success = User.mark_email_verified(user.email)
         if success:
@@ -209,7 +209,7 @@ def finish_password_reset():
         return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
     if len(password) < MINIMUM_PASSWORD_LENGTH:
         return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
-    user = User.find_by_id(int(identity["sub"]))
+    user = User.find_by_id(int(identity))
     password_set = User.reset_password(user.email, password)
     if password_set:
         # reset token validity for user
@@ -226,7 +226,7 @@ def logout():
     Reset a user's token validity, making all current logins invalid
     """
     identity = get_jwt_identity()
-    user = User.find_by_id(int(identity["sub"]))
+    user = User.find_by_id(int(identity))
     if user:
         success = User.reset_token_validity(user.email)
         if success:

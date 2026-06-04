@@ -72,7 +72,7 @@ def list_user_projects():
     """
     # Get user in order to fetch projects from auth database
     identity = get_jwt_identity()
-    user = User.find_by_id(int(identity["sub"]))
+    user = User.find_by_id(int(identity))
     user_projects = user.get_projects()
     if not user_projects:    # handle cases where user projects is unset (None) or set incorrectly (empty string)
         user_projects = []
