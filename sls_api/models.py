@@ -118,6 +118,13 @@ class User(db.Model):
             return False
 
     @classmethod
+    def find_by_id(cls, id: int) -> "User | None":
+        """
+        Returns a User object if one exists with the given ID, otherwise None
+        """
+        return cls.query.filter_by(ident=id).first()
+
+    @classmethod
     def find_by_email(cls, email: str) -> "User | None":
         """
         Returns a User object if one exists for the given email, otherwise None

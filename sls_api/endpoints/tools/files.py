@@ -14,6 +14,7 @@ from werkzeug.security import safe_join
 from sls_api.endpoints.generics import cms_required, db_engine, get_project_config, \
     create_error_response, create_success_response, is_any_valid_date_format, \
     int_or_none, is_valid_language, get_table, get_project_id_from_name
+from sls_api.models import User
 
 
 file_tools = Blueprint("file_tools", __name__, url_prefix="/digitaledition")
@@ -491,7 +492,11 @@ def update_file(project, file_path):
     elif "file" not in request_data:
         return jsonify({"msg": "No file in JSON data."}), 400
 
-    author_email = request_data.get("author", get_jwt_identity()["sub"])
+    author_email = request_data.get("author", None)
+    if not author_email:
+        identity = get_jwt_identity()
+        user = User.find_by_id(int(identity))
+        author_email = user.email
     message = request_data.get("message", "File update by {}".format(author_email))
     force = bool(request_data.get("force", False))
 
@@ -1174,7 +1179,8 @@ def handle_collection_toc(project, collection_id, language=None):
                 return create_error_response("Error: renaming file failed while saving data to disk.", 500)
 
             # Get author and construct git commit message
-            author_email = str(identity)
+            user = User.find_by_id(int(identity))
+            author_email = str(user.email)
             author = f"{author_email.split('@')[0]} <{author_email}>"
             message = f"ToC {filename} update by {author_email}"
 

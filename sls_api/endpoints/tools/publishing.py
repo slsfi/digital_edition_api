@@ -1,6 +1,6 @@
 import logging
 from flask import Blueprint, jsonify, request
-from flask_jwt_extended import get_jwt
+from flask_jwt_extended import get_jwt_identity
 from sqlalchemy import select
 from datetime import datetime
 
@@ -8,6 +8,7 @@ from sls_api.endpoints.generics import cms_required, db_engine, get_project_id_f
     int_or_none, validate_project_name, validate_int, create_error_response, \
     create_success_response, update_publication_related_table, handle_deleted_flag
 from sls_api.exceptions import CascadeUpdateError
+from sls_api.models import User
 
 
 publishing_tools = Blueprint("publishing_tools", __name__, url_prefix="/digitaledition")
@@ -69,17 +70,12 @@ def list_user_projects():
             project.
     - 500 - Internal Server Error: Database query or execution failed.
     """
-    # Get claims of current JWT user along with projects the user
-    # has permissions to.
-    claims = get_jwt()
-
-    if "projects" not in claims:
-        return create_error_response("Permissions error: user lacks project permissions.", 403)
-
-    if not claims["projects"]:
-        return create_error_response("Permissions error: user lacks access to any project.", 404)
-
-    user_projects = [str(project) for project in claims["projects"]]
+    # Get user in order to fetch projects from auth database
+    identity = get_jwt_identity()
+    user = User.find_by_id(int(identity))
+    user_projects = user.get_projects()
+    if not user_projects:    # handle cases where user projects is unset (None) or set incorrectly (empty string)
+        user_projects = []
     project_table = get_table("project")
 
     try:

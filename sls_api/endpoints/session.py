@@ -32,7 +32,7 @@ def _has_valid_session(require_cms: bool = False) -> bool:
     identity = get_jwt_identity()
     jwt_issued_at = claims.get("iat")
 
-    user = User.find_by_email(identity)
+    user = User.find_by_id(int(identity))
     if not user:
         return False
 
@@ -40,7 +40,7 @@ def _has_valid_session(require_cms: bool = False) -> bool:
         return False
 
     # Reject invalidated tokens
-    if not User.check_token_validity(identity, jwt_issued_at):
+    if not User.check_token_validity(user.email, jwt_issued_at):
         return False
 
     # Unverified users are treated as unauthorized for app session
