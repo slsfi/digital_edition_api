@@ -1,6 +1,5 @@
-from flask import abort, Blueprint, request, Response
+from flask import abort, Blueprint, Response
 from flask.json import jsonify
-from flask_jwt_extended import get_jwt_identity, jwt_required
 import glob
 import io
 import json
@@ -10,10 +9,15 @@ import sqlalchemy.sql
 from urllib.parse import unquote
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, path_hierarchy, select_all_from_table, flatten_json, get_first_valid_item_from_toc
-from sls_api.endpoints.tools.files import git_commit_and_push_file
+from sls_api.endpoints.generics import \
+    can_show_publication_metadata_row, construct_publication_metadata_response, \
+    db_engine, get_project_config, get_project_id_from_name, path_hierarchy, \
+    get_prerendered_publication_metadata_content, \
+    get_publication_metadata_base_row, get_publication_metadata_from_db, \
+    select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
+    int_or_none, is_valid_language, reader_auth_required
 
-meta = Blueprint('metadata', __name__)
+meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
 logger = logging.getLogger("sls_api.metadata")
 
@@ -29,6 +33,7 @@ def get_projects():
 
 
 @meta.route("/<project>/html/<filename>")
+@reader_auth_required()
 def get_html_contents_as_json(project, filename):
     config = get_project_config(project)
     if config is None:
@@ -107,6 +112,7 @@ def get_static_pages_as_json(project, language):
 
 
 @meta.route("/<project>/manuscript/<publication_id>")
+@reader_auth_required()
 def get_manuscripts(project, publication_id):
     logger.info("Getting manuscript /{}/manuscript/{}".format(project, publication_id))
     connection = db_engine.connect()
@@ -122,6 +128,7 @@ def get_manuscripts(project, publication_id):
 
 @meta.route("/<project>/toc-first/<collection_id>/<language>")
 @meta.route("/<project>/toc-first/<collection_id>")
+@reader_auth_required()
 def get_first_toc_item(project, collection_id, language=None):
     config = get_project_config(project)
     if config is None:
@@ -159,94 +166,64 @@ def get_first_toc_item(project, collection_id, language=None):
             abort(404)
 
 
-@meta.route("/<project>/toc/<collection_id>/<language>", methods=["GET", "PUT"])
-@meta.route("/<project>/toc/<collection_id>", methods=["GET", "PUT"])
-@jwt_required(optional=True)
-def handle_toc(project, collection_id, language=None):
+@meta.route("/<project>/toc/<collection_id>/<language>")
+@meta.route("/<project>/toc/<collection_id>")
+@reader_auth_required()
+def get_toc(project, collection_id, language=None):
+    """
+    Get the table of contents of the specified collection, optionally in
+    a specific language. If a JSON file with the table of contents exists,
+    it is returned as a raw string.
+
+    To update the table of contents file for a collection, use the
+    endpoint that requires authentication in tools/files.py.
+    """
+    # Validate project config
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
-    else:
-        if request.method == "GET":
-            if language is not None and language != "":
-                logger.info(f"Getting table of contents for /{project}/toc/{collection_id}/{language}")
-                file_path_query = safe_join(config["file_root"], "toc", f'{collection_id}_{language}.json')
-            else:
-                logger.info(f"Getting table of contents for /{project}/toc/{collection_id}")
-                file_path_query = safe_join(config["file_root"], "toc", f'{collection_id}.json')
 
-            try:
-                file_path = [f for f in glob.iglob(file_path_query)][0]
-                logger.info(f"Finding {file_path} (toc collection fetch)")
-                if os.path.exists(file_path):
-                    with io.open(file_path, encoding="UTF-8") as json_file:
-                        contents = json_file.read()
-                    return contents, 200
-                else:
-                    abort(404)
-            except IndexError:
-                logger.warning(f"File {file_path_query} not found on disk.")
-                abort(404)
-            except Exception:
-                logger.exception(f"Error fetching {file_path_query}")
-                abort(404)
-        elif request.method == "PUT":
-            # uploading a new table of contents requires authorization and project permission
-            identity = get_jwt_identity()
-            if not identity:
-                return jsonify({"msg": "Missing Authorization Header"}), 403
-            else:
-                authorized = False
-                # in debug mode, test user has access to every project
-                if int(os.environ.get("FLASK_DEBUG", 0)) == 1 and identity["sub"] == "test@test.com":
-                    authorized = True
-                elif identity["projects"] is not None and project in identity["projects"]:
-                    authorized = True
+    if "file_root" not in config:
+        logger.warning(f"Project '{project}' is missing file_root information from config.")
+        return jsonify({"msg": "Invalid project config, unable to get table of contents."}), 500
 
-                if not authorized:
-                    return jsonify({"msg": "No access to this project."}), 403
-                else:
-                    if language is not None and language != "":
-                        logger.info(f"Processing new table of contents for /{project}/toc/{collection_id}/{language}")
-                    else:
-                        logger.info(f"Processing new table of contents for /{project}/toc/{collection_id}")
-                    data = request.get_json()
-                    if not data:
-                        return jsonify({"msg": "No JSON in payload."}), 400
-                    if language is not None and language != "":
-                        file_path = safe_join(config["file_root"], "toc", f"{collection_id}_{language}.json")
-                    else:
-                        file_path = safe_join(config["file_root"], "toc", f"{collection_id}.json")
-                    try:
-                        # save new toc as file_path.new
-                        with open(f"{file_path}.new", "w", encoding="utf-8") as outfile:
-                            json.dump(data, outfile)
-                    except Exception as ex:
-                        # if we fail to save the file, make sure it doesn't exist before returning an error
-                        try:
-                            os.remove(f"{file_path}.new")
-                        except FileNotFoundError:
-                            pass
-                        return jsonify({"msg": "Failed to save JSON data to disk.", "reason": ex}), 500
-                    else:
-                        # if we succeed, remove the old file and rename file_path.new to file_path
-                        # (could be combined into just os.rename, but some OSes don't like that)
-                        os.rename(f"{file_path}.new", file_path)
+    # Validate collection_id
+    collection_id = int_or_none(collection_id)
+    if not collection_id or collection_id < 1:
+        return jsonify({"msg": "Validation error: 'collection_id' must be a positive integer."}), 400
 
-                        # get author and construct git commit message
-                        author_email = get_jwt_identity()["sub"]
-                        author = "{} <{}>".format(
-                            author_email.split("@")[0],
-                            author_email
-                        )
-                        message = "TOC update by {}".format(author_email)
+    # Validate language
+    if language is not None and not is_valid_language(language):
+        return jsonify({"msg": "Validation error: 'language' can only contain alphanumeric characters and hyphens, and can’t be more than 20 characters long."}), 400
 
-                        # git commit (and possibly push) file
-                        commit_result = git_commit_and_push_file(project, author, message, file_path)
-                        if commit_result:
-                            return jsonify({"msg": f"Saved new toc as {file_path}"})
-                        else:
-                            return jsonify({"msg": "git commit failed! Possible configuration fault or git conflict."}), 500
+    filename = f"{collection_id}_{language}.json" if language else f"{collection_id}.json"
+    filepath = safe_join(config["file_root"], "toc", filename)
+
+    if filepath is None:
+        return jsonify({"msg": "Error: invalid table of contents file path."}), 400
+
+    filepath = os.path.realpath(filepath)
+    logger.info(f"Getting collection table of contents from {filepath}")
+
+    try:
+        if not os.path.isfile(filepath):
+            logger.info(f"Table of contents file {filepath} not found on server.")
+            return jsonify({"msg": f"Error: the table of contents file {filename} was not found on the server."}), 404
+
+        with open(filepath, "r", encoding="utf-8-sig") as json_file:
+            contents = json_file.read()
+
+        return contents, 200
+
+    except FileNotFoundError:
+        logger.exception(f"File not found error when trying to read ToC-file at {filepath}.")
+        return jsonify({"msg": "Error: table of contents file not found."}), 404
+    except PermissionError:
+        logger.exception(f"Permission denied error when trying to read ToC-file at {filepath}.")
+        return jsonify({"msg": "Error: permission denied when trying to read table of contents file."}), 403
+    except Exception:
+        logger.exception(f"Error accessing file at {filepath}.")
+        return jsonify({"msg": "Error reading table of contents file."}), 500
 
 
 @meta.route("/<project>/collections")
@@ -308,6 +285,7 @@ def get_collections(project, language=None):
 
 @meta.route("/<project>/collection/<collection_id>")
 @meta.route("/<project>/collection/<collection_id>/i18n/<language>")
+@reader_auth_required()
 def get_collection(project, collection_id, language=None):
     if language is None:
         logger.info("Getting collection /{}/collection/{}".format(project, collection_id))
@@ -355,6 +333,7 @@ def get_collection(project, collection_id, language=None):
 
 
 @meta.route("/<project>/publication/<publication_id>")
+@reader_auth_required()
 def get_publication(project, publication_id):
     logger.info("Getting publication /{}/publication/{}".format(project, publication_id))
     connection = db_engine.connect()
@@ -369,6 +348,7 @@ def get_publication(project, publication_id):
 
 
 @meta.route("/<project>/collection/<collection_id>/publications")
+@reader_auth_required()
 def get_collection_publications(project, collection_id):
     logger.info("Getting publication /{}/collections/{}/publications".format(project, collection_id))
     connection = db_engine.connect()
@@ -384,6 +364,7 @@ def get_collection_publications(project, collection_id):
 
 # Get the collection and publication id for a legacy id
 @meta.route("/<project>/legacy/<legacy_id>")
+@reader_auth_required()
 def get_collection_publication_by_legacyid(project, legacy_id):
     logger.info("Getting /<project>/legacy/<legacy_id>")
     connection = db_engine.connect()
@@ -404,6 +385,7 @@ def get_collection_publication_by_legacyid(project, legacy_id):
 
 # Get the legacy id by publication id
 @meta.route("/<project>/legacy/publication/<publication_id>")
+@reader_auth_required()
 def get_legacyid_by_publication_id(project, publication_id):
     logger.info("Getting /<project>/legacy/publication/<publication_id>")
     connection = db_engine.connect()
@@ -419,6 +401,7 @@ def get_legacyid_by_publication_id(project, publication_id):
 
 # Get the legacy id by collection id
 @meta.route("/<project>/legacy/collection/<collection_id>")
+@reader_auth_required()
 def get_legacyid_by_collection_id(project, collection_id):
     logger.info("Getting /<project>/legacy/collection/<collection_id>")
     connection = db_engine.connect()
@@ -435,13 +418,14 @@ def get_legacyid_by_collection_id(project, collection_id):
 # Get all subjects for a project
 @meta.route("/<project>/subjects-i18n/<language>")
 @meta.route("/<project>/subjects")
+@reader_auth_required()
 def get_project_subjects(project, language=None):
     logger.info("Getting /<project>/subjects")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
 
     if language is not None:
-        query = """select
+        query = """SELECT
             s.id, s.date_created, s.date_modified, s.deleted, s.type,
             s.translation_id, s.legacy_id, s.date_born, s.date_deceased,
             s.project_id, s.source,
@@ -453,10 +437,9 @@ def get_project_subjects(project, language=None):
             COALESCE(t_fln.text, s.full_name) as full_name,
             COALESCE(t_desc.text, s.description) as description,
             COALESCE(t_alias.text, s.alias) as alias,
-            COALESCE(t_prv.text, s.previous_last_name) as previous_last_name,
-            COALESCE(t_alt.text, s.alternative_form) as alternative_form
+            COALESCE(t_prv.text, s.previous_last_name) as previous_last_name
 
-            from subject s
+            FROM subject s
 
             LEFT JOIN translation_text t_fn ON t_fn.translation_id = s.translation_id and t_fn.language=:lang and t_fn.field_name='first_name'
             LEFT JOIN translation_text t_ln ON t_ln.translation_id = s.translation_id and t_ln.language=:lang and t_ln.field_name='last_name'
@@ -467,7 +450,6 @@ def get_project_subjects(project, language=None):
             LEFT JOIN translation_text t_desc ON t_desc.translation_id = s.translation_id and t_desc.language=:lang and t_desc.field_name='description'
             LEFT JOIN translation_text t_alias ON t_alias.translation_id = s.translation_id and t_alias.language=:lang and t_alias.field_name='alias'
             LEFT JOIN translation_text t_prv ON t_prv.translation_id = s.translation_id and t_prv.language=:lang and t_prv.field_name='previous_last_name'
-            LEFT JOIN translation_text t_alt ON t_alt.translation_id = s.translation_id and t_alt.language=:lang and t_alt.field_name='alternative_form'
 
             WHERE project_id = :p_id
         """
@@ -487,6 +469,7 @@ def get_project_subjects(project, language=None):
 
 # Get all subjects for a project
 @meta.route("/<project>/locations")
+@reader_auth_required()
 def get_project_locations(project):
     logger.info("Getting /<project>/locations")
     connection = db_engine.connect()
@@ -509,8 +492,9 @@ def get_project_locations(project):
     return jsonify(results)
 
 
-# Get all subjects for a project
+# Get all tags for a project
 @meta.route("/<project>/tags")
+@reader_auth_required()
 def get_project_tags(project):
     logger.info("Getting /<project>/tags")
     connection = db_engine.connect()
@@ -527,6 +511,7 @@ def get_project_tags(project):
 
 # Get all subjects for a project
 @meta.route("/<project>/works")
+@reader_auth_required()
 def get_project_works(project):
     logger.info("Getting /<project>/works")
     connection = db_engine.connect()
@@ -542,6 +527,7 @@ def get_project_works(project):
 
 
 @meta.route("/tooltips/subjects")
+@reader_auth_required()
 def subject_tooltips():
     """
     List all available subject tooltips as id and name
@@ -550,6 +536,7 @@ def subject_tooltips():
 
 
 @meta.route("/tooltips/tags")
+@reader_auth_required()
 def tag_tooltips():
     """
     List all available tag tooltips as id and name
@@ -558,6 +545,7 @@ def tag_tooltips():
 
 
 @meta.route("/tooltips/locations")
+@reader_auth_required()
 def location_tooltips():
     """
     List all available location tooltips as id and name
@@ -566,6 +554,7 @@ def location_tooltips():
 
 
 @meta.route("/tooltips/<object_type>/<ident>")
+@reader_auth_required()
 def get_tooltip_text(object_type, ident):
     """
     Get tooltip text for a specific subject, tag, or location
@@ -580,6 +569,7 @@ def get_tooltip_text(object_type, ident):
 
 @meta.route("/<project>/tooltips/<object_type>/<ident>/")
 @meta.route("/<project>/tooltips/<object_type>/<ident>/<use_legacy>/")
+@reader_auth_required()
 def get_project_tooltip_text(project, object_type, ident, use_legacy=False):
     """
     Get tooltip text for a specific subject, tag, or location
@@ -593,6 +583,7 @@ def get_project_tooltip_text(project, object_type, ident, use_legacy=False):
 
 
 @meta.route("/<project>/subject/<subject_id>")
+@reader_auth_required()
 def get_subject(project, subject_id):
     logger.info("Getting subject /{}/subject/{}".format(project, subject_id))
     connection = db_engine.connect()
@@ -623,6 +614,7 @@ def get_subject(project, subject_id):
 
 
 @meta.route("/<project>/tag/<tag_id>")
+@reader_auth_required()
 def get_tag(project, tag_id):
     logger.info("Getting tag /{}/tag/{}".format(project, tag_id))
     connection = db_engine.connect()
@@ -654,6 +646,7 @@ def get_tag(project, tag_id):
 
 
 @meta.route("/<project>/work/<work_id>")
+@reader_auth_required()
 def get_work(project, work_id):
     logger.info("Getting work /{}/work/{}".format(project, work_id))
     connection = db_engine.connect()
@@ -677,6 +670,7 @@ def get_work(project, work_id):
 
 
 @meta.route("/<project>/location/<location_id>")
+@reader_auth_required()
 def get_location(project, location_id):
     logger.info("Getting location /{}/location/{}".format(project, location_id))
     connection = db_engine.connect()
@@ -708,6 +702,7 @@ def get_location(project, location_id):
 
 
 @meta.route("/<project>/files/<folder>/<file_name>/")
+@reader_auth_required()
 def get_json_file(project, folder, file_name):
     config = get_project_config(project)
     if config is None:
@@ -725,6 +720,7 @@ def get_json_file(project, folder, file_name):
 
 @meta.route("/<project>/urn/<url>/")
 @meta.route("/<project>/urn/<url>/<legacy_id>/")
+@reader_auth_required()
 def get_urn(project, url, legacy_id=None):
     url = unquote(unquote(url))
     logger.info("Getting urn /{}/urn/{}/{}/".format(project, url, legacy_id))
@@ -743,6 +739,84 @@ def get_urn(project, url, legacy_id=None):
             return_data.append(row._asdict())
     connection.close()
     return jsonify(return_data), 200
+
+
+@meta.route("/<project>/publications/<publication_id>/metadata/<language>", methods=["GET"])
+@meta.route("/<project>/publications/<publication_id>/metadata", methods=["GET"])
+@reader_auth_required()
+def get_publication_metadata(project, publication_id, language='sv'):
+    """
+    Get metadata for a given publication in a specific language.
+    """
+    # Validate parameters
+    project_config = get_project_config(project)
+    if project_config is None:
+        return jsonify({"error": f"The project '{project}' does not exist."}), 400
+
+    file_root = project_config.get("file_root")
+    if file_root is None:
+        return jsonify({"error": f"File root missing from '{project}' project config."}), 500
+
+    p_id = int_or_none(publication_id)
+    if p_id is None or p_id < 1:
+        return jsonify({"error": "Invalid publication_id."}), 400
+
+    if language is not None and not is_valid_language(language):
+        return jsonify({"error": "Invalid language."}), 400
+
+    # Get base metadata including visibility status from the database
+    base_row, message, status_code = get_publication_metadata_base_row(
+        project,
+        p_id,
+        language,
+        project_config
+    )
+    if base_row is None:
+        return jsonify({"error": message}), status_code
+
+    can_show, message = can_show_publication_metadata_row(
+        base_row,
+        project_config
+    )
+    if not can_show:
+        return jsonify({"error": message}), 403
+
+    # Try serving metadata from prerendered file if prerendering enabled
+    prerender_json = project_config.get("prerender_json", False)
+
+    if prerender_json:
+        prerendered_metadata = get_prerendered_publication_metadata_content(
+            file_root,
+            p_id,
+            language
+        )
+        if prerendered_metadata is not None:
+            return jsonify(prerendered_metadata), 200
+
+    # Fall back to constructing metadata on demand
+    # Get additional metadata (manuscripts, facsimiles...) from the database
+    db_metadata, message, status_code = get_publication_metadata_from_db(
+        project,
+        p_id,
+        language,
+        project_config,
+        base_row=base_row
+    )
+    if db_metadata is None:
+        logger.error(
+            "Unable to build publication metadata for %s/%s: %s",
+            project,
+            p_id,
+            message
+        )
+        return jsonify({"error": message}), status_code
+
+    # Construct the final response object
+    response_data, response_status = construct_publication_metadata_response(
+        db_metadata,
+        project_config
+    )
+    return jsonify(response_data), response_status
 
 
 def list_tooltips(table):

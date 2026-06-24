@@ -365,6 +365,11 @@ class CTeiDocument:
                     xml_content = ET.fromstring(CTeiDocument.HtmlToTeiXml(comment['description'], sXsltPath))
                     oNoteNode.append(xml_content)
                 except Exception as e:
+                    print(f"Error transforming comment note with ID {comment['id']} from HTML to XML.")
+                    print(f"XSLT path: {sXsltPath}")
+                    print(f"Note shortenedSelection: {comment['shortenedSelection']}")
+                    print("Note description:")
+                    print(comment['description'])
                     print(e)
 
         return True
@@ -506,7 +511,10 @@ class CTeiDocument:
             note_ids = []
             for elem in oAnchorNode:
                 id_text = elem.attrib['{http://www.w3.org/XML/1998/namespace}id']
-                note_ids.append(id_text[5:])
+                try:
+                    note_ids.append(int(id_text[5:]))
+                except (TypeError, ValueError):
+                    raise ValueError("Invalid note start ID: numeric part of '%s' is not convertible to an integer.", id_text)
             return note_ids
         else:
             return None
@@ -586,14 +594,15 @@ class CTeiDocument:
     def GetLetterId(self):
         # Find document title (this element is used for letter ids (database) in the Topelius project)
         elem = self.xmlRoot.find('.//' + self.sPrefixUrl + 'titleStmt/' + self.sPrefixUrl + 'title')
-        # If title is found, return the text of the element
-        if elem is not None:
-            return re.sub('br', '', str(elem.text), flags=re.IGNORECASE)
-            # If you want to validate the id, uncomment and the following lines and edit the RegEx to your needs
-            # if re.match(r"^[Bb]r[0-9]", elem.text) is not None:
-            #  return elem.text
-            # else:
-            #  return None
+        # If title is found, extract possible letter id from the text of the element
+        # Letter ids start with the letters "Br" and follow by digits, for instance Br2541
+        # Letter ids must be at the start of the text content of the title element
+        # Return the digit part of the id if found, else None
+        if elem is not None and elem.text is not None:
+            # (?i) = ignore case; ^ = start anchor; (\d+) = capture digits; \b = word boundary
+            m = re.search(r'(?i)^br(\d+)\b', str(elem.text).strip())
+            letter_id = str(m.group(1)) if m else None
+            return letter_id
         else:
             return None
 
@@ -656,7 +665,7 @@ class CTeiDocument:
         elemContainer = self.__GetOrCreate(elemProfileDesc, self.sPrefix + ':textClass', 'textClass')
 
         # Create genre
-        sGenre = sGenre.lower()
+        sGenre = sGenre.lower() if sGenre is not None else ''
         sGenreId = sGenre
         # Check if genre should be mapped according to dictionary
         if sGenre in self.sGenres:
@@ -693,10 +702,7 @@ class CTeiDocument:
             elemProfileDesc = ET.SubElement(oNode, 'profileDesc')
 
         # Get the creation element
-        elemContainer = elemProfileDesc.find(self.sPrefixUrl + 'creation')
-        # If no such element, create it
-        if elemContainer is None:
-            elemContainer = ET.SubElement(elemProfileDesc, 'creation')
+        elemContainer = self.__GetOrCreate(elemProfileDesc, self.sPrefix + ':creation', 'creation')
 
         # Create the title element
         elem = ET.SubElement(elemContainer, 'title')
@@ -712,11 +718,11 @@ class CTeiDocument:
             elem.text = letterData['sender_location']
 
         # Create element for place received
-        if len(letterData['reciever_location']) > 0:
+        if len(letterData['receiver_location']) > 0:
             elem = ET.SubElement(elemContainer, 'placeName')
             elem.attrib['type'] = 'adressee'
-            elem.attrib['id'] = str(letterData['reciever_location_id'])
-            elem.text = letterData['reciever_location']
+            elem.attrib['id'] = str(letterData['receiver_location_id'])
+            elem.text = letterData['receiver_location']
 
         # Create element for sender
         if len(letterData['sender']) > 0:
@@ -726,11 +732,11 @@ class CTeiDocument:
             elem.text = letterData['sender']
 
         # Create element for receiver
-        if len(letterData['reciever']) > 0:
+        if len(letterData['receiver']) > 0:
             elem = ET.SubElement(elemContainer, 'persName')
             elem.attrib['type'] = 'adressee'
-            elem.attrib['id'] = str(letterData['reciever_id'])
-            elem.text = letterData['reciever']
+            elem.attrib['id'] = str(letterData['receiver_id'])
+            elem.text = letterData['receiver']
 
         # Return success
         return True
@@ -738,7 +744,23 @@ class CTeiDocument:
     # ------------------------------------------------
     # Saves the xml document to a file
     def Save(self, sFileName):
-        ET.ElementTree(self.xmlRoot).write(sFileName, encoding="UTF-8", xml_declaration=True)
+        # Serialize the XML tree to a UTF-8 bytes object with XML declaration
+        xml_bytes = ET.tostring(
+            self.xmlRoot,
+            encoding="UTF-8",
+            xml_declaration=True
+        )
+
+        # Decode to text so we can reason about line endings
+        xml_text = xml_bytes.decode("utf-8")
+
+        # Ensure the file ends with exactly one trailing newline,
+        # matching CRLF style if present
+        xml_text = CTeiDocument._ensure_trailing_newline(xml_text)
+
+        with open(sFileName, "w", encoding="utf-8") as f:
+            f.write(xml_text)
+
         return True
 
     # ------------------------------------------------
@@ -788,3 +810,35 @@ class CTeiDocument:
         # Return the result
         xmlOut = xmlOut.encode('utf-8')
         return xmlOut
+
+    @staticmethod
+    def _ensure_trailing_newline(text: str) -> str:
+        """
+        Ensures that the given text ends with a newline character, preserving
+        the existing line-ending style where possible.
+
+        Behavior:
+        - If the text already ends with either "\n" or "\r\n", it is returned
+          unchanged.
+        - If the text does not end with a newline:
+            - If the text contains any "\r\n" sequences, a trailing "\r\n" is
+              appended.
+            - Otherwise, a trailing "\n" is appended.
+
+        Parameters:
+        - text (str): The input text to check and normalize.
+
+        Returns:
+        - str: The input text guaranteed to end with a newline, matching the
+          detected or default line-ending style.
+        """
+        # Return unchanged if already ends with a newline of some kind
+        if text.endswith(("\r\n", "\n")):
+            return text
+
+        # Prefer CRLF if it appears anywhere in the content
+        if "\r\n" in text:
+            return text + "\r\n"
+
+        # Otherwise, default to LF
+        return text + "\n"

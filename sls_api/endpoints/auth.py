@@ -1,43 +1,93 @@
+import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
+import logging
+from sls_api import rate_limiter
+from sls_api.email import send_address_verification_email, send_password_reset_email
+from sls_api.endpoints.generics import valid_jwt_required
 from sls_api.models import User
 
+# minimum password length for users
+MINIMUM_PASSWORD_LENGTH = 12
 
-auth = Blueprint('auth', __name__)
+auth = Blueprint('auth', __name__, url_prefix="/auth")
+
+logger = logging.getLogger("sls_api.auth")
 
 """
 JWT-based Authorization
 
-Routes in the API protected by @jwt_required can only be accessed with a proper JWT token in the header
+Routes in the API protected by @jwt_required() can only be accessed with a proper JWT token in the header
+Routes in the API protected by @valid_jwt_required() can only be accessed with a proper JWT token in the header, provided their user account still exists, and their token is issued after the user's `tokens_valid_after` timestamp
+Routes in the API protected by @reader_auth_required() be only be accessed by logged-in users with email_verified=True, if reader_auth_required=True in the API config
+Routes in the API protected by @cms_required() can only be accessed by logged-in users with email_verified=True and cms_user=True
+Routes in the API protected by @cms_required(edit=True) can only be accessed by logged-in users with email_verified=True and cms_user=True, that also have the name of the project in their `projects` list
+
 JWT Header format is "Authorization: Bearer <JWT_TOKEN>"
 """
 
 
 @auth.route("/register", methods=["POST"])
+@rate_limiter.limit("30/minute")
 def register_user():
+    """
+    Register a new API user.
+    Takes the following required parameters in JSON payload:
+    - name: str                 - Name of user
+    - email: str                - Email address, used as username, must be unique
+    - password: str             - Password, must meet requirements (MINIMUM_PASSWORD_LENGTH)
+
+    Takes the following optional parameters in JSON payload:
+    - user_language: str        - ISO 639-1 language code, used to set language of email verification email
+    - country: str              - Country information
+    - intended_usage: str       - Intended use
+    """
     data = request.get_json()
     if not data:
         return jsonify({"msg": "No JSON in payload."}), 400
 
+    name = data.get("name", None)
     email = data.get("email", None)
     password = data.get("password", None)
+    user_language = data.get("language", "en")      # ISO 639-1 language code
+    if user_language not in ["en", "sv", "fi"]:
+        logger.warning(f"User supplied invalid language {user_language} on register, defaulting to 'en'")
+        user_language = "en"
+    country = data.get("country", None)
+    intended_usage = data.get("intended_usage", None)
 
-    if not email or not password:
-        return jsonify({"msg": "email or password not in JSON payload."}), 400
-    if User.find_by_email(data["email"]):
-        return jsonify({"msg": "User {!r} already exists.".format(data["email"])}), 400
+    if not email or not password or not name:
+        logger.error("Invalid request to register user - no credentials provided")
+        return jsonify({"msg": "email or password not in JSON payload.", "err": "NO_CREDENTIALS"}), 400
+    # verify password meets requirements
+    if len(password) < MINIMUM_PASSWORD_LENGTH:
+        logger.error("Invalid request to register user - password too short")
+        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
+    # check for existing user account with this email
+    existing_user = User.find_by_email(data["email"])
+    if existing_user:
+        if existing_user.email_is_verified():
+            logger.error("Invalid request to register user - verified account already exists")
+            return jsonify({"msg": "User {!r} already exists.".format(data["email"]), "err": "USER_ALREADY_EXISTS"}), 400
+        else:
+            # delete existing un-verified user, so a new user object can be created and a new verification link can be sent
+            User.delete_user(data["email"])
 
     try:
-        new_user = User.create_new_user(email, password)
-        identity = new_user.get_token_identity()
+        new_user = User.create_new_user(name, email, password)
+        User.set_country(email, country)
+        User.set_intended_usage(email, intended_usage)
+        # create temporary access token for email verification
+        verification_token = create_access_token(identity=str(new_user.ident), expires_delta=datetime.timedelta(hours=8), fresh=True)
+        # send token to user by email
+        send_address_verification_email(to_address=new_user.email, access_token=verification_token, user_language=user_language)
         return jsonify(
             {
-                "msg": "User {!r} was created. Contact support to be given editing rights for GDE projects.".format(data["email"]),
-                "access_token": create_access_token(identity=identity),
-                "refresh_token": create_refresh_token(identity=identity)
+                "msg": "User {!r} was created. Please check email inbox to verify email before login.".format(data["email"])
             }
         ), 201
     except Exception:
+        logger.exception("Error in user registration")
         return jsonify({"msg": "Error in user registration"}), 500
 
 
@@ -45,43 +95,143 @@ def register_user():
 def login_user():
     data = request.get_json()
     if not data:
-        return jsonify({"msg": "No credentials provided."}), 400
+        return jsonify({"msg": "No credentials provided.", "err": "NO_CREDENTIALS"}), 400
 
     email = data.get("email", None)
     password = data.get("password", None)
     current_user = User.find_by_email(email)
     try:
+        if not current_user.email_is_verified():
+            return jsonify({"msg": "Email address has not been verified. Check your email inbox for a verification link.", "err": "EMAIL_NOT_VERIFIED"}), 403
         success = current_user.check_password(password)
     except Exception:
-        return jsonify({"msg": "Incorrect email or password."}), 400
+        # user not found
+        return jsonify({"msg": "Incorrect email or password.", "err": "INCORRECT_CREDENTIALS"}), 401
     if not success:
-        return jsonify({"msg": "Incorrect email or password."}), 400
+        # password mismatch
+        return jsonify({"msg": "Incorrect email or password.", "err": "INCORRECT_CREDENTIALS"}), 401
+    else:
+        # update last_login_timestamp for user
+        User.update_login_timestamp(email)
 
-    identity = current_user.get_token_identity()
+    projects = current_user.get_projects()  # get current projects for user, to be sent along with JWT
 
-    return jsonify(
-        {
-            "msg": "Logged in as {!r}".format(data["email"]),
-            "access_token": create_access_token(identity=identity),
-            "refresh_token": create_refresh_token(identity=identity),
-            "user_projects": current_user.get_projects()
-        }
-    ), 200
+    if current_user.cms_user:
+        return jsonify(
+            {
+                "msg": "Logged in as {!r}".format(data["email"]),
+                "access_token": create_access_token(identity=str(current_user.ident)),
+                "refresh_token": create_refresh_token(identity=str(current_user.ident), expires_delta=datetime.timedelta(days=3)),
+                "user_projects": projects
+            }), 200
+    else:
+        return jsonify(
+            {
+                "msg": "Logged in as {!r}".format(data["email"]),
+                "access_token": create_access_token(identity=str(current_user.ident)),
+                "refresh_token": create_refresh_token(identity=str(current_user.ident)),
+                "user_projects": projects
+            }), 200
 
 
 @auth.route("/refresh", methods=["POST"])
-@jwt_required(refresh=True)
+@valid_jwt_required(refresh=True)
 def refresh_token():
     identity = get_jwt_identity()
-    return jsonify(
-        {
-            "msg": "Logged in as {!r}".format(identity["sub"]),
-            "access_token": create_access_token(identity=identity)
-        }
-    ), 200
+    user = User.find_by_id(int(identity))
+    if user:
+        # update last_login_timestamp, a token refresh is equivalent to a login
+        User.update_login_timestamp(user.email)
+        return jsonify(
+            {
+                "msg": "Logged in as {!r}".format(identity),
+                "access_token": create_access_token(identity=identity)
+            }
+        ), 200
+    else:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
 
 
-@auth.route("/test", methods=["POST"])
-@jwt_required()
-def test_authentication():
-    return jsonify(get_jwt_identity())
+@auth.route("/verify_email", methods=["POST"])
+@valid_jwt_required(fresh=True)
+def verify_email():
+    identity = get_jwt_identity()
+    user = User.find_by_id(int(identity))
+    if user:
+        success = User.mark_email_verified(user.email)
+        if success:
+            return jsonify({"msg": f"Email address {user.email} verified. You may now log in."}), 200
+        else:
+            return jsonify({"msg": f"Error when attempting to verify {user.email}"}), 500
+    else:
+        return jsonify({"msg": "Error when attempting to verify email."}), 500
+
+
+@auth.route("/forgot_password", methods=["POST"])
+@rate_limiter.limit("5/minute")
+def start_password_reset():
+    """
+    Begin password reset flow - take in email from JSON, send reset email to user if exists
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"msg": "No email provided.", "err": "NO_CREDENTIALS"}), 400
+    email = data.get("email", None)
+    if not email:
+        return jsonify({"msg": "No email provided.", "err": "NO_CREDENTIALS"}), 400
+    user = User.find_by_email(email)
+    if not user:
+        return jsonify({"msg": "If an account exists for this email address, a password reset link has been sent."}), 200
+    user_language = data.get("language", "en")      # ISO 639-1 language code
+    if user_language not in ["en", "sv", "fi"]:
+        logger.warning(f"User supplied invalid language {user_language} with password reset request, defaulting to 'en'")
+        user_language = "en"
+    access_token = create_access_token(identity=str(user.ident), expires_delta=datetime.timedelta(minutes=30), fresh=True)
+    success = send_password_reset_email(to_address=user.email, access_token=access_token, user_language=user_language)
+    if success:
+        return jsonify({"msg": "If an account exists for this email address, a password reset link has been sent."}), 200
+    else:
+        return jsonify({"msg": "Internal Server Error"}), 500
+
+
+@auth.route("/reset_password", methods=["POST"])
+@valid_jwt_required(fresh=True)
+def finish_password_reset():
+    """
+    Finish password reset flow - verify temporary JWT and reset password to one given in JSON
+    """
+    identity = get_jwt_identity()
+    data = request.get_json()
+    if not data:
+        return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
+    password = data.get("password", None)
+    if not password:
+        return jsonify({"msg": "No password provided.", "err": "NO_CREDENTIALS"}), 400
+    if len(password) < MINIMUM_PASSWORD_LENGTH:
+        return jsonify({"msg": f"Password is too short, minimum length is {MINIMUM_PASSWORD_LENGTH}", "err": "PASSWORD_TOO_SHORT"}), 400
+    user = User.find_by_id(int(identity))
+    password_set = User.reset_password(user.email, password)
+    if password_set:
+        # reset token validity for user
+        User.reset_token_validity(user.email)
+        return jsonify({"msg": f"New password set for {identity}"}), 200
+    else:
+        return jsonify({"msg": f"Failed to set password for {identity}"}), 500
+
+
+@auth.route("/logout")
+@jwt_required(verify_type=False)
+def logout():
+    """
+    Reset a user's token validity, making all current logins invalid
+    """
+    identity = get_jwt_identity()
+    user = User.find_by_id(int(identity))
+    if user:
+        success = User.reset_token_validity(user.email)
+        if success:
+            return jsonify({"msg": "User logged out"}), 200
+        else:
+            return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
+    else:
+        return jsonify({"msg": "Invalid credentials", "err": "INCORRECT_CREDENTIALS"}), 401
