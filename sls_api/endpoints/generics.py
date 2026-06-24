@@ -1797,25 +1797,6 @@ def get_first_valid_item_from_toc(flattened_toc):
     return {}
 
 
-def get_allowed_csp_frame_ancestors(project: str) -> str:
-    """
-    Retrieve the allowed host sources for setting the
-    Content-Security-Policy: frame-ancestors header
-    for a specific project.
-
-    Args:
-        project (str): The name of the project to get allowed host sources for.
-
-    Returns:
-        str: A space separated list of allowed CSP: frame-ancestors host
-        sources for the project, or an empty string if none are found.
-    """
-    project_config = get_project_config(project)
-    if not project_config:
-        return ''
-    return project_config.get('allowed_csp_frame_ancestors', '')
-
-
 def validate_project_name(name: str) -> Tuple[bool, Optional[str]]:
     """
     Validates the project name according to specified constraints.

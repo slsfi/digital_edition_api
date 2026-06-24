@@ -4,7 +4,14 @@ import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, get_allowed_csp_frame_ancestors, reader_auth_required
+from sls_api.endpoints.generics import (
+    db_engine,
+    FRONTEND_EXTERNAL_URL,
+    get_project_config,
+    get_project_id_from_name,
+    reader_auth_required
+)
+from sls_api.security_headers import get_allowed_csp_frame_ancestors
 
 media = Blueprint('media', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.media")
@@ -396,7 +403,17 @@ def get_media_data_pdf(project, pdf_id):
             logger.error(f"Failed to get media PDF {pdf_id} (database returned None)")
             connection.close()
             return Response("Couldn't get media image.", status=404, content_type="text/json")
-        return Response(io.BytesIO(result["pdf"]), status=200, content_type="application/pdf")
+
+        response = Response(io.BytesIO(result["pdf"]), status=200, content_type="application/pdf")
+        frame_ancestors_value = get_allowed_csp_frame_ancestors(
+            get_project_config(project),
+            FRONTEND_EXTERNAL_URL
+        )
+
+        if frame_ancestors_value:
+            response.headers["Content-Security-Policy"] = frame_ancestors_value
+
+        return response
     except Exception:
         logger.exception("Failed to get PDF from database.")
         return Response("Couldn't get media image.", status=404, content_type="text/json")
@@ -476,17 +493,16 @@ def get_pdf_file(project, collection_id, file_type, download_name, use_download_
             send_file(file_path, mimetype=mimetype, download_name=download_name, conditional=True)
         )
 
-        # Set the Content-Security-Policy header with the frame-ancestors directive to
-        # allow embedding the file on allowed hosts. Embedding is allowed on the host
-        # sources defined in the project config and on the origin from which the file
-        # is being served (i.e. 'self'). If no host sources are defined in the config,
-        # the CSP header is not set, and the file will be served with the
-        # X-Frame-Options: SAMEORIGIN header, which prevents embedding on sites other
-        # than the one from which the file is being served.
-        host_sources = get_allowed_csp_frame_ancestors(project)
+        # Set Content-Security-Policy: frame-ancestors to allow embedding the file
+        # on the configured hosts, FRONTEND_EXTERNAL_URL, and the origin from which
+        # the file is being served (i.e. 'self'). In the SLS deployment, HAProxy
+        # adds X-Frame-Options: SAMEORIGIN when this CSP header is not present.
+        frame_ancestors_value = get_allowed_csp_frame_ancestors(
+            config,
+            FRONTEND_EXTERNAL_URL
+        )
 
-        if host_sources:
-            frame_ancestors_value = f"frame-ancestors 'self' {host_sources}"
+        if frame_ancestors_value:
             response.headers["Content-Security-Policy"] = frame_ancestors_value
 
         return response
