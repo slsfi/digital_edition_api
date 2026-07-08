@@ -22,15 +22,18 @@ topelius:
     disabled_publications: [10,12,13,14,9,20,28]
     # SQLAlchemy engine string for comments (edith) database
     comments_database: 'mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql_server.example.com:3306/topelius_comments?charset=utf8mb4'
-    # List of origins to allow CORS requests from. Typically, you would put
-    # at least the origin of the project frontend here. This list can include
-    # multiple origins if the project needs to be accessible from different
-    # domains or environments (e.g., staging, production).
-    # Ensure that only trusted origins are added to prevent unauthorized
-    # cross-origin requests.
-    # Currently only used to set response headers on downloadable PDFs and
-    # EPUBs in the `get_pdf_file` endpoint in `endpoints/media.py`.
-    allowed_cors_origins: ["https://topelius.sls.fi"]
+    # List of host sources that are allowed to embed a file served by the API using
+    # <frame>, <iframe>, <object> or <embed> HTML elements. FRONTEND_URL is included
+    # automatically when it is set to an absolute URL. The list is currently used to
+    # set the Content-Security-Policy: frame-ancestors header on the responses from
+    # the following endpoints:
+    # - `get_pdf_file` in `endpoints/media.py` for downloading PDFs and EPUBs
+    # - `get_media_data_pdf` in `endpoints/media.py` for serving PDFs from the database
+    # 'self' must not be included in the list here as it is set by default.
+    # Docs on the CSP: frame-ancestors header:
+    # https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/frame-ancestors
+    allowed_csp_frame_ancestors:
+        - 'https://topelius.sls.fi'
     # Max size in MB of XML files to be parsed. Currently only used in the
     # `get_metadata_from_xml_file` endpoint in `endpoints/tools/files.py`.
     xml_max_file_size: 5

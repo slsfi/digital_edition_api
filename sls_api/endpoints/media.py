@@ -1,10 +1,17 @@
-from flask import Blueprint, jsonify, Response, send_file, make_response, request
+from flask import Blueprint, jsonify, Response, send_file, make_response
 import io
 import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, get_allowed_cors_origins, reader_auth_required
+from sls_api.endpoints.generics import (
+    db_engine,
+    FRONTEND_EXTERNAL_URL,
+    get_project_config,
+    get_project_id_from_name,
+    reader_auth_required
+)
+from sls_api.security_headers import get_allowed_csp_frame_ancestors
 
 media = Blueprint('media', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.media")
@@ -396,7 +403,17 @@ def get_media_data_pdf(project, pdf_id):
             logger.error(f"Failed to get media PDF {pdf_id} (database returned None)")
             connection.close()
             return Response("Couldn't get media image.", status=404, content_type="text/json")
-        return Response(io.BytesIO(result["pdf"]), status=200, content_type="application/pdf")
+
+        response = Response(io.BytesIO(result["pdf"]), status=200, content_type="application/pdf")
+        frame_ancestors_value = get_allowed_csp_frame_ancestors(
+            get_project_config(project),
+            FRONTEND_EXTERNAL_URL
+        )
+
+        if frame_ancestors_value:
+            response.headers["Content-Security-Policy"] = frame_ancestors_value
+
+        return response
     except Exception:
         logger.exception("Failed to get PDF from database.")
         return Response("Couldn't get media image.", status=404, content_type="text/json")
@@ -475,15 +492,19 @@ def get_pdf_file(project, collection_id, file_type, download_name, use_download_
         response = make_response(
             send_file(file_path, mimetype=mimetype, download_name=download_name, conditional=True)
         )
-        # Dynamically set the Access-Control-Allow-Origin header
-        # to the request origin if the origin is defined in the list
-        # of allowed CORS origins in the config.
-        # This makes it possible to embed PDFs served by the API on
-        # allowed sites.
-        origin = request.headers.get("Origin")
-        if origin and origin in get_allowed_cors_origins(project):
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Vary"] = "Origin"
+
+        # Set Content-Security-Policy: frame-ancestors to allow embedding the file
+        # on the configured hosts, FRONTEND_EXTERNAL_URL, and the origin from which
+        # the file is being served (i.e. 'self'). In the SLS deployment, HAProxy
+        # adds X-Frame-Options: SAMEORIGIN when this CSP header is not present.
+        frame_ancestors_value = get_allowed_csp_frame_ancestors(
+            config,
+            FRONTEND_EXTERNAL_URL
+        )
+
+        if frame_ancestors_value:
+            response.headers["Content-Security-Policy"] = frame_ancestors_value
+
         return response
     except Exception:
         logger.exception(f"Failed sending file from {file_path}")
