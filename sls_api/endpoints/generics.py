@@ -21,6 +21,7 @@ from sqlalchemy.sql import and_, select, text
 from sqlalchemy.sql.selectable import Select
 import time
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple, Union
+import unicodedata
 from werkzeug.security import safe_join
 
 from sls_api.scripts.saxon_xml_document import SaxonXMLDocument
@@ -393,11 +394,54 @@ def get_table(table_name):
 
 
 def slugify_route(path):
-    path = path.replace(" - ", "")
-    path = path.replace(" ", "-")
-    path = ''.join([i for i in path.lstrip('-') if not i.isdigit()])
-    path = re.sub(r'[^a-zA-Z0-9\\\/-]|_', '', re.sub('.md', '', path))
-    return path.lower()
+    """
+    Generate a frontend-friendly route from a Markdown path.
+
+    This is used for static-page table-of-contents entries returned by
+    `path_hierarchy()`. The returned value is a relative route path such as
+    "om-utgavan/rattelser-och-tillagg", not a full URL and not a route with a
+    leading slash.
+
+    Route generation is intentionally segment-based:
+    - Windows separators are normalized to "/" so local development and
+      production produce the same route shape.
+    - A final Markdown extension is removed case-insensitively, but only when
+      it appears at the end of the segment.
+    - Numeric prefixes used for sorting, such as "01 - Title" or "01 Title",
+      are removed from each segment. Digits that are part of the actual title,
+      such as "Chapter 2" or "19de seklet", are preserved.
+    - Numeric-only directory segments are omitted, allowing grouping folders
+      such as "12" to disappear from the public route. Numeric-only Markdown
+      files are kept, so "bildbank/39.md" becomes "bildbank/39".
+    - Accented and decomposed Unicode characters are transliterated to ASCII
+      before unsafe characters are collapsed to hyphens.
+
+    The function does not attempt to guarantee uniqueness; if two titles slugify
+    to the same route, the caller/content structure must resolve that collision.
+    """
+    route_segments = []
+
+    for raw_segment in path.replace("\\", "/").split("/"):
+        is_markdown_file = re.search(r"\.md$", raw_segment, re.IGNORECASE) is not None
+        segment = re.sub(r"\.md$", "", raw_segment, flags=re.IGNORECASE).strip()
+
+        if not segment:
+            continue
+
+        if not is_markdown_file and re.fullmatch(r"\d+", segment):
+            continue
+
+        segment = re.sub(r"^\d{1,3}\s*-\s*", "", segment)
+        segment = re.sub(r"^\d{1,3}\s+", "", segment)
+
+        segment = unicodedata.normalize("NFKD", segment)
+        segment = segment.encode("ascii", "ignore").decode("ascii")
+        segment = re.sub(r"[^a-zA-Z0-9]+", "-", segment).strip("-")
+
+        if segment:
+            route_segments.append(segment.lower())
+
+    return "/".join(route_segments)
 
 
 def slugify_id(path: str, language: Optional[str] = None) -> str:
