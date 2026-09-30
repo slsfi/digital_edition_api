@@ -11,9 +11,7 @@ search = Blueprint('search', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.search")
 
 # Search functions, elasticsearch or otherwise
-
-
-es = Elasticsearch([{'host': elastic_config['host'], 'port': elastic_config['port']}])
+es = Elasticsearch([{'host': elastic_config['host'], 'port': elastic_config['port'], 'scheme': elastic_config.get('scheme', 'http')}])
 
 # ensure the elasticsearch logger is set to INFO
 es_logger = logging.getLogger("elasticsearch")
