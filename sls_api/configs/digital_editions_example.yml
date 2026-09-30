@@ -67,7 +67,8 @@ topelius:
 cache_lifetime_seconds: 7200  # 2 hours
 
 # Elasticsearch configuration parameters
-elasticsearch_connection: 
+elasticsearch_connection:
+    scheme: 'http'
     host: 'dockerhost-ext03'
     port: 9200
 
