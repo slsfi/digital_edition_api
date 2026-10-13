@@ -24,6 +24,6 @@ setup(
         'saxonche==13.0.0',
         'sqlalchemy==2.0.52',
         'uwsgi==2.0.31',
-        'werkzeug==3.1.8'
+        'werkzeug==3.1.9'
     ]
 )
