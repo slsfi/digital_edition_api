@@ -16,7 +16,7 @@ setup(
         'flask-sqlalchemy==3.1.1',
         'lxml==6.1.2',
         'passlib==1.7.4',
-        'Pillow==12.3.0',
+        'Pillow==13.0.0',
         'psycopg2-binary==2.9.12',
         'PyMySQL==1.2.0',
         'ruamel.yaml==0.19.1',
