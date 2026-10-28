@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify, request
 import logging
 from sqlalchemy import select
@@ -23,9 +24,9 @@ logger = logging.getLogger("sls_api.text")
 # Text functions
 
 
-@text.route("/<project>/text/<text_type>/<text_id>")
+@text.route("/<string:project>/text/<string:text_type>/<int:text_id>")
 @reader_auth_required()
-def get_text_by_type(project, text_type, text_id):
+def get_text_by_type(project: str, text_type: str, text_id: int) -> ResponseReturnValue:
     table = None
     if text_type == 'manuscript':
         table = get_table("publication_manuscript")
@@ -38,15 +39,14 @@ def get_text_by_type(project, text_type, text_id):
     else:
         return jsonify({"error": "Invalid text type."}), 400
 
-    t_id = int_or_none(text_id)
-    if t_id is None or t_id < 1:
+    if text_id < 1:
         return jsonify({"error": "Invalid text id."}), 400
 
     try:
         with db_engine.connect() as connection:
             statement = (
                 select(*table.c)
-                .where(table.c.id == t_id)
+                .where(table.c.id == text_id)
                 .order_by(table.c.id)
             )
             rows = connection.execute(statement).mappings().all()
@@ -60,10 +60,10 @@ def get_text_by_type(project, text_type, text_id):
     return jsonify(results), 200
 
 
-@text.route("/<project>/frontmatter/<collection_id>/<text_type>")
-@text.route("/<project>/frontmatter/<collection_id>/<text_type>/<lang>")
+@text.route("/<string:project>/frontmatter/<int:collection_id>/<string:text_type>")
+@text.route("/<string:project>/frontmatter/<int:collection_id>/<string:text_type>/<string:lang>")
 @reader_auth_required()
-def get_frontmatter(project, collection_id, text_type, lang="sv"):
+def get_frontmatter(project: str, collection_id: int, text_type: str, lang: str = 'sv') -> ResponseReturnValue:
     """
     Get the specified front matter text for a given collection.
     `text_type` must be one of:
@@ -105,10 +105,10 @@ def get_frontmatter(project, collection_id, text_type, lang="sv"):
     return jsonify({"id": resp_id, "content": content}), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/inl")
-@text.route("/<project>/text/<collection_id>/<publication_id>/inl/<lang>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/inl")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/inl/<string:lang>")
 @reader_auth_required()
-def get_introduction(project, collection_id, publication_id, lang="sv"):
+def get_introduction(project: str, collection_id: int, publication_id: int, lang: str = 'sv') -> ResponseReturnValue:
     """
     Get introduction text for a given collection.
 
@@ -138,10 +138,10 @@ def get_introduction(project, collection_id, publication_id, lang="sv"):
     return jsonify({"id": resp_id, "content": content}), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/tit")
-@text.route("/<project>/text/<collection_id>/<publication_id>/tit/<lang>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/tit")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/tit/<string:lang>")
 @reader_auth_required()
-def get_title(project, collection_id, publication_id, lang="sv"):
+def get_title(project: str, collection_id: int, publication_id: int, lang: str = 'sv') -> ResponseReturnValue:
     """
     Get title page for a given collection.
 
@@ -171,10 +171,10 @@ def get_title(project, collection_id, publication_id, lang="sv"):
     return jsonify({"id": resp_id, "content": content}), 200
 
 
-@text.route("/<project>/text/<collection_id>/fore")
-@text.route("/<project>/text/<collection_id>/fore/<lang>")
+@text.route("/<string:project>/text/<int:collection_id>/fore")
+@text.route("/<string:project>/text/<int:collection_id>/fore/<string:lang>")
 @reader_auth_required()
-def get_foreword(project, collection_id, lang="sv"):
+def get_foreword(project: str, collection_id: int, lang: str = 'sv') -> ResponseReturnValue:
     """
     Get foreword for a given collection.
     """
@@ -200,11 +200,11 @@ def get_foreword(project, collection_id, lang="sv"):
     return jsonify({"id": resp_id, "content": content}), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/est-i18n/<language>")
-@text.route("/<project>/text/<collection_id>/<publication_id>/est/<section_id>")
-@text.route("/<project>/text/<collection_id>/<publication_id>/est")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/est-i18n/<string:language>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/est/<string:section_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/est")
 @reader_auth_required()
-def get_reading_text(project, collection_id, publication_id, section_id=None, language=None):
+def get_reading_text(project: str, collection_id: int, publication_id: int, section_id: str | None = None, language: str | None = None) -> ResponseReturnValue:
     """
     Get reading text for a given publication.
     """
@@ -221,7 +221,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        row = get_publication_language_row(int(publication_id))
+        row = get_publication_language_row(publication_id)
     except Exception:
         logger.exception("Unexpected error getting publication data for %s",
                          request.full_path)
@@ -242,7 +242,7 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
     xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
     if section_id is not None:
-        xslt_params["sectionId"] = str(section_id)
+        xslt_params["sectionId"] = section_id
 
     content, used_source = get_prerendered_or_transformed_xml_content(
         text_type=text_type,
@@ -260,11 +260,11 @@ def get_reading_text(project, collection_id, publication_id, section_id=None, la
     return jsonify(data), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/com")
-@text.route("/<project>/text/<collection_id>/<publication_id>/com/<note_id>")
-@text.route("/<project>/text/<collection_id>/<publication_id>/com/<note_id>/<section_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/com")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/com/<string:note_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/com/<string:note_id>/<string:section_id>")
 @reader_auth_required()
-def get_comments(project, collection_id, publication_id, note_id=None, section_id=None):
+def get_comments(project: str, collection_id: int, publication_id: int, note_id: str | None = None, section_id: str | None = None) -> ResponseReturnValue:
     """
     Get comments text for a given publication.
     """
@@ -278,7 +278,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        row = get_comment_published_row(int(publication_id))
+        row = get_comment_published_row(publication_id)
     except Exception:
         logger.exception("Unexpected error getting comment data for %s",
                          request.full_path)
@@ -309,7 +309,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
     }
 
     if note_id is not None and section_id is None:
-        xslt_params["noteId"] = str(note_id)
+        xslt_params["noteId"] = note_id
         xsl_path = "xslt/notes.xsl"
         content = get_transformed_xml_content_with_caching(
             project=project,
@@ -321,7 +321,7 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
         logger.info("Served single note from comments for %s", request.full_path)
     else:
         if section_id is not None:
-            xslt_params["sectionId"] = str(section_id)
+            xslt_params["sectionId"] = section_id
 
         content, used_source = get_prerendered_or_transformed_xml_content(
             text_type=text_type,
@@ -335,15 +335,18 @@ def get_comments(project, collection_id, publication_id, note_id=None, section_i
     return jsonify({"id": resp_id, "content": content}), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/list/ms")
-@text.route("/<project>/text/<collection_id>/<publication_id>/list/ms/<section_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/list/ms")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/list/ms/<string:section_id>")
 @reader_auth_required()
-def get_manuscript_list(project, collection_id, publication_id, section_id=None):
+def get_manuscript_list(project: str, collection_id: int, publication_id: int, section_id: str | None = None) -> ResponseReturnValue:
     """
     Get a list of metadata of all manuscripts for a given publication.
     """
     text_type = "ms"
     resp_id = f"{collection_id}_{publication_id}_{text_type}"
+    section_number = int_or_none(section_id.replace("ch", "")) if section_id is not None else None
+    if section_id is not None and section_number is None:
+        return jsonify({"id": resp_id, "error": "Invalid section_id."}), 400
 
     can_show, message, _ = get_published_status(project,
                                                 collection_id,
@@ -356,13 +359,12 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
 
         with db_engine.connect() as connection:
             wheres = [
-                ms_table.c.publication_id == int(publication_id),
+                ms_table.c.publication_id == publication_id,
                 ms_table.c.deleted < 1
             ]
 
             if section_id is not None:
-                s_id = str(section_id).replace("ch", "")
-                wheres += [ms_table.c.section_id == s_id]
+                wheres += [ms_table.c.section_id == section_number]
 
             statement = (
                 select(
@@ -390,11 +392,11 @@ def get_manuscript_list(project, collection_id, publication_id, section_id=None)
     return jsonify(data), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/ms/")
-@text.route("/<project>/text/<collection_id>/<publication_id>/ms/<manuscript_id>")
-@text.route("/<project>/text/<collection_id>/<publication_id>/ms/<manuscript_id>/<section_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/ms/")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/ms/<string:manuscript_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/ms/<string:manuscript_id>/<string:section_id>")
 @reader_auth_required()
-def get_manuscript(project, collection_id, publication_id, manuscript_id=None, section_id=None):
+def get_manuscript(project: str, collection_id: int, publication_id: int, manuscript_id: str | None = None, section_id: str | None = None) -> ResponseReturnValue:
     """
     Get one or all manuscripts for a given publication.
 
@@ -428,7 +430,7 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
 
         with db_engine.connect() as connection:
             wheres = [
-                ms_table.c.publication_id == int(publication_id),
+                ms_table.c.publication_id == publication_id,
                 ms_table.c.deleted < 1
             ]
             if ms_id is not None and ms_id > 0:
@@ -466,9 +468,9 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
     if section_id is not None:
-        xslt_params['sectionId'] = str(section_id)
+        xslt_params['sectionId'] = section_id
     elif manuscript_id is not None and ms_id is None:
-        xslt_params['sectionId'] = str(manuscript_id)
+        xslt_params['sectionId'] = manuscript_id
 
     for manuscript in manuscripts_list:
         ms_versions = ["changes", "normalized"]
@@ -490,10 +492,10 @@ def get_manuscript(project, collection_id, publication_id, manuscript_id=None, s
     return jsonify({"id": resp_id, "manuscripts": manuscripts_list}), 200
 
 
-@text.route("/<project>/text/<collection_id>/<publication_id>/var/")
-@text.route("/<project>/text/<collection_id>/<publication_id>/var/<section_id>")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/var/")
+@text.route("/<string:project>/text/<int:collection_id>/<int:publication_id>/var/<string:section_id>")
 @reader_auth_required()
-def get_variant(project, collection_id, publication_id, section_id=None):
+def get_variant(project: str, collection_id: int, publication_id: int, section_id: str | None = None) -> ResponseReturnValue:
     """
     Get all variants for a given publication, optionally specifying a
     section (chapter).
@@ -520,7 +522,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
                     var_table.c.legacy_id,
                     var_table.c.original_filename
                 )
-                .where(var_table.c.publication_id == int(publication_id))
+                .where(var_table.c.publication_id == publication_id)
                 .where(var_table.c.deleted < 1)
                 .order_by(var_table.c.type)
                 .order_by(var_table.c.sort_order)
@@ -544,7 +546,7 @@ def get_variant(project, collection_id, publication_id, section_id=None):
     xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
     if section_id is not None:
-        xslt_params["sectionId"] = str(section_id)
+        xslt_params["sectionId"] = section_id
 
     for variant in variants_list:
         var_version = "base" if variant["type"] == 1 else "other"
@@ -565,10 +567,10 @@ def get_variant(project, collection_id, publication_id, section_id=None):
     return jsonify({"id": resp_id, "variations": variants_list}), 200
 
 
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/inl")
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/inl/<lang>")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/inl")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/inl/<string:lang>")
 @reader_auth_required()
-def get_introduction_downloadable_format(project, format, collection_id, lang="sv"):
+def get_introduction_downloadable_format(project: str, format: str, collection_id: int, lang: str = 'sv') -> ResponseReturnValue:
     """
     Get introduction text in a downloadable format for a given collection
 
@@ -605,11 +607,11 @@ def get_introduction_downloadable_format(project, format, collection_id, lang="s
     return jsonify({"id": resp_id, "content": content}), 200
 
 
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est-i18n/<language>")
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est/<section_id>")
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/est")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/<int:publication_id>/est-i18n/<string:language>")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/<int:publication_id>/est/<string:section_id>")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/<int:publication_id>/est")
 @reader_auth_required()
-def get_reading_text_downloadable_format(project, format, collection_id, publication_id, section_id=None, language=None):
+def get_reading_text_downloadable_format(project: str, format: str, collection_id: int, publication_id: int, section_id: str | None = None, language: str | None = None) -> ResponseReturnValue:
     """
     Get reading text in a downloadable format for a given publication.
     """
@@ -630,7 +632,7 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        row = get_publication_language_row(int(publication_id))
+        row = get_publication_language_row(publication_id)
     except Exception:
         logger.exception("Unexpected error getting publication data for %s",
                          request.full_path)
@@ -651,7 +653,7 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
     xslt_params = {"bookId": str(c_legacy_id or collection_id)}
 
     if section_id is not None:
-        xslt_params["sectionId"] = str(section_id)
+        xslt_params["sectionId"] = section_id
 
     content = get_xml_content(project,
                               text_type,
@@ -668,10 +670,10 @@ def get_reading_text_downloadable_format(project, format, collection_id, publica
     return jsonify(data), 200
 
 
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/com")
-@text.route("/<project>/text/downloadable/<format>/<collection_id>/<publication_id>/com/<section_id>")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/<int:publication_id>/com")
+@text.route("/<string:project>/text/downloadable/<string:format>/<int:collection_id>/<int:publication_id>/com/<string:section_id>")
 @reader_auth_required()
-def get_comments_downloadable_format(project, format, collection_id, publication_id, section_id=None):
+def get_comments_downloadable_format(project: str, format: str, collection_id: int, publication_id: int, section_id: str | None = None) -> ResponseReturnValue:
     """
     Get comments in a downloadable format for a given publication.
     """
@@ -689,7 +691,7 @@ def get_comments_downloadable_format(project, format, collection_id, publication
         return jsonify({"id": resp_id, "error": message}), 403
 
     try:
-        row = get_comment_published_row(int(publication_id))
+        row = get_comment_published_row(publication_id)
     except Exception:
         logger.exception("Unexpected error getting comment data for %s",
                          request.full_path)
@@ -714,7 +716,7 @@ def get_comments_downloadable_format(project, format, collection_id, publication
     }
 
     if section_id is not None:
-        xslt_params["sectionId"] = str(section_id)
+        xslt_params["sectionId"] = section_id
 
     content = get_xml_content(project,
                               text_type_key,

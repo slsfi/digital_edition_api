@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 import logging
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity
@@ -17,7 +18,7 @@ logger = logging.getLogger("sls_api.tools.publishing")
 
 @publishing_tools.route("/projects/list/")
 @cms_required()
-def list_user_projects():
+def list_user_projects() -> ResponseReturnValue:
     """
     List all (non-deleted) projects the current user has access to.
 
@@ -102,7 +103,7 @@ def list_user_projects():
 
 @publishing_tools.route("/projects/new/", methods=["POST"])
 @cms_required()
-def add_new_project():
+def add_new_project() -> ResponseReturnValue:
     """
     Create a new project.
     TODO: grant the current user permission to the new project.
@@ -235,9 +236,9 @@ def add_new_project():
         return create_error_response("Unexpected error: failed to create new project.", 500)
 
 
-@publishing_tools.route("/projects/<project_id>/edit/", methods=["POST"])
+@publishing_tools.route("/projects/<int:project_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_project(project_id):
+def edit_project(project_id: int) -> ResponseReturnValue:
     """
     Edit fields of the specified project.
 
@@ -305,9 +306,7 @@ def edit_project(project_id):
     - 400 - Bad Request: Invalid `project_id`, field values or no data provided.
     - 500 - Internal Server Error: Database query or execution failed.
     """
-    # Convert project_id to integer and verify
-    project_id = int_or_none(project_id)
-    if not project_id or project_id < 1:
+    if project_id < 1:
         return create_error_response("Validation error: 'project_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -374,9 +373,9 @@ def edit_project(project_id):
         return create_error_response("Unexpected error: failed to update project.", 500)
 
 
-@publishing_tools.route("/<project>/publication_collection/<collection_id>/edit/", methods=["POST"])
+@publishing_tools.route("/<string:project>/publication_collection/<int:collection_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_publication_collection(project, collection_id):
+def edit_publication_collection(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Edit a publication collection in the specified project by updating
     its fields.
@@ -384,7 +383,7 @@ def edit_publication_collection(project, collection_id):
     URL Path Parameters:
 
     - project (str): The name of the project.
-    - collection_id (str): The id of the publication collection to be updated.
+    - collection_id (int): The id of the publication collection to be updated.
       Must be a valid positive integer.
 
     POST Data Parameters in JSON Format (at least one required):
@@ -473,9 +472,7 @@ def edit_publication_collection(project, collection_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Verify that collection_id is an integer
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -605,12 +602,12 @@ def edit_publication_collection(project, collection_id):
         return create_error_response("Unexpected error: failed to update publication collection.", 500)
 
 
-@publishing_tools.route("<project>/publication_collection/<collection_id>/intro/")
+@publishing_tools.route("<string:project>/publication_collection/<int:collection_id>/intro/")
 @cms_required()
-def get_intro(project, collection_id):
+def get_intro(project: str, collection_id: int) -> ResponseReturnValue:
     collections = get_table("publication_collection")
     introductions = get_table("publication_collection_introduction")
-    query = select(collections.c.publication_collection_introduction_id).where(collections.c.id == int_or_none(collection_id))
+    query = select(collections.c.publication_collection_introduction_id).where(collections.c.id == collection_id)
     connection = db_engine.connect()
     result = connection.execute(query)
     if result.fetchone() is None:
@@ -626,9 +623,9 @@ def get_intro(project, collection_id):
     return jsonify(row)
 
 
-@publishing_tools.route("<project>/publication_collection/<collection_id>/intro/edit/", methods=["POST"])
+@publishing_tools.route("<string:project>/publication_collection/<int:collection_id>/intro/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_intro(project, collection_id):
+def edit_intro(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Takes "filename" and/or "published" as JSON data
     Returns "msg" and "introduction_id" on success, otherwise 40x
@@ -643,7 +640,7 @@ def edit_intro(project, collection_id):
     introductions = get_table("publication_collection_introduction")
     connection = db_engine.connect()
     with connection.begin():
-        query = select(collections.c.publication_collection_introduction_id).where(collections.c.id == int_or_none(collection_id))
+        query = select(collections.c.publication_collection_introduction_id).where(collections.c.id == collection_id)
         result = connection.execute(query).fetchone()
     if result is None:
         connection.close()
@@ -672,12 +669,12 @@ def edit_intro(project, collection_id):
         return jsonify("No valid update values given."), 400
 
 
-@publishing_tools.route("<project>/publication_collection/<collection_id>/title/")
+@publishing_tools.route("<string:project>/publication_collection/<int:collection_id>/title/")
 @cms_required()
-def get_title(project, collection_id):
+def get_title(project: str, collection_id: int) -> ResponseReturnValue:
     collections = get_table("publication_collection")
     titles = get_table("publication_collection_title")
-    query = select(collections.c.publication_collection_title_id).where(collections.c.id == int_or_none(collection_id))
+    query = select(collections.c.publication_collection_title_id).where(collections.c.id == collection_id)
     connection = db_engine.connect()
     result = connection.execute(query).fetchone()
     if result is None:
@@ -693,9 +690,9 @@ def get_title(project, collection_id):
     return jsonify(row)
 
 
-@publishing_tools.route("<project>/publication_collection/<collection_id>/title/edit/", methods=["POST"])
+@publishing_tools.route("<string:project>/publication_collection/<int:collection_id>/title/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_title(project, collection_id):
+def edit_title(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Takes "filename" and/or "published" as JSON data
     Returns "msg" and "title_id" on success, otherwise 40x
@@ -710,7 +707,7 @@ def edit_title(project, collection_id):
     titles = get_table("publication_collection_title")
     connection = db_engine.connect()
     with connection.begin():
-        query = select(collections.c.publication_collection_title_id).where(collections.c.id == int_or_none(collection_id))
+        query = select(collections.c.publication_collection_title_id).where(collections.c.id == collection_id)
         result = connection.execute(query).fetchone()
     if result is None:
         connection.close()
@@ -739,16 +736,16 @@ def edit_title(project, collection_id):
         return jsonify("No valid update values given."), 400
 
 
-@publishing_tools.route("/<project>/publication/<publication_id>/edit/", methods=["POST"])
+@publishing_tools.route("/<string:project>/publication/<int:publication_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_publication(project, publication_id):
+def edit_publication(project: str, publication_id: int) -> ResponseReturnValue:
     """
     Edit a publication in the specified project by updating its fields.
 
     URL Path Parameters:
 
     - project (str): The name of the project.
-    - publication_id (str): The ID of the publication to be updated.
+    - publication_id (int): The ID of the publication to be updated.
       Must be a valid integer.
 
     POST Data Parameters in JSON Format (at least one required):
@@ -853,9 +850,7 @@ def edit_publication(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Verify that publication_id is an integer
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -983,9 +978,9 @@ def edit_publication(project, publication_id):
         return create_error_response("Unexpected error: failed to update publication.", 500)
 
 
-@publishing_tools.route("/<project>/publication/<publication_id>/comment/edit/", methods=["POST"])
+@publishing_tools.route("/<string:project>/publication/<int:publication_id>/comment/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_comment(project, publication_id):
+def edit_comment(project: str, publication_id: int) -> ResponseReturnValue:
     """
     Edit a comment of the specified publication in the given project by
     updating its fields.
@@ -993,7 +988,7 @@ def edit_comment(project, publication_id):
     URL Path Parameters:
 
     - project (str): The name of the project.
-    - publication_id (str): The ID of the publication whose comment is
+    - publication_id (int): The ID of the publication whose comment is
       to be updated. Must be a valid integer.
 
     POST Data Parameters in JSON Format (at least one required):
@@ -1069,9 +1064,7 @@ def edit_comment(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Verify that publication_id is an integer
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -1159,16 +1152,16 @@ def edit_comment(project, publication_id):
         return create_error_response("Unexpected error: failed to update publication comment.", 500)
 
 
-@publishing_tools.route("/<project>/manuscripts/<manuscript_id>/edit/", methods=["POST"])
+@publishing_tools.route("/<string:project>/manuscripts/<int:manuscript_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_manuscript(project, manuscript_id):
+def edit_manuscript(project: str, manuscript_id: int) -> ResponseReturnValue:
     """
     Edit a manuscript of the specified project by updating its fields.
 
     URL Path Parameters:
 
     - project (str): The name of the project.
-    - manuscript_id (str): The ID of the manuscript to be updated.
+    - manuscript_id (int): The ID of the manuscript to be updated.
       Must be a valid integer.
 
     POST Data Parameters in JSON Format (at least one required):
@@ -1260,9 +1253,7 @@ def edit_manuscript(project, manuscript_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Verify that manuscript_id is an integer
-    manuscript_id = int_or_none(manuscript_id)
-    if not manuscript_id or manuscript_id < 1:
+    if manuscript_id < 1:
         return create_error_response("Validation error: 'manuscript_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -1363,16 +1354,16 @@ def edit_manuscript(project, manuscript_id):
         return create_error_response("Unexpected error: failed to update publication manuscript.", 500)
 
 
-@publishing_tools.route("/<project>/versions/<version_id>/edit/", methods=["POST"])
+@publishing_tools.route("/<string:project>/versions/<int:version_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_version(project, version_id):
+def edit_version(project: str, version_id: int) -> ResponseReturnValue:
     """
     Edit a publication version of the specified project by updating its fields.
 
     URL Path Parameters:
 
     - project (str): The name of the project.
-    - version_id (str): The ID of the publication version to be updated.
+    - version_id (int): The ID of the publication version to be updated.
       Must be a valid integer.
 
     POST Data Parameters in JSON Format (at least one required):
@@ -1463,9 +1454,7 @@ def edit_version(project, version_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Verify that version_id is an integer
-    version_id = int_or_none(version_id)
-    if not version_id or version_id < 1:
+    if version_id < 1:
         return create_error_response("Validation error: 'version_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -1566,9 +1555,9 @@ def edit_version(project, version_id):
         return create_error_response("Unexpected error: failed to update publication version.", 500)
 
 
-@publishing_tools.route("/<project>/publication_collection/<collection_id>/info")
+@publishing_tools.route("/<string:project>/publication_collection/<int:collection_id>/info")
 @cms_required()
-def get_publication_collection_info(project, collection_id):
+def get_publication_collection_info(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Returns published status for publication_collection and associated introduction and title objects
     Also returns the original_filename for the introduction and title objects
@@ -1577,7 +1566,7 @@ def get_publication_collection_info(project, collection_id):
     intros = get_table("publication_collection_introduction")
     titles = get_table("publication_collection_title")
 
-    query = select(collections).where(collections.c.id == int_or_none(collection_id))
+    query = select(collections).where(collections.c.id == collection_id)
     connection = db_engine.connect()
     collection_result = connection.execute(query).fetchone()
     if collection_result is None:
@@ -1596,7 +1585,7 @@ def get_publication_collection_info(project, collection_id):
 
     connection.close()
     result = {
-        "collection_id": int(collection_id),
+        "collection_id": collection_id,
         "collection_published": collection_result["published"],
         "intro_id": intro_id,
         "intro_published": None if intro_result is None else intro_result["published"],

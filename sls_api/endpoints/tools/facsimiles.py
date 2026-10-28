@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify, request
 import logging
 import os
@@ -40,9 +41,9 @@ def convert_resize_uploaded_facsimile(uploaded_file_path, collection_folder_path
     return len(successful_conversions) == len(FACSIMILE_IMAGE_SIZES.keys())
 
 
+@facsimile_tools.route("/<string:project>/facsimiles/<int:collection_id>/<int:page_number>", methods=["PUT", "POST"])
 @cms_required(edit=True)
-@facsimile_tools.route("/<project>/facsimiles/<collection_id>/<page_number>", methods=["PUT", "POST"])
-def upload_facsimile_file(project, collection_id, page_number):
+def upload_facsimile_file(project: str, collection_id: int, page_number: int) -> ResponseReturnValue:
     """
     Upload a facsimile file in image format.
 
@@ -76,9 +77,9 @@ def upload_facsimile_file(project, collection_id, page_number):
             "msg": "Desired facsimile collection was not found in database!"
         }), 404
     elif row.folder_path != '' and row.folder_path is not None:
-        collection_folder_path = safe_join(row.folder_path, collection_id)
+        collection_folder_path = safe_join(row.folder_path, str(collection_id))
     else:
-        collection_folder_path = safe_join(config["file_root"], "facsimiles", collection_id)
+        collection_folder_path = safe_join(config["file_root"], "facsimiles", str(collection_id))
     connection.close()
 
     # handle received file

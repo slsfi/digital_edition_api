@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import abort, Blueprint, jsonify
 import logging
 from operator import itemgetter
@@ -11,9 +12,9 @@ logger = logging.getLogger("sls_api.occurrences")
 # Occurrence functions
 
 
-@occurrences.route("/occurrences/<object_type>/<ident>")
+@occurrences.route("/occurrences/<string:object_type>/<string:ident>")
 @reader_auth_required()
-def get_occurrences(object_type, ident):
+def get_occurrences(object_type: str, ident: str) -> ResponseReturnValue:
     """
     Get event occurrence info and related publication IDs for a given subject, tag, or location
     Given a numerical or legacy ID for an object, returns a list of events and occurance information for the object
@@ -68,10 +69,10 @@ def get_occurrences(object_type, ident):
         return jsonify(results)
 
 
-@occurrences.route("/<project>/occurrences/<object_type>")
-@occurrences.route("/occurrences/<object_type>")
+@occurrences.route("/<string:project>/occurrences/<string:object_type>")
+@occurrences.route("/occurrences/<string:object_type>")
 @reader_auth_required()
-def get_all_occurrences_by_type(object_type, project=None):
+def get_all_occurrences_by_type(object_type: str, project: str | None = None) -> ResponseReturnValue:
     """
     Get occurrences for each person
     TODO: refactor and divide into multiple functions
@@ -270,10 +271,10 @@ def get_all_occurrences_by_type(object_type, project=None):
         return jsonify(occur)
 
 
-@occurrences.route("/<project>/subject/occurrences/<subject_id>/")
-@occurrences.route("/<project>/subject/occurrences/")
+@occurrences.route("/<string:project>/subject/occurrences/<int:subject_id>/")
+@occurrences.route("/<string:project>/subject/occurrences/")
 @reader_auth_required()
-def get_subject_occurrences(project=None, subject_id=None):
+def get_subject_occurrences(project: str | None = None, subject_id: int | None = None) -> ResponseReturnValue:
     if project == 'all':
         subject_sql = " SELECT id, date_born::text, date_deceased::text, description, first_name, last_name, full_name as name, \
                         type as object_type, occupation, place_of_birth, source \
@@ -354,10 +355,10 @@ def get_subject_occurrences(project=None, subject_id=None):
     return jsonify(subjects)
 
 
-@occurrences.route("/<project>/location/occurrences/<location_id>/")
-@occurrences.route("/<project>/location/occurrences/")
+@occurrences.route("/<string:project>/location/occurrences/<int:location_id>/")
+@occurrences.route("/<string:project>/location/occurrences/")
 @reader_auth_required()
-def get_location_occurrences(project=None, location_id=None):
+def get_location_occurrences(project: str | None = None, location_id: int | None = None) -> ResponseReturnValue:
     if project == 'all':
         location_sql = " SELECT id, city, country, description, latitude, longitude, name, region, source \
                         FROM location WHERE deleted != 1"
@@ -435,10 +436,10 @@ def get_location_occurrences(project=None, location_id=None):
     return jsonify(locations)
 
 
-@occurrences.route("/<project>/tag/occurrences/<tag_id>/")
-@occurrences.route("/<project>/tag/occurrences/")
+@occurrences.route("/<string:project>/tag/occurrences/<string:tag_id>/")
+@occurrences.route("/<string:project>/tag/occurrences/")
 @reader_auth_required()
-def get_tag_occurrences(project=None, tag_id=None):
+def get_tag_occurrences(project: str | None = None, tag_id: str | None = None) -> ResponseReturnValue:
     if project == 'all':
         tag_sql = " SELECT id, type, name, description, source \
                         FROM tag WHERE deleted != 1"
@@ -517,10 +518,10 @@ def get_tag_occurrences(project=None, tag_id=None):
     return jsonify(tags)
 
 
-@occurrences.route("/<project>/work_manifestation/occurrences/<work_manifestation_id>/")
-@occurrences.route("/<project>/work_manifestation/occurrences/")
+@occurrences.route("/<string:project>/work_manifestation/occurrences/<string:work_manifestation_id>/")
+@occurrences.route("/<string:project>/work_manifestation/occurrences/")
 @reader_auth_required()
-def get_work_manifestation_occurrences(project=None, work_manifestation_id=None):
+def get_work_manifestation_occurrences(project: str | None = None, work_manifestation_id: str | None = None) -> ResponseReturnValue:
 
     work_sql = """ SELECT id, title \
                     FROM work_manifestation WHERE deleted != 1 """
@@ -571,15 +572,16 @@ def get_work_manifestation_occurrences(project=None, work_manifestation_id=None)
     return jsonify(work_manifestations)
 
 
-@occurrences.route("/<project>/occurrences/collection/<object_type>/<collection_id>")
+@occurrences.route("/<string:project>/occurrences/collection/<string:object_type>/<int:collection_id>")
 @reader_auth_required()
-def get_person_occurrences_by_collection(project, object_type, collection_id):
+def get_person_occurrences_by_collection(project: str, object_type: str, collection_id: int) -> ResponseReturnValue:
     connection = db_engine.connect()
     occurrence_sql = "SELECT publication.publication_collection_id AS collection_id, event_occurrence.id, event_occurrence.event_id, \
     type, description, event_occurrence.publication_id, event_occurrence.publication_version_id, event_occurrence.publication_facsimile_id, \
     event_occurrence.publication_comment_id, event_occurrence.publication_manuscript_id FROM event_occurrence, publication \
-    WHERE event_occurrence.publication_id=publication.id AND publication.publication_collection_id={} AND \
-    event_occurrence.type='{}'".format(collection_id, object_type)
+    WHERE event_occurrence.publication_id=publication.id AND publication.publication_collection_id=:collection_id AND \
+    event_occurrence.type=:object_type"
+    occurrence_sql = sqlalchemy.sql.text(occurrence_sql).bindparams(collection_id=collection_id, object_type=object_type)
 
     occurrences = []
     result = connection.execute(occurrence_sql)
@@ -592,8 +594,9 @@ def get_person_occurrences_by_collection(project, object_type, collection_id):
     for occurrence in occurrences:
         subject_sql = "SELECT DISTINCT event_connection.subject_id, subject.full_name, subject.legacy_id, subject.project_id \
         FROM event_occurrence, event_connection, subject \
-        WHERE event_occurrence.event_id={} AND event_occurrence.event_id = event_connection.event_id AND \
-        event_connection.subject_id =  subject.id".format(occurrence["event_id"])
+        WHERE event_occurrence.event_id=:event_id AND event_occurrence.event_id = event_connection.event_id AND \
+        event_connection.subject_id =  subject.id"
+        subject_sql = sqlalchemy.sql.text(subject_sql).bindparams(event_id=occurrence["event_id"])
 
         result = connection.execute(subject_sql)
         row = result.fetchone()

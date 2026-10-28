@@ -1281,6 +1281,8 @@ def check_publication_mtimes_and_publish_files(
                     )
                 )
             else:
+                # Projects using multilingual publications must add a
+                # publication.translation_id column linking to translation.id.
                 pub_select = (
                     select(
                         p.c.id.label("p_id"),

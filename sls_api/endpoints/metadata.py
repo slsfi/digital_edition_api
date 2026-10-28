@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import abort, Blueprint, Response
 from flask.json import jsonify
 import glob
@@ -15,7 +16,7 @@ from sls_api.endpoints.generics import \
     get_prerendered_publication_metadata_content, \
     get_publication_metadata_base_row, get_publication_metadata_from_db, \
     select_all_from_table, flatten_json, get_first_valid_item_from_toc, \
-    int_or_none, is_valid_language, reader_auth_required
+    is_valid_language, reader_auth_required
 
 meta = Blueprint('metadata', __name__, url_prefix="/digitaledition")
 
@@ -25,16 +26,16 @@ logger = logging.getLogger("sls_api.metadata")
 
 
 @meta.route("/projects/")
-def get_projects():
+def get_projects() -> ResponseReturnValue:
     """
     List all GDE projects
     """
     return select_all_from_table("project")
 
 
-@meta.route("/<project>/html/<filename>")
+@meta.route("/<string:project>/html/<string:filename>")
 @reader_auth_required()
-def get_html_contents_as_json(project, filename):
+def get_html_contents_as_json(project: str, filename: str) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -53,8 +54,8 @@ def get_html_contents_as_json(project, filename):
             abort(404)
 
 
-@meta.route("/<project>/md/<fileid>")
-def get_md_contents_as_json(project, fileid):
+@meta.route("/<string:project>/md/<string:fileid>")
+def get_md_contents_as_json(project: str, fileid: str) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -93,9 +94,9 @@ def get_md_contents_as_json(project, fileid):
             abort(404)
 
 
-@meta.route("/<project>/static-pages-toc/<language>/sort")
-@meta.route("/<project>/static-pages-toc/<language>")
-def get_static_pages_as_json(project, language):
+@meta.route("/<string:project>/static-pages-toc/<string:language>/sort")
+@meta.route("/<string:project>/static-pages-toc/<string:language>")
+def get_static_pages_as_json(project: str, language: str) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -111,9 +112,9 @@ def get_static_pages_as_json(project, language):
             abort(404)
 
 
-@meta.route("/<project>/manuscript/<publication_id>")
+@meta.route("/<string:project>/manuscript/<int:publication_id>")
 @reader_auth_required()
-def get_manuscripts(project, publication_id):
+def get_manuscripts(project: str, publication_id: int) -> ResponseReturnValue:
     logger.info("Getting manuscript /{}/manuscript/{}".format(project, publication_id))
     connection = db_engine.connect()
     sql = sqlalchemy.sql.text('SELECT * FROM publication_manuscript WHERE publication_id=:pub_id')
@@ -126,10 +127,10 @@ def get_manuscripts(project, publication_id):
     return jsonify(results)
 
 
-@meta.route("/<project>/toc-first/<collection_id>/<language>")
-@meta.route("/<project>/toc-first/<collection_id>")
+@meta.route("/<string:project>/toc-first/<int:collection_id>/<string:language>")
+@meta.route("/<string:project>/toc-first/<int:collection_id>")
 @reader_auth_required()
-def get_first_toc_item(project, collection_id, language=None):
+def get_first_toc_item(project: str, collection_id: int, language: str | None = None) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -166,10 +167,10 @@ def get_first_toc_item(project, collection_id, language=None):
             abort(404)
 
 
-@meta.route("/<project>/toc/<collection_id>/<language>")
-@meta.route("/<project>/toc/<collection_id>")
+@meta.route("/<string:project>/toc/<int:collection_id>/<string:language>")
+@meta.route("/<string:project>/toc/<int:collection_id>")
 @reader_auth_required()
-def get_toc(project, collection_id, language=None):
+def get_toc(project: str, collection_id: int, language: str | None = None) -> ResponseReturnValue:
     """
     Get the table of contents of the specified collection, optionally in
     a specific language. If a JSON file with the table of contents exists,
@@ -188,8 +189,7 @@ def get_toc(project, collection_id, language=None):
         return jsonify({"msg": "Invalid project config, unable to get table of contents."}), 500
 
     # Validate collection_id
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return jsonify({"msg": "Validation error: 'collection_id' must be a positive integer."}), 400
 
     # Validate language
@@ -226,9 +226,9 @@ def get_toc(project, collection_id, language=None):
         return jsonify({"msg": "Error reading table of contents file."}), 500
 
 
-@meta.route("/<project>/collections")
-@meta.route("/<project>/collections/<language>")
-def get_collections(project, language=None):
+@meta.route("/<string:project>/collections")
+@meta.route("/<string:project>/collections/<string:language>")
+def get_collections(project: str, language: str | None = None) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -283,10 +283,10 @@ def get_collections(project, language=None):
         return jsonify(results)
 
 
-@meta.route("/<project>/collection/<collection_id>")
-@meta.route("/<project>/collection/<collection_id>/i18n/<language>")
+@meta.route("/<string:project>/collection/<int:collection_id>")
+@meta.route("/<string:project>/collection/<int:collection_id>/i18n/<string:language>")
 @reader_auth_required()
-def get_collection(project, collection_id, language=None):
+def get_collection(project: str, collection_id: int, language: str | None = None) -> ResponseReturnValue:
     if language is None:
         logger.info("Getting collection /{}/collection/{}".format(project, collection_id))
     else:
@@ -332,9 +332,9 @@ def get_collection(project, collection_id, language=None):
     return jsonify(results)
 
 
-@meta.route("/<project>/publication/<publication_id>")
+@meta.route("/<string:project>/publication/<int:publication_id>")
 @reader_auth_required()
-def get_publication(project, publication_id):
+def get_publication(project: str, publication_id: int) -> ResponseReturnValue:
     logger.info("Getting publication /{}/publication/{}".format(project, publication_id))
     connection = db_engine.connect()
     sql = sqlalchemy.sql.text("SELECT * FROM publication WHERE id=:p_id ORDER BY name")
@@ -347,9 +347,9 @@ def get_publication(project, publication_id):
     return jsonify(results)
 
 
-@meta.route("/<project>/collection/<collection_id>/publications")
+@meta.route("/<string:project>/collection/<int:collection_id>/publications")
 @reader_auth_required()
-def get_collection_publications(project, collection_id):
+def get_collection_publications(project: str, collection_id: int) -> ResponseReturnValue:
     logger.info("Getting publication /{}/collections/{}/publications".format(project, collection_id))
     connection = db_engine.connect()
     sql = sqlalchemy.sql.text("SELECT * FROM publication WHERE publication_collection_id=:c_id ORDER BY id")
@@ -363,9 +363,9 @@ def get_collection_publications(project, collection_id):
 
 
 # Get the collection and publication id for a legacy id
-@meta.route("/<project>/legacy/<legacy_id>")
+@meta.route("/<string:project>/legacy/<string:legacy_id>")
 @reader_auth_required()
-def get_collection_publication_by_legacyid(project, legacy_id):
+def get_collection_publication_by_legacyid(project: str, legacy_id: str) -> ResponseReturnValue:
     logger.info("Getting /<project>/legacy/<legacy_id>")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -384,9 +384,9 @@ def get_collection_publication_by_legacyid(project, legacy_id):
 
 
 # Get the legacy id by publication id
-@meta.route("/<project>/legacy/publication/<publication_id>")
+@meta.route("/<string:project>/legacy/publication/<int:publication_id>")
 @reader_auth_required()
-def get_legacyid_by_publication_id(project, publication_id):
+def get_legacyid_by_publication_id(project: str, publication_id: int) -> ResponseReturnValue:
     logger.info("Getting /<project>/legacy/publication/<publication_id>")
     connection = db_engine.connect()
     sql = sqlalchemy.sql.text("SELECT p.legacy_id FROM publication p WHERE p.id = :p_id AND deleted != 1")
@@ -400,9 +400,9 @@ def get_legacyid_by_publication_id(project, publication_id):
 
 
 # Get the legacy id by collection id
-@meta.route("/<project>/legacy/collection/<collection_id>")
+@meta.route("/<string:project>/legacy/collection/<int:collection_id>")
 @reader_auth_required()
-def get_legacyid_by_collection_id(project, collection_id):
+def get_legacyid_by_collection_id(project: str, collection_id: int) -> ResponseReturnValue:
     logger.info("Getting /<project>/legacy/collection/<collection_id>")
     connection = db_engine.connect()
     sql = sqlalchemy.sql.text("SELECT pc.legacy_id FROM publication_collection pc WHERE pc.id = :pc_id AND deleted != 1")
@@ -416,10 +416,10 @@ def get_legacyid_by_collection_id(project, collection_id):
 
 
 # Get all subjects for a project
-@meta.route("/<project>/subjects-i18n/<language>")
-@meta.route("/<project>/subjects")
+@meta.route("/<string:project>/subjects-i18n/<string:language>")
+@meta.route("/<string:project>/subjects")
 @reader_auth_required()
-def get_project_subjects(project, language=None):
+def get_project_subjects(project: str, language: str | None = None) -> ResponseReturnValue:
     logger.info("Getting /<project>/subjects")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -468,9 +468,9 @@ def get_project_subjects(project, language=None):
 
 
 # Get all subjects for a project
-@meta.route("/<project>/locations")
+@meta.route("/<string:project>/locations")
 @reader_auth_required()
-def get_project_locations(project):
+def get_project_locations(project: str) -> ResponseReturnValue:
     logger.info("Getting /<project>/locations")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -493,9 +493,9 @@ def get_project_locations(project):
 
 
 # Get all tags for a project
-@meta.route("/<project>/tags")
+@meta.route("/<string:project>/tags")
 @reader_auth_required()
-def get_project_tags(project):
+def get_project_tags(project: str) -> ResponseReturnValue:
     logger.info("Getting /<project>/tags")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -510,9 +510,9 @@ def get_project_tags(project):
 
 
 # Get all subjects for a project
-@meta.route("/<project>/works")
+@meta.route("/<string:project>/works")
 @reader_auth_required()
-def get_project_works(project):
+def get_project_works(project: str) -> ResponseReturnValue:
     logger.info("Getting /<project>/works")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -528,7 +528,7 @@ def get_project_works(project):
 
 @meta.route("/tooltips/subjects")
 @reader_auth_required()
-def subject_tooltips():
+def subject_tooltips() -> ResponseReturnValue:
     """
     List all available subject tooltips as id and name
     """
@@ -537,7 +537,7 @@ def subject_tooltips():
 
 @meta.route("/tooltips/tags")
 @reader_auth_required()
-def tag_tooltips():
+def tag_tooltips() -> ResponseReturnValue:
     """
     List all available tag tooltips as id and name
     """
@@ -546,16 +546,16 @@ def tag_tooltips():
 
 @meta.route("/tooltips/locations")
 @reader_auth_required()
-def location_tooltips():
+def location_tooltips() -> ResponseReturnValue:
     """
     List all available location tooltips as id and name
     """
     return jsonify(list_tooltips("location"))
 
 
-@meta.route("/tooltips/<object_type>/<ident>")
+@meta.route("/tooltips/<string:object_type>/<string:ident>")
 @reader_auth_required()
-def get_tooltip_text(object_type, ident):
+def get_tooltip_text(object_type: str, ident: str) -> ResponseReturnValue:
     """
     Get tooltip text for a specific subject, tag, or location
     object_type: one of "subject", "tag", "location"
@@ -567,24 +567,27 @@ def get_tooltip_text(object_type, ident):
         return jsonify(get_tooltip(object_type, ident))
 
 
-@meta.route("/<project>/tooltips/<object_type>/<ident>/")
-@meta.route("/<project>/tooltips/<object_type>/<ident>/<use_legacy>/")
+@meta.route("/<string:project>/tooltips/<string:object_type>/<string:ident>/")
+@meta.route("/<string:project>/tooltips/<string:object_type>/<string:ident>/<string:use_legacy>/")
 @reader_auth_required()
-def get_project_tooltip_text(project, object_type, ident, use_legacy=False):
+def get_project_tooltip_text(project: str, object_type: str, ident: str, use_legacy: str | None = None) -> ResponseReturnValue:
     """
     Get tooltip text for a specific subject, tag, or location
     object_type: one of "subject", "tag", "location"
     ident: legacy or numerical ID for desired object
     """
+    if use_legacy is not None and use_legacy.lower() not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+        abort(404)
+    use_legacy_id = use_legacy is not None and use_legacy.lower() in {"true", "1", "yes", "on"}
     if object_type not in ["subject", "tag", "location"]:
         abort(404)
     else:
-        return jsonify(get_tooltip(object_type, ident, project, use_legacy))
+        return jsonify(get_tooltip(object_type, ident, project, use_legacy_id))
 
 
-@meta.route("/<project>/subject/<subject_id>")
+@meta.route("/<string:project>/subject/<string:subject_id>")
 @reader_auth_required()
-def get_subject(project, subject_id):
+def get_subject(project: str, subject_id: str) -> ResponseReturnValue:
     logger.info("Getting subject /{}/subject/{}".format(project, subject_id))
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -613,9 +616,9 @@ def get_subject(project, subject_id):
         return jsonify(return_data._asdict()), 200
 
 
-@meta.route("/<project>/tag/<tag_id>")
+@meta.route("/<string:project>/tag/<string:tag_id>")
 @reader_auth_required()
-def get_tag(project, tag_id):
+def get_tag(project: str, tag_id: str) -> ResponseReturnValue:
     logger.info("Getting tag /{}/tag/{}".format(project, tag_id))
     connection = db_engine.connect()
 
@@ -626,7 +629,7 @@ def get_tag(project, tag_id):
         tag_sql = "SELECT * FROM tag WHERE id = :id AND deleted = 0 AND project_id = :p_id"
     except ValueError:
         tag_id = tag_id
-        tag_sql = "SELECT * FROM tag WHERE id = :id AND deleted = 0 AND project_id = :p_id"
+        tag_sql = "SELECT * FROM tag WHERE legacy_id = :id AND deleted = 0 AND project_id = :p_id"
 
     statement = sqlalchemy.sql.text(tag_sql).bindparams(id=tag_id, p_id=project_id)
     return_data = connection.execute(statement).fetchone()
@@ -645,9 +648,9 @@ def get_tag(project, tag_id):
         return jsonify(return_data._asdict()), 200
 
 
-@meta.route("/<project>/work/<work_id>")
+@meta.route("/<string:project>/work/<string:work_id>")
 @reader_auth_required()
-def get_work(project, work_id):
+def get_work(project: str, work_id: str) -> ResponseReturnValue:
     logger.info("Getting work /{}/work/{}".format(project, work_id))
     connection = db_engine.connect()
 
@@ -669,9 +672,9 @@ def get_work(project, work_id):
         return jsonify(return_data._asdict()), 200
 
 
-@meta.route("/<project>/location/<location_id>")
+@meta.route("/<string:project>/location/<string:location_id>")
 @reader_auth_required()
-def get_location(project, location_id):
+def get_location(project: str, location_id: str) -> ResponseReturnValue:
     logger.info("Getting location /{}/location/{}".format(project, location_id))
     connection = db_engine.connect()
 
@@ -701,9 +704,9 @@ def get_location(project, location_id):
         return jsonify(return_data._asdict()), 200
 
 
-@meta.route("/<project>/files/<folder>/<file_name>/")
+@meta.route("/<string:project>/files/<string:folder>/<string:file_name>/")
 @reader_auth_required()
-def get_json_file(project, folder, file_name):
+def get_json_file(project: str, folder: str, file_name: str) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -718,10 +721,10 @@ def get_json_file(project, folder, file_name):
             return Response("File not found.", status=404, content_type="text/json")
 
 
-@meta.route("/<project>/urn/<url>/")
-@meta.route("/<project>/urn/<url>/<legacy_id>/")
+@meta.route("/<string:project>/urn/<string:url>/")
+@meta.route("/<string:project>/urn/<string:url>/<string:legacy_id>/")
 @reader_auth_required()
-def get_urn(project, url, legacy_id=None):
+def get_urn(project: str, url: str, legacy_id: str | None = None) -> ResponseReturnValue:
     url = unquote(unquote(url))
     logger.info("Getting urn /{}/urn/{}/{}/".format(project, url, legacy_id))
     project_id = get_project_id_from_name(project)
@@ -741,10 +744,10 @@ def get_urn(project, url, legacy_id=None):
     return jsonify(return_data), 200
 
 
-@meta.route("/<project>/publications/<publication_id>/metadata/<language>", methods=["GET"])
-@meta.route("/<project>/publications/<publication_id>/metadata", methods=["GET"])
+@meta.route("/<string:project>/publications/<int:publication_id>/metadata/<string:language>", methods=["GET"])
+@meta.route("/<string:project>/publications/<int:publication_id>/metadata", methods=["GET"])
 @reader_auth_required()
-def get_publication_metadata(project, publication_id, language='sv'):
+def get_publication_metadata(project: str, publication_id: int, language: str = 'sv') -> ResponseReturnValue:
     """
     Get metadata for a given publication in a specific language.
     """
@@ -757,8 +760,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if file_root is None:
         return jsonify({"error": f"File root missing from '{project}' project config."}), 500
 
-    p_id = int_or_none(publication_id)
-    if p_id is None or p_id < 1:
+    if publication_id < 1:
         return jsonify({"error": "Invalid publication_id."}), 400
 
     if language is not None and not is_valid_language(language):
@@ -767,7 +769,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     # Get base metadata including visibility status from the database
     base_row, message, status_code = get_publication_metadata_base_row(
         project,
-        p_id,
+        publication_id,
         language,
         project_config
     )
@@ -787,7 +789,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     if prerender_json:
         prerendered_metadata = get_prerendered_publication_metadata_content(
             file_root,
-            p_id,
+            publication_id,
             language
         )
         if prerendered_metadata is not None:
@@ -797,7 +799,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
     # Get additional metadata (manuscripts, facsimiles...) from the database
     db_metadata, message, status_code = get_publication_metadata_from_db(
         project,
-        p_id,
+        publication_id,
         language,
         project_config,
         base_row=base_row
@@ -806,7 +808,7 @@ def get_publication_metadata(project, publication_id, language='sv'):
         logger.error(
             "Unable to build publication metadata for %s/%s: %s",
             project,
-            p_id,
+            publication_id,
             message
         )
         return jsonify({"error": message}), status_code

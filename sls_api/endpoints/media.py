@@ -1,4 +1,5 @@
-from flask import Blueprint, jsonify, Response, send_file, make_response
+from flask.typing import ResponseReturnValue
+from flask import abort, Blueprint, jsonify, Response, send_file, make_response
 import io
 import logging
 import sqlalchemy
@@ -19,9 +20,9 @@ logger = logging.getLogger("sls_api.media")
 # Media and Gallery functions
 
 
-@media.route("/<project>/media/data/<type>/<type_id>")
+@media.route("/<string:project>/media/data/<string:type>/<int:type_id>")
 @reader_auth_required()
-def get_media_data(project, type, type_id):
+def get_media_data(project: str, type: str, type_id: int) -> ResponseReturnValue:
     logger.info("Getting media data...")
     media_column = "{}_id".format(type)
     try:
@@ -45,9 +46,9 @@ def get_media_data(project, type, type_id):
         return Response("Couldn't get media data.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/media/articles/<type>/<type_id>")
+@media.route("/<string:project>/media/articles/<string:type>/<int:type_id>")
 @reader_auth_required()
-def get_media_article_data(project, type, type_id):
+def get_media_article_data(project: str, type: str, type_id: int) -> ResponseReturnValue:
     logger.info("Getting media data...")
     media_column = "{}_id".format(type)
     try:
@@ -69,9 +70,9 @@ def get_media_article_data(project, type, type_id):
         return Response("Couldn't get article data.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/media/image/<image_id>")
+@media.route("/<string:project>/media/image/<int:image_id>")
 @reader_auth_required()
-def get_media_data_image(project, image_id):
+def get_media_data_image(project: str, image_id: int) -> ResponseReturnValue:
     logger.info("Getting media image...")
     try:
         connection = db_engine.connect()
@@ -90,9 +91,9 @@ def get_media_data_image(project, image_id):
         return Response("Couldn't get media image.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/media/image/metadata/<media_id>/<lang>")
+@media.route("/<string:project>/media/image/metadata/<int:media_id>/<string:lang>")
 @reader_auth_required()
-def get_media_image_metadata(project, media_id, lang):
+def get_media_image_metadata(project: str, media_id: int, lang: str) -> ResponseReturnValue:
     logger.info("Getting media metadata...")
     try:
         connection = db_engine.connect()
@@ -123,9 +124,9 @@ def get_media_image_metadata(project, media_id, lang):
         return Response("Couldn't get media metadata.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/media/connections/<connection_type>/<media_id>")
+@media.route("/<string:project>/media/connections/<string:connection_type>/<int:media_id>")
 @reader_auth_required()
-def get_media_connections(project, connection_type, media_id):
+def get_media_connections(project: str, connection_type: str, media_id: int) -> ResponseReturnValue:
     logger.info("Getting media connection data...")
     if connection_type not in ['tag', 'location', 'subject']:
         return Response("Couldn't get media connection data.", status=404, content_type="text/json")
@@ -153,10 +154,10 @@ def get_media_connections(project, connection_type, media_id):
         return Response("Couldn't get media connection data.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/gallery/connections/<connection_type>")
-@media.route("/<project>/gallery/connections/<connection_type>/<gallery_id>")
+@media.route("/<string:project>/gallery/connections/<string:connection_type>")
+@media.route("/<string:project>/gallery/connections/<string:connection_type>/<int:gallery_id>")
 @reader_auth_required()
-def get_gallery_connections(project, connection_type, gallery_id=None):
+def get_gallery_connections(project: str, connection_type: str, gallery_id: int | None = None) -> ResponseReturnValue:
     logger.info("Getting gallery connection data...")
     if connection_type not in ['tag', 'location', 'subject']:
         return Response("Couldn't get gallery connection data.", status=404, content_type="text/json")
@@ -213,17 +214,14 @@ def get_gallery_connections(project, connection_type, gallery_id=None):
         return Response("Couldn't get gallery connection data due to error.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/gallery/<connection_type>/connections/<type_id>")
-@media.route("/<project>/gallery/<connection_type>/connections/<type_id>/<limit>")
+@media.route("/<string:project>/gallery/<string:connection_type>/connections/<int:type_id>")
+@media.route("/<string:project>/gallery/<string:connection_type>/connections/<int:type_id>/<int:limit>")
 @reader_auth_required()
-def get_type_gallery_connections(project, connection_type, type_id, limit=None):
+def get_type_gallery_connections(project: str, connection_type: str, type_id: int, limit: int | None = None) -> ResponseReturnValue:
     logger.info("Getting type gallery connection data...")
     if connection_type not in ['tag', 'location', 'subject']:
         return Response("Couldn't get gallery type connection data.", status=404, content_type="text/json")
-    if limit is not None:
-        limit = " LIMIT 1 "
-    else:
-        limit = ""
+    limit_sql = " LIMIT 1 " if limit is not None else ""
     type_column = "{}_id".format(connection_type)
     try:
         project_id = get_project_id_from_name(project)
@@ -235,7 +233,7 @@ def get_type_gallery_connections(project, connection_type, type_id, limit=None):
                                     JOIN media_collection mcol ON mcol.id = m.media_collection_id \
                                     WHERE t.id = :id \
                                     AND t.project_id = :p_id \
-                                    AND mcol.deleted != 1 AND t.deleted != 1 AND m.deleted != 1 AND mcon.deleted != 1 {limit}")
+                                    AND mcol.deleted != 1 AND t.deleted != 1 AND m.deleted != 1 AND mcon.deleted != 1 {limit_sql}")
         statement = sql.bindparams(id=type_id, p_id=project_id)
 
         results = []
@@ -249,9 +247,9 @@ def get_type_gallery_connections(project, connection_type, type_id, limit=None):
         return Response("Couldn't get type gallery connection data.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/gallery/data/<gallery_id>/<lang>")
+@media.route("/<string:project>/gallery/data/<int:gallery_id>/<string:lang>")
 @reader_auth_required()
-def get_gallery_data(project, gallery_id, lang=None):
+def get_gallery_data(project: str, gallery_id: int, lang: str | None = None) -> ResponseReturnValue:
     logger.info("Getting gallery image data")
     try:
         connection = db_engine.connect()
@@ -280,9 +278,9 @@ def get_gallery_data(project, gallery_id, lang=None):
         return Response("Couldn't get gallery image data.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/gallery/data/<lang>")
+@media.route("/<string:project>/gallery/data/<string:lang>")
 @reader_auth_required()
-def get_galleries(project, lang=None):
+def get_galleries(project: str, lang: str | None = None) -> ResponseReturnValue:
     logger.info("Getting galleries")
     try:
         connection = db_engine.connect()
@@ -307,9 +305,9 @@ def get_galleries(project, lang=None):
         return Response("Couldn't get galleries.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/gallery/get/<collection_id>/<file_name>")
+@media.route("/<string:project>/gallery/get/<int:collection_id>/<string:file_name>")
 @reader_auth_required()
-def get_gallery_image(project, collection_id, file_name):
+def get_gallery_image(project: str, collection_id: int, file_name: str) -> ResponseReturnValue:
     logger.info("Getting galleries")
     try:
         project_id = get_project_id_from_name(project)
@@ -342,9 +340,9 @@ def get_gallery_image(project, collection_id, file_name):
         return Response("Couldn't get gallery file.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/gallery/thumb/<connection_type>/<connection_id>")
+@media.route("/<string:project>/gallery/thumb/<string:connection_type>/<int:connection_id>")
 @reader_auth_required()
-def get_type_gallery_image(project, connection_type, connection_id):
+def get_type_gallery_image(project: str, connection_type: str, connection_id: int) -> ResponseReturnValue:
     logger.info("Getting gallery file")
     if connection_type not in ['tag', 'location', 'subject']:
         return Response("Couldn't get media connection data.", status=404, content_type="text/json")
@@ -388,9 +386,9 @@ def get_type_gallery_image(project, connection_type, connection_id):
 
 # TODO: get subjects, locations and tags for gallery
 
-@media.route("/<project>/media/pdf/<pdf_id>")
+@media.route("/<string:project>/media/pdf/<int:pdf_id>")
 @reader_auth_required()
-def get_media_data_pdf(project, pdf_id):
+def get_media_data_pdf(project: str, pdf_id: int) -> ResponseReturnValue:
     logger.info("Getting media image...")
     try:
         connection = db_engine.connect()
@@ -419,9 +417,9 @@ def get_media_data_pdf(project, pdf_id):
         return Response("Couldn't get media image.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/galleries")
+@media.route("/<string:project>/galleries")
 @reader_auth_required()
-def get_project_galleries(project):
+def get_project_galleries(project: str) -> ResponseReturnValue:
     logger.info("Getting project galleries...")
     try:
         project_id = get_project_id_from_name(project)
@@ -438,15 +436,20 @@ def get_project_galleries(project):
         return Response("Failed to get galleries list from database.", status=404, content_type="text/json")
 
 
-@media.route("/<project>/files/<collection_id>/<file_type>/<download_name>/", defaults={'use_download_name': None})
-@media.route("/<project>/files/<collection_id>/<file_type>/<download_name>/<use_download_name>")
+@media.route("/<string:project>/files/<int:collection_id>/<string:file_type>/<string:download_name>/", defaults={'use_download_name': None})
+@media.route("/<string:project>/files/<int:collection_id>/<string:file_type>/<string:download_name>/<string:use_download_name>")
 @reader_auth_required()
-def get_pdf_file(project, collection_id, file_type, download_name, use_download_name):
+def get_pdf_file(project: str, collection_id: int, file_type: str, download_name: str, use_download_name: str | None) -> ResponseReturnValue:
     """
-    Retrieve a single file from project root
-    Currently only PDF or ePub
-    Only allow requests from *.sls.fi subdomains
+    Serve a PDF or EPUB from the project's downloads directory.
+
+    Reader authentication follows the API configuration. When embedding
+    sources are available, CSP frame-ancestors permits 'self', the project's
+    allowed_csp_frame_ancestors, and the FRONTEND_URL origin.
     """
+    if use_download_name is not None and use_download_name.lower() not in {"true", "false", "1", "0", "yes", "no", "on", "off"}:
+        abort(404)
+    use_requested_filename = use_download_name is not None and use_download_name.lower() in {"true", "1", "yes", "on"}
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -466,25 +469,25 @@ def get_pdf_file(project, collection_id, file_type, download_name, use_download_
         mimetype = None
 
         if 'pdf' in str(file_type):
-            if use_download_name:
+            if use_requested_filename:
                 if '.pdf' in str(download_name):
                     direct_download_name = download_name.split('.pdf')[0]
                 else:
                     direct_download_name = download_name
             else:
-                direct_download_name = int(collection_id)
+                direct_download_name = collection_id
 
             mimetype = "application/pdf"
             file_path = safe_join(config["file_root"],
                                   "downloads",
-                                  collection_id,
+                                  str(collection_id),
                                   "{}.pdf".format(direct_download_name))
         elif 'epub' in str(file_type):
             mimetype = "application/epub+zip"
             file_path = safe_join(config["file_root"],
                                   "downloads",
-                                  collection_id,
-                                  "{}.epub".format(int(collection_id)))
+                                  str(collection_id),
+                                  "{}.epub".format(collection_id))
     finally:
         connection.close()
 

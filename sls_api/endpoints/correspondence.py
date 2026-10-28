@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify
 import logging
 from sqlalchemy.sql import text
@@ -10,9 +11,9 @@ logger = logging.getLogger("sls_api.correspondence")
 # Work register metadata functions
 
 
-@correspondence.route("/<project>/correspondence/publication/metadata/<pub_id>")
+@correspondence.route("/<string:project>/correspondence/publication/metadata/<int:pub_id>")
 @reader_auth_required()
-def get_correspondence_metadata_for_publication(project, pub_id):
+def get_correspondence_metadata_for_publication(project: str, pub_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /correspondence/manifestations/")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)

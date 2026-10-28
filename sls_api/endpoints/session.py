@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from sls_api import rate_limiter
@@ -57,7 +58,7 @@ def _has_valid_session(require_cms: bool = False) -> bool:
 @session.route("/validate", methods=["GET"])
 @rate_limiter.limit("60/minute")
 @jwt_required()
-def validate_session():
+def validate_session() -> ResponseReturnValue:
     """
     Validate current access-token session.
 
@@ -74,7 +75,7 @@ def validate_session():
 @session.route("/validate_cms", methods=["GET"])
 @rate_limiter.limit("60/minute")
 @jwt_required()
-def validate_cms_session():
+def validate_cms_session() -> ResponseReturnValue:
     """
     Validate current access-token session for CMS access.
 

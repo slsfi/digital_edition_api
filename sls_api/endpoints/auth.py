@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 import datetime
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, create_refresh_token, get_jwt_identity, jwt_required
@@ -29,7 +30,7 @@ JWT Header format is "Authorization: Bearer <JWT_TOKEN>"
 
 @auth.route("/register", methods=["POST"])
 @rate_limiter.limit("30/minute")
-def register_user():
+def register_user() -> ResponseReturnValue:
     """
     Register a new API user.
     Takes the following required parameters in JSON payload:
@@ -92,7 +93,7 @@ def register_user():
 
 
 @auth.route("/login", methods=["POST"])
-def login_user():
+def login_user() -> ResponseReturnValue:
     data = request.get_json()
     if not data:
         return jsonify({"msg": "No credentials provided.", "err": "NO_CREDENTIALS"}), 400
@@ -136,7 +137,7 @@ def login_user():
 
 @auth.route("/refresh", methods=["POST"])
 @valid_jwt_required(refresh=True)
-def refresh_token():
+def refresh_token() -> ResponseReturnValue:
     identity = get_jwt_identity()
     user = User.find_by_id(int(identity))
     if user:
@@ -154,7 +155,7 @@ def refresh_token():
 
 @auth.route("/verify_email", methods=["POST"])
 @valid_jwt_required(fresh=True)
-def verify_email():
+def verify_email() -> ResponseReturnValue:
     identity = get_jwt_identity()
     user = User.find_by_id(int(identity))
     if user:
@@ -169,7 +170,7 @@ def verify_email():
 
 @auth.route("/forgot_password", methods=["POST"])
 @rate_limiter.limit("5/minute")
-def start_password_reset():
+def start_password_reset() -> ResponseReturnValue:
     """
     Begin password reset flow - take in email from JSON, send reset email to user if exists
     """
@@ -196,7 +197,7 @@ def start_password_reset():
 
 @auth.route("/reset_password", methods=["POST"])
 @valid_jwt_required(fresh=True)
-def finish_password_reset():
+def finish_password_reset() -> ResponseReturnValue:
     """
     Finish password reset flow - verify temporary JWT and reset password to one given in JSON
     """
@@ -221,7 +222,7 @@ def finish_password_reset():
 
 @auth.route("/logout")
 @jwt_required(verify_type=False)
-def logout():
+def logout() -> ResponseReturnValue:
     """
     Reset a user's token validity, making all current logins invalid
     """

@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 import logging
 from flask import Blueprint, jsonify, request
 from sqlalchemy import and_, cast, collate, select, text, Text
@@ -15,9 +16,9 @@ event_tools = Blueprint("event_tools", __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.tools.events")
 
 
-@event_tools.route("/<project>/locations/new/", methods=["POST"])
+@event_tools.route("/<string:project>/locations/new/", methods=["POST"])
 @cms_required(edit=True)
-def add_new_location(project):
+def add_new_location(project: str) -> ResponseReturnValue:
     """
     Add a new location object to the database
 
@@ -80,9 +81,9 @@ def add_new_location(project):
         connection.close()
 
 
-@event_tools.route("/<project>/locations/<location_id>/edit/", methods=["POST"])
+@event_tools.route("/<string:project>/locations/<int:location_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_location(project, location_id):
+def edit_location(project: str, location_id: int) -> ResponseReturnValue:
     """
     Edit a location object in the database
 
@@ -103,7 +104,7 @@ def edit_location(project, location_id):
 
     connection = db_engine.connect()
     with connection.begin():
-        location_query = select(locations.c.id).where(locations.c.id == int_or_none(location_id))
+        location_query = select(locations.c.id).where(locations.c.id == location_id)
         location_row = connection.execute(location_query).fetchone()
     if location_row is None:
         return jsonify({"msg": "No location with an ID of {} exists.".format(location_id)}), 404
@@ -149,11 +150,11 @@ def edit_location(project, location_id):
     if len(values) > 0:
         try:
             with connection.begin():
-                update = locations.update().where(locations.c.id == int(location_id)).values(**values)
+                update = locations.update().where(locations.c.id == location_id).values(**values)
                 connection.execute(update)
                 return jsonify({
-                    "msg": "Updated location {} with values {}".format(int(location_id), str(values)),
-                    "location_id": int(location_id)
+                    "msg": "Updated location {} with values {}".format(location_id, str(values)),
+                    "location_id": location_id
                 })
         except Exception as e:
             result = {
@@ -168,10 +169,10 @@ def edit_location(project, location_id):
         return jsonify("No valid update values given."), 400
 
 
-@event_tools.route("/<project>/subjects/list/")
-@event_tools.route("/<project>/subjects/list/<order_by>/<direction>/")
+@event_tools.route("/<string:project>/subjects/list/")
+@event_tools.route("/<string:project>/subjects/list/<string:order_by>/<string:direction>/")
 @cms_required()
-def list_project_subjects(project, order_by="last_name", direction="asc"):
+def list_project_subjects(project: str, order_by: str = 'last_name', direction: str = 'asc') -> ResponseReturnValue:
     """
     List all (non-deleted) subjects (persons) for a specified project,
     with optional sorting by subject table columns.
@@ -319,9 +320,9 @@ def list_project_subjects(project, order_by="last_name", direction="asc"):
         return create_error_response("Unexpected error: failed to retrieve person records in project.", 500)
 
 
-@event_tools.route("/<project>/subjects/new/", methods=["POST"])
+@event_tools.route("/<string:project>/subjects/new/", methods=["POST"])
 @cms_required(edit=True)
-def add_new_subject(project):
+def add_new_subject(project: str) -> ResponseReturnValue:
     """
     Add a new subject (person) object to the specified project.
 
@@ -506,9 +507,9 @@ def add_new_subject(project):
         return create_error_response("Unexpected error: failed to create new person record.", 500)
 
 
-@event_tools.route("/<project>/subjects/<subject_id>/edit/", methods=["POST"])
+@event_tools.route("/<string:project>/subjects/<int:subject_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_subject(project, subject_id):
+def edit_subject(project: str, subject_id: int) -> ResponseReturnValue:
     """
     Edit an existing subject (person) object in the specified project by
     updating its fields.
@@ -627,9 +628,7 @@ def edit_subject(project, subject_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert subject_id to integer and verify
-    subject_id = int_or_none(subject_id)
-    if not subject_id or subject_id < 1:
+    if subject_id < 1:
         return create_error_response("Validation error: 'subject_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -706,9 +705,9 @@ def edit_subject(project, subject_id):
         return create_error_response("Unexpected error: failed to update person record.", 500)
 
 
-@event_tools.route("/<project>/translation/new/", methods=["POST"])
+@event_tools.route("/<string:project>/translation/new/", methods=["POST"])
 @cms_required(edit=True)
-def add_new_translation(project):
+def add_new_translation(project: str) -> ResponseReturnValue:
     """
     Add a new translation, either for a record that has no previous
     translations, or add a translation in a new language to a record
@@ -916,9 +915,9 @@ def add_new_translation(project):
         return create_error_response("Unexpected error: failed to create new translation.", 500)
 
 
-@event_tools.route("/<project>/translations/<translation_id>/edit/", methods=["POST"])
+@event_tools.route("/<string:project>/translations/<int:translation_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_translation(project, translation_id):
+def edit_translation(project: str, translation_id: int) -> ResponseReturnValue:
     """
     Edit a translation object in the database.
 
@@ -1010,9 +1009,7 @@ def edit_translation(project, translation_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert translation_id to integer and verify
-    translation_id = int_or_none(translation_id)
-    if translation_id is None or translation_id < 1:
+    if translation_id < 1:
         return create_error_response("Validation error: 'translation_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -1122,9 +1119,9 @@ def edit_translation(project, translation_id):
         return create_error_response("Unexpected error: failed to update translation text.", 500)
 
 
-@event_tools.route("/<project>/translations/<translation_id>/list/", methods=["POST"])
+@event_tools.route("/<string:project>/translations/<int:translation_id>/list/", methods=["POST"])
 @cms_required()
-def list_translations(project, translation_id):
+def list_translations(project: str, translation_id: int) -> ResponseReturnValue:
     """
     List all (non-deleted) translations for a given translation_id
     with optional filters.
@@ -1132,8 +1129,8 @@ def list_translations(project, translation_id):
     URL Path Parameters:
 
     - project (str): project name.
-    - translation_id (str): The id of the translation object in the
-      `translation` table. Must be a valid integer.
+    - translation_id (int): The id of the translation object in the
+      `translation` table. Must be greater than zero.
 
     POST Data Parameters in JSON Format (optional):
 
@@ -1196,12 +1193,11 @@ def list_translations(project, translation_id):
     Status Codes:
 
     - 200 - OK: Successfully retrieved the list of translation texts.
-    - 400 - Bad Request: Invalid or missing translation_id.
+    - 400 - Bad Request: translation_id is zero.
+    - 404 - Not Found: translation_id is missing, negative, or nonnumeric.
     - 500 - Internal Server Error: Database query or execution failed.
     """
-    # Convert translation_id to integer
-    translation_id = int_or_none(translation_id)
-    if translation_id is None or translation_id < 1:
+    if translation_id < 1:
         return create_error_response("Validation error: 'translation_id' must be a positive integer.")
 
     # Get optional filters from the request JSON body
@@ -1274,9 +1270,9 @@ def list_translations(project, translation_id):
         return create_error_response("Unexpected error: failed to retrieve translations.", 500)
 
 
-@event_tools.route("/<project>/keywords/list/")
+@event_tools.route("/<string:project>/keywords/list/")
 @cms_required()
-def list_project_keywords(project):
+def list_project_keywords(project: str) -> ResponseReturnValue:
     """
     List all non-deleted keywords in the specified project.
     The keywords are alphabetically ordered by name.
@@ -1382,9 +1378,9 @@ def list_project_keywords(project):
         return create_error_response("Unexpected error: failed to retrieve project keywords.", 500)
 
 
-@event_tools.route("/<project>/keywords/types/")
+@event_tools.route("/<string:project>/keywords/types/")
 @cms_required()
-def list_project_keyword_types(project):
+def list_project_keyword_types(project: str) -> ResponseReturnValue:
     """
     List all unique keyword types in the specified project (NULL values
     are excluded).
@@ -1472,9 +1468,9 @@ def list_project_keyword_types(project):
         return create_error_response("Unexpected error: failed to retrieve project keyword types.", 500)
 
 
-@event_tools.route("/<project>/keywords/new/", methods=["POST"])
+@event_tools.route("/<string:project>/keywords/new/", methods=["POST"])
 @cms_required(edit=True)
-def add_new_keyword(project):
+def add_new_keyword(project: str) -> ResponseReturnValue:
     """
     Add a new keyword object to the specified project.
     (Note: keywords are named 'tags' in the database.)
@@ -1624,9 +1620,9 @@ def add_new_keyword(project):
         return create_error_response("Unexpected error: failed to create new keyword record.", 500)
 
 
-@event_tools.route("/<project>/keywords/<keyword_id>/edit/", methods=["POST"])
+@event_tools.route("/<string:project>/keywords/<int:keyword_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_keyword(project, keyword_id):
+def edit_keyword(project: str, keyword_id: int) -> ResponseReturnValue:
     """
     Edit an existing keyword object in the specified project by
     updating its fields. If the keyword is deleted, it’s connections
@@ -1730,9 +1726,7 @@ def edit_keyword(project, keyword_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert keyword_id to integer and verify
-    keyword_id = int_or_none(keyword_id)
-    if not keyword_id or keyword_id < 1:
+    if keyword_id < 1:
         return create_error_response("Validation error: 'keyword_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -1849,9 +1843,9 @@ def edit_keyword(project, keyword_id):
         return create_error_response("Unexpected error: failed to update keyword record.", 500)
 
 
-@event_tools.route("/<project>/work_manifestation/new/", methods=["POST"])
+@event_tools.route("/<string:project>/work_manifestation/new/", methods=["POST"])
 @cms_required(edit=True)
-def add_new_work_manifestation(project):
+def add_new_work_manifestation(project: str) -> ResponseReturnValue:
     """
     Add a new work, work_manifestation and work_reference object to the database
     """
@@ -1926,9 +1920,9 @@ def add_new_work_manifestation(project):
         connection.close()
 
 
-@event_tools.route("/<project>/work_manifestations/<man_id>/edit/", methods=["POST"])
+@event_tools.route("/<string:project>/work_manifestations/<int:man_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_work_manifestation(project, man_id):
+def edit_work_manifestation(project: str, man_id: int) -> ResponseReturnValue:
     """
     Update work_manifestation object to the database
 
@@ -1953,7 +1947,7 @@ def edit_work_manifestation(project, man_id):
 
     # get manifestation data
     with connection.begin():
-        query = select(manifestations.c.id).where(manifestations.c.id == int_or_none(man_id))
+        query = select(manifestations.c.id).where(manifestations.c.id == man_id)
         row = connection.execute(query).fetchone()
     if row is None:
         return jsonify({"msg": "No manifestation with an ID of {} exists.".format(man_id)}), 404
@@ -2013,14 +2007,14 @@ def edit_work_manifestation(project, man_id):
     if len(values) > 0:
         try:
             with connection.begin():
-                update = manifestations.update().where(manifestations.c.id == int(man_id)).values(**values)
+                update = manifestations.update().where(manifestations.c.id == man_id).values(**values)
                 connection.execute(update)
                 if len(reference_values) > 0:
                     update_ref = references.update().where(references.c.id == int(reference_id)).values(**reference_values)
                     connection.execute(update_ref)
                 return jsonify({
-                    "msg": "Updated manifestation {} with values {}".format(int(man_id), str(values)),
-                    "man_id": int(man_id)
+                    "msg": "Updated manifestation {} with values {}".format(man_id, str(values)),
+                    "man_id": man_id
                 })
         except Exception as e:
             result = {
@@ -2037,7 +2031,7 @@ def edit_work_manifestation(project, man_id):
 
 @event_tools.route("/locations/")
 @cms_required()
-def get_locations():
+def get_locations() -> ResponseReturnValue:
     """
     Get all locations from the database
     """
@@ -2046,7 +2040,7 @@ def get_locations():
 
 @event_tools.route("/subjects/")
 @cms_required()
-def get_subjects():
+def get_subjects() -> ResponseReturnValue:
     """
     Get all subjects from the database
     """
@@ -2074,7 +2068,7 @@ def get_subjects():
 
 @event_tools.route("/keywords/")
 @cms_required()
-def get_keywords():
+def get_keywords() -> ResponseReturnValue:
     """
     Get all keywords from the database
     """
@@ -2083,7 +2077,7 @@ def get_keywords():
 
 @event_tools.route("/work_manifestations/")
 @cms_required()
-def get_work_manifestations():
+def get_work_manifestations() -> ResponseReturnValue:
     """
     Get all work_manifestations from the database
     """
@@ -2124,7 +2118,7 @@ def get_work_manifestations():
 
 @event_tools.route("/events/")
 @cms_required()
-def get_events():
+def get_events() -> ResponseReturnValue:
     """
     Get a list of all available events in the database
     """
@@ -2133,7 +2127,7 @@ def get_events():
 
 @event_tools.route("/events/search/", methods=["POST"])
 @cms_required()
-def find_event_by_description():
+def find_event_by_description() -> ResponseReturnValue:
     """
     List all events whose description contains a given phrase
 
@@ -2162,9 +2156,9 @@ def find_event_by_description():
     return jsonify(result)
 
 
-@event_tools.route("/<project>/events/new/", methods=["POST"])
+@event_tools.route("/<string:project>/events/new/", methods=["POST"])
 @cms_required(edit=True)
-def add_new_event(project):
+def add_new_event(project: str) -> ResponseReturnValue:
     """
     Add a new event to the specified project.
 
@@ -2437,9 +2431,9 @@ def add_new_event(project):
         return create_error_response("Unexpected error: failed to create new connection.", 500)
 
 
-@event_tools.route("/<project>/events/<event_id>/delete/", methods=["POST"])
+@event_tools.route("/<string:project>/events/<int:event_id>/delete/", methods=["POST"])
 @cms_required(edit=True)
-def delete_event(project, event_id):
+def delete_event(project: str, event_id: int) -> ResponseReturnValue:
     """
     Delete the event, event connection and event occurrence with the
     specified event ID.
@@ -2520,8 +2514,7 @@ def delete_event(project, event_id):
         return create_error_response("Validation error: 'project' does not exist.")
 
     # Verify that event_id is a positive integer
-    event_id = int_or_none(event_id)
-    if not validate_int(event_id, 1):
+    if event_id < 1:
         return create_error_response("Validation error: 'event_id' must be a positive integer.")
 
     upd_values = {
