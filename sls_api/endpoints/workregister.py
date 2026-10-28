@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify
 import logging
 from sqlalchemy.sql import text
@@ -10,9 +11,9 @@ logger = logging.getLogger("sls_api.workregister")
 # Work register metadata functions
 
 
-@workregister.route("/<project>/workregister/manifestations/")
+@workregister.route("/<string:project>/workregister/manifestations/")
 @reader_auth_required()
-def get_work_manifestations_for_project(project):
+def get_work_manifestations_for_project(project: str) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/manifestations/")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -31,16 +32,12 @@ def get_work_manifestations_for_project(project):
     return jsonify(manifestations)
 
 
-@workregister.route("/<project>/workregister/manifestation/authors/<manifestation_id>")
+@workregister.route("/<string:project>/workregister/manifestation/authors/<int:manifestation_id>")
 @reader_auth_required()
-def get_work_manifestation_authors_for_project(project, manifestation_id):
+def get_work_manifestation_authors_for_project(project: str, manifestation_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/manifestation/authors/<manifestation_id>")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
-    # Only allow int
-    if str(manifestation_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired manifestation_id not found in database."}), 404
 
     authors_sql = "SELECT s.* FROM work_manifestation w_m " \
                   "JOIN event_connection e_c ON e_c.work_manifestation_id = w_m.id " \
@@ -66,16 +63,12 @@ def get_work_manifestation_authors_for_project(project, manifestation_id):
     return jsonify(authors)
 
 
-@workregister.route("/<project>/workregister/manifestation/project/occurrences/<manifestation_id>")
+@workregister.route("/<string:project>/workregister/manifestation/project/occurrences/<int:manifestation_id>")
 @reader_auth_required()
-def get_work_manifestation_occurrences_for_project(project, manifestation_id):
+def get_work_manifestation_occurrences_for_project(project: str, manifestation_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/manifestation/occurrences/<manifestation_id>")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
-    # Only allow int
-    if str(manifestation_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired manifestation_id not found in database."}), 404
 
     occurrences_sql = "SELECT p.* FROM work_manifestation w_m " \
                       "JOIN event_connection e_c ON e_c.work_manifestation_id = w_m.id " \
@@ -101,16 +94,12 @@ def get_work_manifestation_occurrences_for_project(project, manifestation_id):
     return jsonify(occurrences)
 
 
-@workregister.route("/<project>/workregister/work/project/occurrences/<work_id>")
+@workregister.route("/<string:project>/workregister/work/project/occurrences/<int:work_id>")
 @reader_auth_required()
-def get_work_occurrences_by_work(project, work_id):
+def get_work_occurrences_by_work(project: str, work_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/work/project/occurrences/<work_id>")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
-    # Only allow int
-    if str(work_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired work_id not found in database."}), 404
 
     occurrences_sql = """SELECT p.* FROM work_manifestation w_m
                       JOIN event_connection e_c ON e_c.work_manifestation_id = w_m.id
@@ -136,16 +125,12 @@ def get_work_occurrences_by_work(project, work_id):
     return jsonify(occurrences)
 
 
-@workregister.route("/<project>/workregister/publication/manifestations/<publication_id>")
+@workregister.route("/<string:project>/workregister/publication/manifestations/<int:publication_id>")
 @reader_auth_required()
-def get_work_manifestations_for_publication(project, publication_id):
+def get_work_manifestations_for_publication(project: str, publication_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/publication/manifestations/<publication_id>")
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
-    # Only allow int
-    if str(publication_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired publication_id not found in database."}), 404
 
     sql = "SELECT p.* FROM work_manifestation w_m " \
         "JOIN event_connection e_c ON e_c.work_manifestation_id = w_m.id " \
@@ -171,15 +156,11 @@ def get_work_manifestations_for_publication(project, publication_id):
     return jsonify(data)
 
 
-@workregister.route("/<project>/workregister/author/manifestations/<author_id>")
+@workregister.route("/<string:project>/workregister/author/manifestations/<int:author_id>")
 @reader_auth_required()
-def get_work_manifestations_by_author(project, author_id):
+def get_work_manifestations_by_author(project: str, author_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/author/manifestations/<author_id>")
     connection = db_engine.connect()
-    # Only allow int
-    if str(author_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired author_id not found in database."}), 404
 
     sql = "SELECT w_m.*, w_r.project_id FROM work_manifestation w_m "\
         "JOIN event_connection e_c ON e_c.work_manifestation_id = w_m.id "\
@@ -204,15 +185,11 @@ def get_work_manifestations_by_author(project, author_id):
     return jsonify(data)
 
 
-@workregister.route("/<project>/workregister/manifestation/<manifestation_id>")
+@workregister.route("/<string:project>/workregister/manifestation/<int:manifestation_id>")
 @reader_auth_required()
-def get_work_manifestation_metadata(project, manifestation_id):
+def get_work_manifestation_metadata(project: str, manifestation_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/manifestation/<manifestation_id>")
     connection = db_engine.connect()
-    # Only allow int
-    if str(manifestation_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired manifestation_id not found in database."}), 404
 
     sql = """SELECT w_m.* FROM work_manifestation w_m WHERE w_m.id = :manifestation_id AND w_m.deleted = 0 ORDER BY w_m.title"""
 
@@ -230,15 +207,11 @@ def get_work_manifestation_metadata(project, manifestation_id):
     return jsonify(data)
 
 
-@workregister.route("/<project>/workregister/work/manifestations/<work_id>")
+@workregister.route("/<string:project>/workregister/work/manifestations/<int:work_id>")
 @reader_auth_required()
-def get_work_manifestations(project, work_id):
+def get_work_manifestations(project: str, work_id: int) -> ResponseReturnValue:
     logger.info("Getting results for /workregister/work/manifestations/<work_id>")
     connection = db_engine.connect()
-    # Only allow int
-    if str(work_id).isnumeric() is False:
-        connection.close()
-        return jsonify({"msg": "Desired work_id not found in database."}), 404
 
     sql = """SELECT w_m.* FROM work_manifestation w_m WHERE w_m.work_id = :work_id AND w_m.deleted = 0 ORDER BY w_m.title"""
 

@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 import logging
 import os
 from flask import Blueprint, request, Response
@@ -13,10 +14,10 @@ publication_tools = Blueprint("publication_tools", __name__, url_prefix="/digita
 logger = logging.getLogger("sls_api.tools.publications")
 
 
-@publication_tools.route("/<project>/publications/")
-@publication_tools.route("/<project>/publications/<order_by>/<direction>/")
+@publication_tools.route("/<string:project>/publications/")
+@publication_tools.route("/<string:project>/publications/<string:order_by>/<string:direction>/")
 @cms_required()
-def get_publications(project, order_by="id", direction="asc"):
+def get_publications(project: str, order_by: str = 'id', direction: str = 'asc') -> ResponseReturnValue:
     """
     List all (non-deleted) publications for a given project, with optional
     sorting by publication table columns.
@@ -145,9 +146,9 @@ def get_publications(project, order_by="id", direction="asc"):
         return create_error_response("Unexpected error: failed to retrieve publications.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/")
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/")
 @cms_required()
-def get_publication(project, publication_id):
+def get_publication(project: str, publication_id: int) -> ResponseReturnValue:
     """
     Retrieve a single publication for a given project.
 
@@ -222,9 +223,7 @@ def get_publication(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     collection_table = get_table("publication_collection")
@@ -256,9 +255,9 @@ def get_publication(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/versions/")
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/versions/")
 @cms_required()
-def get_publication_versions(project, publication_id):
+def get_publication_versions(project: str, publication_id: int) -> ResponseReturnValue:
     """
     List all (non-deleted) versions (i.e. variants) of the specified
     publication in a given project.
@@ -336,9 +335,7 @@ def get_publication_versions(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     publication_version = get_table("publication_version")
@@ -366,9 +363,9 @@ def get_publication_versions(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication versions.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/manuscripts/")
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/manuscripts/")
 @cms_required()
-def get_publication_manuscripts(project, publication_id):
+def get_publication_manuscripts(project: str, publication_id: int) -> ResponseReturnValue:
     """
     List all (non-deleted) manuscripts of the specified publication in
     a given project.
@@ -447,9 +444,7 @@ def get_publication_manuscripts(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     publication_manuscript = get_table("publication_manuscript")
@@ -477,9 +472,9 @@ def get_publication_manuscripts(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication manuscripts.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/keywords/")
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/keywords/")
 @cms_required()
-def get_publication_keywords(project, publication_id):
+def get_publication_keywords(project: str, publication_id: int) -> ResponseReturnValue:
     """
     List all (non-deleted) keywords for the specified publication. The
     keywords are ordered alphabetically by name.
@@ -564,9 +559,7 @@ def get_publication_keywords(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     tag_table = get_table("tag")
@@ -617,9 +610,9 @@ def get_publication_keywords(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication keywords.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/facsimiles/")
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/facsimiles/")
 @cms_required()
-def get_publication_facsimiles(project, publication_id):
+def get_publication_facsimiles(project: str, publication_id: int) -> ResponseReturnValue:
     """
     List all (non-deleted) fascimiles for the specified publication in
     the given project.
@@ -697,9 +690,7 @@ def get_publication_facsimiles(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     facs_table = get_table("publication_facsimile")
@@ -735,9 +726,9 @@ def get_publication_facsimiles(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication facsimiles.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/comments/")
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/comments/")
 @cms_required()
-def get_publication_comments(project, publication_id):
+def get_publication_comments(project: str, publication_id: int) -> ResponseReturnValue:
     """
     List all (non-deleted) comments of the specified publication
     in a given project. Since only one comment is allowed per publication,
@@ -811,9 +802,7 @@ def get_publication_comments(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     publication_table = get_table("publication")
@@ -847,9 +836,9 @@ def get_publication_comments(project, publication_id):
         return create_error_response("Unexpected error: failed to retrieve publication comments.", 500)
 
 
-@publication_tools.route("/<project>/publication/<publication_id>/link_text/", methods=["POST"])
+@publication_tools.route("/<string:project>/publication/<int:publication_id>/link_text/", methods=["POST"])
 @cms_required(edit=True)
-def link_text_to_publication(project, publication_id):
+def link_text_to_publication(project: str, publication_id: int) -> ResponseReturnValue:
     """
     Create a new comment, manuscript or version for the specified publication
     in the given project. Observe that publications can have only one comment.
@@ -966,9 +955,7 @@ def link_text_to_publication(project, publication_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert publication_id to integer and verify
-    publication_id = int_or_none(publication_id)
-    if not publication_id or publication_id < 1:
+    if publication_id < 1:
         return create_error_response("Validation error: 'publication_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -1110,9 +1097,9 @@ def link_text_to_publication(project, publication_id):
         return create_error_response(f"Unexpected error: failed to create new publication {text_type}.", 500)
 
 
-@publication_tools.route("/<project>/verify-facsimile-file/<collection_id>/<file_nr>/<zoom_level>")
+@publication_tools.route("/<string:project>/verify-facsimile-file/<int:collection_id>/<string:file_nr>/<int:zoom_level>")
 @cms_required()
-def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
+def verify_facsimile_file_exists(project: str, collection_id: int, file_nr: str, zoom_level: int) -> ResponseReturnValue:
     """
     Verify the existence of a single facsimile file or all files in a
     specific facsimile collection in the given project.
@@ -1123,8 +1110,8 @@ def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
       facsimile collection.
     - collection_id (int, required): The ID of the facsimile collection.
       Must be a positive integer.
-    - file_nr (int or str, required): The number of the facsimile file to
-      verify. Must be either a positive integer to verify a single
+    - file_nr (str, required): The number of the facsimile file to
+      verify. Must contain either a positive integer to verify a single
       file, or the fixed string 'all' to verify all image files in the
       facsimile collection.
     - zoom_level (int, required): The zoom level of the facsimile file(s).
@@ -1189,8 +1176,7 @@ def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     if file_nr != "all":
@@ -1198,8 +1184,7 @@ def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
         if not validate_int(file_nr, 1):
             return create_error_response("Validation error: 'file_nr' must be a positive integer or 'all'.")
 
-    zoom_level = int_or_none(zoom_level)
-    if not validate_int(zoom_level, 1, 4):
+    if zoom_level < 1 or zoom_level > 4:
         return create_error_response("Validation error: 'zoom_level' must be an integer with value 1, 2, 3 or 4.")
 
     # Verify facsimile collection exists in database
@@ -1272,9 +1257,9 @@ def verify_facsimile_file_exists(project, collection_id, file_nr, zoom_level):
             return create_success_response("Facsimile file exists.")
 
 
-@publication_tools.route("/<project>/get-single-facsimile-file/<collection_id>/<file_nr>/<zoom_level>")
+@publication_tools.route("/<string:project>/get-single-facsimile-file/<int:collection_id>/<int:file_nr>/<int:zoom_level>")
 @cms_required()
-def get_single_facsimile_file(project, collection_id, file_nr, zoom_level):
+def get_single_facsimile_file(project: str, collection_id: int, file_nr: int, zoom_level: int) -> ResponseReturnValue:
     """
     Retrieve a single facsimile file in a specific facsimile collection
     in the given project. Unlike the public `get_facsimile_file` endpoint
@@ -1341,16 +1326,13 @@ def get_single_facsimile_file(project, collection_id, file_nr, zoom_level):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
-    file_nr = int_or_none(file_nr)
-    if not validate_int(file_nr, 1):
+    if file_nr < 1:
         return create_error_response("Validation error: 'file_nr' must be a positive integer.")
 
-    zoom_level = int_or_none(zoom_level)
-    if not validate_int(zoom_level, 1, 4):
+    if zoom_level < 1 or zoom_level > 4:
         return create_error_response("Validation error: 'zoom_level' must be an integer with value 1, 2, 3 or 4.")
 
     # Verify facsimile collection exists in database

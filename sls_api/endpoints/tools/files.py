@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 import base64
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity
@@ -13,7 +14,7 @@ from werkzeug.security import safe_join
 
 from sls_api.endpoints.generics import cms_required, db_engine, get_project_config, \
     create_error_response, create_success_response, is_any_valid_date_format, \
-    int_or_none, is_valid_language, get_table, get_project_id_from_name
+    is_valid_language, get_table, get_project_id_from_name
 from sls_api.models import User
 
 
@@ -222,9 +223,9 @@ def normalize_toc_key_order(node, *, children_key: str = "children"):
     return node
 
 
-@file_tools.route("/<project>/git-repo-details")
+@file_tools.route("/<string:project>/git-repo-details")
 @cms_required(edit=True)
-def get_git_repo_details(project):
+def get_git_repo_details(project: str) -> ResponseReturnValue:
     """
     Retrieve details of a project's git repository.
 
@@ -303,9 +304,9 @@ def get_git_repo_details(project):
     )
 
 
-@file_tools.route("/<project>/sync_files/", methods=["POST"])
+@file_tools.route("/<string:project>/sync_files/", methods=["POST"])
 @cms_required(edit=True)
-def pull_changes_from_git_remote(project):
+def pull_changes_from_git_remote(project: str) -> ResponseReturnValue:
     """
     Sync the local git repository of a given project with its remote origin.
 
@@ -466,9 +467,9 @@ def git_commit_and_push_file(project, author, message, file_path, force=False):
     return True
 
 
-@file_tools.route("/<project>/update_file/by_path/<path:file_path>", methods=["PUT"])
+@file_tools.route("/<string:project>/update_file/by_path/<path:file_path>", methods=["PUT"])
 @cms_required(edit=True)
-def update_file(project, file_path):
+def update_file(project: str, file_path: str) -> ResponseReturnValue:
     """
     Add new or update existing file in git remote.
 
@@ -610,9 +611,9 @@ def update_file(project, file_path):
     })
 
 
-@file_tools.route("/<project>/get_file/by_path/<path:file_path>")
+@file_tools.route("/<string:project>/get_file/by_path/<path:file_path>")
 @cms_required()
-def get_file(project, file_path):
+def get_file(project: str, file_path: str) -> ResponseReturnValue:
     """
     Get latest file from git remote
     """
@@ -648,10 +649,10 @@ def get_file(project, file_path):
         return jsonify({"msg": "The requested file was not found in the git repository."}), 404
 
 
-@file_tools.route("/<project>/get_tree/")
-@file_tools.route("/<project>/get_tree/<path:file_path>")
+@file_tools.route("/<string:project>/get_tree/")
+@file_tools.route("/<string:project>/get_tree/<path:file_path>")
 @cms_required()
-def get_file_tree(project, file_path=None):
+def get_file_tree(project: str, file_path: str | None = None) -> ResponseReturnValue:
     """
     Retrieve a file tree from the local git repository of a given project.
 
@@ -770,9 +771,9 @@ def get_file_tree(project, file_path=None):
     )
 
 
-@file_tools.route("/<project>/get_metadata_from_xml/by_path/<path:file_path>")
+@file_tools.route("/<string:project>/get_metadata_from_xml/by_path/<path:file_path>")
 @cms_required()
-def get_metadata_from_xml_file(project: str, file_path: str):
+def get_metadata_from_xml_file(project: str, file_path: str) -> ResponseReturnValue:
     """
     Retrieve metadata from a TEI XML file within a given project.
 
@@ -1020,10 +1021,10 @@ def _recurse(path, container):
         _recurse("/".join(tail), container[head])
 
 
-@file_tools.route("/<project>/collection-toc/<collection_id>/<language>", methods=["GET", "PUT"])
-@file_tools.route("/<project>/collection-toc/<collection_id>", methods=["GET", "PUT"])
+@file_tools.route("/<string:project>/collection-toc/<int:collection_id>/<string:language>", methods=["GET", "PUT"])
+@file_tools.route("/<string:project>/collection-toc/<int:collection_id>", methods=["GET", "PUT"])
 @cms_required(edit=True)
-def handle_collection_toc(project, collection_id, language=None):
+def handle_collection_toc(project: str, collection_id: int, language: str | None = None) -> ResponseReturnValue:
     """
     Get or save the table of contents file for the specified collection
     in the specified language and project. This endpoint requires
@@ -1081,8 +1082,7 @@ def handle_collection_toc(project, collection_id, language=None):
         return create_error_response(f"Error: {config_ok[1]}", 500)
 
     # Validate collection_id
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     # Validate language
@@ -1197,10 +1197,10 @@ def handle_collection_toc(project, collection_id, language=None):
         return create_error_response("Error: invalid request method. Only GET and PUT are allowed.")
 
 
-@file_tools.route("/<project>/collection-toc-update-items/<collection_id>/<language>", methods=["POST"])
-@file_tools.route("/<project>/collection-toc-update-items/<collection_id>", methods=["POST"])
+@file_tools.route("/<string:project>/collection-toc-update-items/<int:collection_id>/<string:language>", methods=["POST"])
+@file_tools.route("/<string:project>/collection-toc-update-items/<int:collection_id>", methods=["POST"])
 @cms_required()
-def get_collection_toc_updated_from_db(project, collection_id, language=None):
+def get_collection_toc_updated_from_db(project: str, collection_id: int, language: str | None = None) -> ResponseReturnValue:
     """
     Get an existing table of contents for the specified collection in the
     specified language (optional) and project, with publication names,
@@ -1269,8 +1269,7 @@ def get_collection_toc_updated_from_db(project, collection_id, language=None):
         return create_error_response(f"Error: {config_ok[1]}", 500)
 
     # Validate collection_id
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     # Validate language

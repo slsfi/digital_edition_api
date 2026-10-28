@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify, request
 import logging
 import json
@@ -19,9 +20,9 @@ es_logger.setLevel(logging.INFO)
 
 
 # Freetext search through ElasticSearch API
-@search.route("<project>/search/freetext/<search_text>/<fuzziness>")
+@search.route("<string:project>/search/freetext/<string:search_text>/<string:fuzziness>")
 @reader_auth_required()
-def get_freetext_search(project, search_text, fuzziness=1):
+def get_freetext_search(project: str, search_text: str, fuzziness: str = '1') -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     if len(search_text) > 0:
         es_body = {
@@ -49,9 +50,9 @@ def get_freetext_search(project, search_text, fuzziness=1):
 
 
 # Location search through ElasticSearch API
-@search.route("<project>/search/location/<search_text>/")
+@search.route("<string:project>/search/location/<string:search_text>/")
 @reader_auth_required()
-def get_location_search(project, search_text):
+def get_location_search(project: str, search_text: str) -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
     if len(search_text) > 0:
@@ -89,9 +90,9 @@ def get_location_search(project, search_text):
 
 
 # Subject search through ElasticSearch API
-@search.route("<project>/search/subject/<search_text>/")
+@search.route("<string:project>/search/subject/<string:search_text>/")
 @reader_auth_required()
-def get_subject_search(project, search_text):
+def get_subject_search(project: str, search_text: str) -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
     if len(search_text) > 0:
@@ -128,9 +129,9 @@ def get_subject_search(project, search_text):
 
 
 # Tag search through ElasticSearch API
-@search.route("<project>/search/tag/<search_text>/")
+@search.route("<string:project>/search/tag/<string:search_text>/")
 @reader_auth_required()
-def get_tag_search(project, search_text):
+def get_tag_search(project: str, search_text: str) -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
     if len(search_text) > 0:
@@ -164,9 +165,9 @@ def get_tag_search(project, search_text):
 
 
 # User-defined search through ElasticSearch API
-@search.route("<project>/search/user_defined/<index>/<field>/<search_text>/<fuzziness>/")
+@search.route("<string:project>/search/user_defined/<string:index>/<string:field>/<string:search_text>/<string:fuzziness>/")
 @reader_auth_required()
-def get_user_defined_search(project, index, field, search_text, fuzziness):
+def get_user_defined_search(project: str, index: str, field: str, search_text: str, fuzziness: str) -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     if len(search_text) > 0:
         res = es.search(index=str(index), body={
@@ -174,7 +175,7 @@ def get_user_defined_search(project, index, field, search_text, fuzziness):
             "query": {
                 "bool": {
                     "should": [
-                        {"match": {str(field): {"query": str(search_text), "fuzziness": int(fuzziness)}}}
+                        {"match": {str(field): {"query": str(search_text), "fuzziness": fuzziness}}}
                     ],
                     "minimum_should_match": 1
                 }
@@ -193,9 +194,9 @@ def get_user_defined_search(project, index, field, search_text, fuzziness):
         return jsonify("")
 
 
-@search.route("/<project>/search/suggestions/<search_string>/<limit>")
+@search.route("/<string:project>/search/suggestions/<string:search_string>/<int:limit>")
 @reader_auth_required()
-def get_search_suggestions(project, search_string, limit):
+def get_search_suggestions(project: str, search_string: str, limit: int) -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
     if len(search_string) > 0:
@@ -274,9 +275,9 @@ def get_search_suggestions(project, search_string, limit):
         return jsonify("")
 
 
-@search.route("/<project>/search/all/<search_string>/<limit>")
+@search.route("/<string:project>/search/all/<string:search_string>/<int:limit>")
 @reader_auth_required()
-def get_search_all(project, search_string, limit):
+def get_search_all(project: str, search_string: str, limit: int) -> ResponseReturnValue:
     logger.info("Getting results from elastic")
     project_id = get_project_id_from_name(project)
     if len(search_string) > 0:
@@ -353,9 +354,9 @@ def get_search_all(project, search_string, limit):
         return jsonify("")
 
 
-@search.route("/<project>/search/elastic/<indexes>", methods=["POST"])
+@search.route("/<string:project>/search/elastic/<string:indexes>", methods=["POST"])
 @reader_auth_required()
-def get_search_elastic(project, indexes):
+def get_search_elastic(project: str, indexes: str) -> ResponseReturnValue:
     request_data = request.get_json()
     query = json.dumps(request_data)
     headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
@@ -365,9 +366,9 @@ def get_search_elastic(project, indexes):
     return results
 
 
-@search.route("/<project>/search/mtermvector/<indexes>/<terms>", methods=["POST"])
+@search.route("/<string:project>/search/mtermvector/<string:indexes>/<string:terms>", methods=["POST"])
 @reader_auth_required()
-def get_terms_elastic(project, indexes, terms):
+def get_terms_elastic(project: str, indexes: str, terms: str) -> ResponseReturnValue:
     request_data = request.get_json()
     query = json.dumps(request_data)
     headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}

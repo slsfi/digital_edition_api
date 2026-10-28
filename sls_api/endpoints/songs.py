@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify, Response, request, send_file
 import logging
 import sqlalchemy
@@ -11,9 +12,9 @@ logger = logging.getLogger("sls_api.songs")
 # Song metadata and file functions
 
 
-@songs.route("/<project>/song/<song_id>")
+@songs.route("/<string:project>/song/<string:song_id>")
 @reader_auth_required()
-def get_publication_song(project, song_id):
+def get_publication_song(project: str, song_id: str) -> ResponseReturnValue:
     logger.info("Getting songs /{}/song/{}".format(project, song_id))
     connection = db_engine.connect()
     song_sql = "SELECT \
@@ -45,9 +46,9 @@ def get_publication_song(project, song_id):
         return jsonify(return_data._asdict()), 200
 
 
-@songs.route("/<project>/song/id/<song_id>/")
+@songs.route("/<string:project>/song/id/<int:song_id>/")
 @reader_auth_required()
-def get_song_by_id(project, song_id):
+def get_song_by_id(project: str, song_id: int) -> ResponseReturnValue:
     logger.info("Getting song by id")
     try:
         connection = db_engine.connect()
@@ -63,9 +64,9 @@ def get_song_by_id(project, song_id):
         return Response("Couldn't get song by id.", status=404, content_type="text/json")
 
 
-@songs.route("/<project>/songs/filtered", methods=["GET"])
+@songs.route("/<string:project>/songs/filtered", methods=["GET"])
 @reader_auth_required()
-def get_songs_filtered(project):
+def get_songs_filtered(project: str) -> ResponseReturnValue:
     """
     Filter songs either by subject name, location or category.
     If no filter is provided all songs are returned.
@@ -161,9 +162,9 @@ def get_songs_filtered(project):
         return Response("Couldn't get songs filtered." + str(e), status=404, content_type="text/json")
 
 
-@songs.route("/<project>/song-files/<file_type>/<file_name>/")
+@songs.route("/<string:project>/song-files/<string:file_type>/<string:file_name>/")
 @reader_auth_required()
-def get_song_file(project, file_type, file_name):
+def get_song_file(project: str, file_type: str, file_name: str) -> ResponseReturnValue:
     """
     Retrieve a single file from project root that belongs to a song
     It can be musicxml, midi

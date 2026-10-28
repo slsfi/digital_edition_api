@@ -1,10 +1,11 @@
+from flask.typing import ResponseReturnValue
 from flask import Blueprint, jsonify, request, Response
 import io
 import logging
 import sqlalchemy
 from werkzeug.security import safe_join
 
-from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, reader_auth_required
+from sls_api.endpoints.generics import db_engine, get_project_config, get_project_id_from_name, int_or_none, reader_auth_required
 
 facsimiles = Blueprint('facsimiles', __name__, url_prefix="/digitaledition")
 logger = logging.getLogger("sls_api.facsimiles")
@@ -12,13 +13,15 @@ logger = logging.getLogger("sls_api.facsimiles")
 # Facsimile metadata and file functions
 
 
-@facsimiles.route("/<project>/facsimiles/<publication_id>")
-@facsimiles.route("/<project>/facsimiles/<publication_id>/<section_id>")
+@facsimiles.route("/<string:project>/facsimiles/<int:publication_id>")
+@facsimiles.route("/<string:project>/facsimiles/<int:publication_id>/<string:section_id>")
 @reader_auth_required()
-def get_facsimiles(project, publication_id, section_id=None):
+def get_facsimiles(project: str, publication_id: int, section_id: str | None = None) -> ResponseReturnValue:
+    section_number = int_or_none(section_id.replace("ch", "")) if section_id is not None else None
+    if section_id is not None and section_number is None:
+        return jsonify({"msg": "Invalid section_id."}), 400
+
     config = get_project_config(project)
-    if publication_id is None or str(publication_id) == "undefined":
-        return False, "No such publication_id."
     if config is None:
         return jsonify({"msg": "No such project."}), 400
     else:
@@ -42,16 +45,10 @@ def get_facsimiles(project, publication_id, section_id=None):
 
         sql = " ".join([sql, "ORDER BY f.priority"])
 
-        if '_' in publication_id:
-            pub_id = publication_id.split('_')[1]
-        else:
-            pub_id = publication_id
-
         if section_id is not None:
-            section_id = str(section_id).replace('ch', '')
-            statement = sqlalchemy.sql.text(sql).bindparams(p_id=pub_id, section=section_id)
+            statement = sqlalchemy.sql.text(sql).bindparams(p_id=publication_id, section=section_number)
         else:
-            statement = sqlalchemy.sql.text(sql).bindparams(p_id=pub_id)
+            statement = sqlalchemy.sql.text(sql).bindparams(p_id=publication_id)
 
         result = []
         for row in connection.execute(statement).fetchall():
@@ -88,9 +85,9 @@ def get_facsimiles(project, publication_id, section_id=None):
         return jsonify(return_data), 200
 
 
-@facsimiles.route("/<project>/publication-facsimile-relations/")
+@facsimiles.route("/<string:project>/publication-facsimile-relations/")
 @reader_auth_required()
-def get_project_publication_facsimile_relations(project):
+def get_project_publication_facsimile_relations(project: str) -> ResponseReturnValue:
     logger.info("Getting publication relations for {}".format(project))
     connection = db_engine.connect()
     project_id = get_project_id_from_name(project)
@@ -109,13 +106,20 @@ def get_project_publication_facsimile_relations(project):
     return jsonify(results)
 
 
-@facsimiles.route("/<project>/facsimiles/collections/<facsimile_collection_ids>")
+@facsimiles.route("/<string:project>/facsimiles/collections/<string:facsimile_collection_ids>")
 @reader_auth_required()
-def get_facsimile_collections(project, facsimile_collection_ids):
+def get_facsimile_collections(project: str, facsimile_collection_ids: str) -> ResponseReturnValue:
+    id_parts = facsimile_collection_ids.split(",")
+    if not all(part.isascii() and part.isdecimal() for part in id_parts):
+        return jsonify({"msg": "Invalid facsimile_collection_ids."}), 404
+    collection_ids = tuple(int(part) for part in id_parts)
+
     logger.info("Getting facsimiles /{}/facsimiles/collections/{}".format(project, facsimile_collection_ids))
     connection = db_engine.connect()
     sql = """SELECT * FROM publication_facsimile_collection where deleted != 1 and id in :ids"""
-    statement = sqlalchemy.sql.text(sql).bindparams(ids=tuple(facsimile_collection_ids.split(',')))
+    statement = sqlalchemy.sql.text(sql).bindparams(
+        sqlalchemy.bindparam("ids", value=collection_ids, expanding=True, type_=sqlalchemy.BigInteger())
+    )
     return_data = []
     for row in connection.execute(statement).fetchall():
         if row is not None:
@@ -124,9 +128,9 @@ def get_facsimile_collections(project, facsimile_collection_ids):
     return jsonify(return_data), 200
 
 
-@facsimiles.route("/<project>/facsimiles/<collection_id>/<number>/<zoom_level>")
+@facsimiles.route("/<string:project>/facsimiles/<int:collection_id>/<int:number>/<int:zoom_level>")
 @reader_auth_required()
-def get_facsimile_file(project, collection_id, number, zoom_level):
+def get_facsimile_file(project: str, collection_id: int, number: int, zoom_level: int) -> ResponseReturnValue:
     """
     Retrieve a single facsimile image file from project root
 
@@ -180,13 +184,13 @@ def get_facsimile_file(project, collection_id, number, zoom_level):
                 "msg": "Desired facsimile collection was not found in database!"
             }), 404
         elif row.folder_path != '' and row.folder_path is not None:
-            file_path = safe_join(row.folder_path, collection_id, zoom_level, "{}.jpg".format(int(number)))
+            file_path = safe_join(row.folder_path, str(collection_id), str(zoom_level), "{}.jpg".format(number))
         else:
             file_path = safe_join(config["file_root"],
                                   "facsimiles",
-                                  collection_id,
-                                  zoom_level,
-                                  "{}.jpg".format(int(number)))
+                                  str(collection_id),
+                                  str(zoom_level),
+                                  "{}.jpg".format(number))
         connection.close()
 
         output = io.BytesIO()
@@ -203,26 +207,28 @@ def get_facsimile_file(project, collection_id, number, zoom_level):
             }), 404
 
 
-@facsimiles.route("/<project>/facsimile/page/<col_pub>/")
-@facsimiles.route("/<project>/facsimiles/page/<col_pub>/<section_id>")
+@facsimiles.route("/<string:project>/facsimile/page/<int:collection_id>_<int:publication_id>/")
+@facsimiles.route("/<string:project>/facsimiles/page/<int:collection_id>_<int:publication_id>/<string:section_id>")
 @reader_auth_required()
-def get_facsimile_pages(project, col_pub, section_id=None):
+def get_facsimile_pages(project: str, collection_id: int, publication_id: int, section_id: str | None = None) -> ResponseReturnValue:
     logger.info("Getting facsimile page")
+    section_number = int_or_none(section_id.replace("ch", "")) if section_id is not None else None
+    if section_id is not None and section_number is None:
+        return jsonify({"msg": "Invalid section_id."}), 400
+
     try:
-        pub_id = col_pub.split('_')[1]
         connection = db_engine.connect()
         stmnt = "SELECT pf.*, pf.page_nr as page_number, pfc.number_of_pages, pfc.start_page_number, pfc.id as collection_id\
             FROM publication_facsimile pf\
             JOIN publication_facsimile_collection pfc on pfc.id = pf.publication_facsimile_collection_id\
             WHERE pf.deleted != 1 AND pfc.deleted != 1 AND pf.publication_id = :pub_id"
         if section_id is not None:
-            section_id = str(section_id).replace('ch', '')
             stmnt = " ".join([stmnt, "and pf.section_id = :section"])
             sql = sqlalchemy.sql.text(stmnt)
-            statement = sql.bindparams(pub_id=pub_id, section=section_id)
+            statement = sql.bindparams(pub_id=publication_id, section=section_number)
         else:
             sql = sqlalchemy.sql.text(stmnt)
-            statement = sql.bindparams(pub_id=pub_id)
+            statement = sql.bindparams(pub_id=publication_id)
         result = connection.execute(statement).fetchone()
         if result is not None:
             result = result._asdict()
@@ -233,9 +239,9 @@ def get_facsimile_pages(project, col_pub, section_id=None):
         return Response("Couldn't get facsimile page.", status=404, content_type="text/json")
 
 
-@facsimiles.route("/<project>/<facsimile_type>/page/image/<facs_id>/<facs_nr>")
+@facsimiles.route("/<string:project>/<string:facsimile_type>/page/image/<string:facs_id>/<int:facs_nr>")
 @reader_auth_required()
-def get_facsimile_page_image(project, facsimile_type, facs_id, facs_nr):
+def get_facsimile_page_image(project: str, facsimile_type: str, facs_id: str, facs_nr: int) -> ResponseReturnValue:
     config = get_project_config(project)
     if config is None:
         return jsonify({"msg": "No such project."}), 400
@@ -248,12 +254,12 @@ def get_facsimile_page_image(project, facsimile_type, facs_id, facs_nr):
                                   "facsimiles",
                                   facs_id,
                                   zoom_level,
-                                  "{}.jpg".format(int(facs_nr)))
+                                  "{}.jpg".format(facs_nr))
         elif facsimile_type == 'song-example':
             file_path = safe_join(config["file_root"],
                                   "song-example-images",
                                   facs_id,
-                                  "{}.jpg".format(int(facs_nr)))
+                                  "{}.jpg".format(facs_nr))
         else:
             # TODO placeholder page image file?
             file_path = ""

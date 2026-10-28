@@ -1,3 +1,4 @@
+from flask.typing import ResponseReturnValue
 import logging
 from flask import Blueprint, request
 from sqlalchemy import collate, select, and_, or_, not_
@@ -12,9 +13,9 @@ collection_tools = Blueprint("collection_tools", __name__, url_prefix="/digitale
 logger = logging.getLogger("sls_api.tools.collections")
 
 
-@collection_tools.route("/<project>/facsimile_collection/new/", methods=["POST"])
+@collection_tools.route("/<string:project>/facsimile_collection/new/", methods=["POST"])
 @cms_required(edit=True)
-def create_facsimile_collection(project):
+def create_facsimile_collection(project: str) -> ResponseReturnValue:
     """
     Create a new facsimile collection.
 
@@ -177,9 +178,9 @@ def create_facsimile_collection(project):
         return create_error_response("Unexpected error: failed to create new facsimile collection.", 500)
 
 
-@collection_tools.route("/<project>/facsimile_collection/<collection_id>/edit/", methods=["POST"])
+@collection_tools.route("/<string:project>/facsimile_collection/<int:collection_id>/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_facsimile_collection(project, collection_id):
+def edit_facsimile_collection(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Edit a facsimile collection.
 
@@ -273,9 +274,7 @@ def edit_facsimile_collection(project, collection_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert facsimile collection_id to integer and verify
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -351,10 +350,10 @@ def edit_facsimile_collection(project, collection_id):
         return create_error_response("Unexpected error: failed to update facsimile collection.", 500)
 
 
-@collection_tools.route("/<project>/facsimile_collection/list/")
-@collection_tools.route("/<project>/facsimile_collection/list/<order_by>/<direction>/")
+@collection_tools.route("/<string:project>/facsimile_collection/list/")
+@collection_tools.route("/<string:project>/facsimile_collection/list/<string:order_by>/<string:direction>/")
 @cms_required(edit=True)
-def list_facsimile_collections(project, order_by="id", direction="desc"):
+def list_facsimile_collections(project: str, order_by: str = 'id', direction: str = 'desc') -> ResponseReturnValue:
     """
     List all facsimile collections linked to the specified project and
     all orphan facsimile collections (i.e. not linked to any project),
@@ -562,9 +561,9 @@ def list_facsimile_collections(project, order_by="id", direction="desc"):
         return create_error_response("Unexpected error: failed to retrieve facsimile collections.", 500)
 
 
-@collection_tools.route("/<project>/facsimile_collection/<collection_id>/data/")
+@collection_tools.route("/<string:project>/facsimile_collection/<int:collection_id>/data/")
 @cms_required(edit=True)
-def get_facsimile_collection_data(project, collection_id):
+def get_facsimile_collection_data(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Retrieve a single facsimile collection.
 
@@ -636,9 +635,7 @@ def get_facsimile_collection_data(project, collection_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert facsimile collection_id to integer and verify
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     facs_coll_table = get_table("publication_facsimile_collection")
@@ -664,9 +661,9 @@ def get_facsimile_collection_data(project, collection_id):
     )
 
 
-@collection_tools.route("/<project>/facsimile_collection/<collection_id>/link/", methods=["POST"])
+@collection_tools.route("/<string:project>/facsimile_collection/<int:collection_id>/link/", methods=["POST"])
 @cms_required(edit=True)
-def link_facsimile_collection_to_publication(project, collection_id):
+def link_facsimile_collection_to_publication(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Link a facsimile collection to a publication by creating a
     publication facsimile entry in the `publication_facsimile` table.
@@ -758,9 +755,7 @@ def link_facsimile_collection_to_publication(project, collection_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert collection_id to integer and verify
-    collection_id = int_or_none(collection_id)
-    if collection_id is None or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     # Verify that request data was provided
@@ -851,9 +846,9 @@ def link_facsimile_collection_to_publication(project, collection_id):
         return create_error_response("Unexpected error: failed to create new publication facsimile.", 500)
 
 
-@collection_tools.route("/<project>/facsimile_collection/facsimile/edit/", methods=["POST"])
+@collection_tools.route("/<string:project>/facsimile_collection/facsimile/edit/", methods=["POST"])
 @cms_required(edit=True)
-def edit_facsimile(project):
+def edit_facsimile(project: str) -> ResponseReturnValue:
     """
     Edit a publication facsimile object by updating its fields.
 
@@ -1027,10 +1022,10 @@ def edit_facsimile(project):
         return create_error_response("Unexpected error: failed to update publication facsimile.", 500)
 
 
-@collection_tools.route("/<project>/facsimile_collection/<collection_id>/list_links/")
-@collection_tools.route("/<project>/facsimile_collection/<collection_id>/list_links/<order_by>/<direction>/")
+@collection_tools.route("/<string:project>/facsimile_collection/<int:collection_id>/list_links/")
+@collection_tools.route("/<string:project>/facsimile_collection/<int:collection_id>/list_links/<string:order_by>/<string:direction>/")
 @cms_required(edit=True)
-def list_facsimile_collection_links(project, collection_id, order_by="id", direction="asc"):
+def list_facsimile_collection_links(project: str, collection_id: int, order_by: str = 'id', direction: str = 'asc') -> ResponseReturnValue:
     """
     List all publication facsimile objects in the specified publication
     facsimile collection, with optional sorting by facsimile table columns
@@ -1111,9 +1106,7 @@ def list_facsimile_collection_links(project, collection_id, order_by="id", direc
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert collection_id to integer and verify
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     facsimile_table = get_table("publication_facsimile")
@@ -1168,10 +1161,10 @@ def list_facsimile_collection_links(project, collection_id, order_by="id", direc
         return create_error_response("Unexpected error: failed to retrieve publication facsimiles.", 500)
 
 
-@collection_tools.route("/<project>/publication_collection/list/")
-@collection_tools.route("/<project>/publication_collection/list/<order_by>/<direction>/")
+@collection_tools.route("/<string:project>/publication_collection/list/")
+@collection_tools.route("/<string:project>/publication_collection/list/<string:order_by>/<string:direction>/")
 @cms_required(edit=True)
-def list_publication_collections(project, order_by="id", direction="asc"):
+def list_publication_collections(project: str, order_by: str = 'id', direction: str = 'asc') -> ResponseReturnValue:
     """
     List all (non-deleted) publication collections for a given project,
     with optional sorting by publication collection table columns.
@@ -1316,9 +1309,9 @@ def list_publication_collections(project, order_by="id", direction="asc"):
         return create_error_response("Unexpected error: failed to retrieve publication collections.", 500)
 
 
-@collection_tools.route("/<project>/publication_collection/new/", methods=["POST"])
+@collection_tools.route("/<string:project>/publication_collection/new/", methods=["POST"])
 @cms_required(edit=True)
-def new_publication_collection(project):
+def new_publication_collection(project: str) -> ResponseReturnValue:
     """
     Create a new publication collection in the specified project.
 
@@ -1462,10 +1455,10 @@ def new_publication_collection(project):
         return create_error_response("Unexpected error: failed to create new publication collection.", 500)
 
 
-@collection_tools.route("/<project>/publication_collection/<collection_id>/publications/")
-@collection_tools.route("/<project>/publication_collection/<collection_id>/publications/<order_by>/")
+@collection_tools.route("/<string:project>/publication_collection/<int:collection_id>/publications/")
+@collection_tools.route("/<string:project>/publication_collection/<int:collection_id>/publications/<string:order_by>/")
 @cms_required(edit=True)
-def list_publications(project, collection_id, order_by="id"):
+def list_publications(project: str, collection_id: int, order_by: str = 'id') -> ResponseReturnValue:
     """
     List all (non-deleted) publications within a specific publication
     collection for a given project.
@@ -1548,9 +1541,7 @@ def list_publications(project, collection_id, order_by="id"):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert collection_id to integer and verify
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     collection_table = get_table("publication_collection")
@@ -1600,9 +1591,9 @@ def list_publications(project, collection_id, order_by="id"):
         return create_error_response("Unexpected error: failed to retrieve publications.", 500)
 
 
-@collection_tools.route("/<project>/publication_collection/<collection_id>/publications/new/", methods=["POST"])
+@collection_tools.route("/<string:project>/publication_collection/<int:collection_id>/publications/new/", methods=["POST"])
 @cms_required(edit=True)
-def new_publication(project, collection_id):
+def new_publication(project: str, collection_id: int) -> ResponseReturnValue:
     """
     Create a new publication as part of the specified publication collection.
 
@@ -1701,9 +1692,7 @@ def new_publication(project, collection_id):
     if not project_id:
         return create_error_response("Validation error: 'project' does not exist.")
 
-    # Convert collection_id to integer and verify
-    collection_id = int_or_none(collection_id)
-    if not collection_id or collection_id < 1:
+    if collection_id < 1:
         return create_error_response("Validation error: 'collection_id' must be a positive integer.")
 
     # Verify that request data was provided

@@ -603,8 +603,8 @@ def can_show_published_values(
 
 def get_published_status(
         project: str,
-        collection_id: str,
-        publication_id: Optional[str] = None
+        collection_id: int | str,
+        publication_id: int | str | None = None
 ) -> Tuple[bool, str, Optional[str]]:
     """
     Returns info on if project, publication_collection, and optionally
@@ -1018,7 +1018,7 @@ def get_prerendered_or_transformed_xml_content(
 
 def get_frontmatter_page_content(
         text_type: str,
-        collection_id: str,
+        collection_id: int,
         language: str,
         project: str,
         legacy_collection_id: Optional[str] = None
@@ -1027,7 +1027,7 @@ def get_frontmatter_page_content(
     show_internal = project_config.get("show_internally_published", False)
     version = "int" if show_internal else "ext"
     filename_stem = f"{collection_id}_{text_type}_{language}_{version}"
-    xslt_params = {"bookId": legacy_collection_id or collection_id}
+    xslt_params = {"bookId": str(legacy_collection_id or collection_id)}
 
     return get_prerendered_or_transformed_xml_content(
         text_type=text_type,
