@@ -17,7 +17,7 @@ setup(
         'lxml==6.1.3',
         'passlib==1.7.4',
         'Pillow==13.0.0',
-        'psycopg[binary]==3.3.6',
+        'psycopg2-binary==2.9.13',
         'PyMySQL==1.2.3',
         'ruamel.yaml==0.19.1',
         'requests==2.34.2',
