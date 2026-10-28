@@ -14,16 +14,16 @@ setup(
         'flask-jwt-extended==4.7.4',
         'flask-limiter[redis]==4.1.1',
         'flask-sqlalchemy==3.1.1',
-        'lxml==6.1.2',
+        'lxml==6.1.3',
         'passlib==1.7.4',
-        'Pillow==12.3.0',
-        'psycopg2-binary==2.9.12',
-        'PyMySQL==1.2.0',
+        'Pillow==13.0.0',
+        'psycopg2-binary==2.9.13',
+        'PyMySQL==1.2.3',
         'ruamel.yaml==0.19.1',
         'requests==2.34.2',
-        'saxonche==13.0.0',
-        'sqlalchemy==2.0.52',
+        'saxonche==13.1.1',
+        'sqlalchemy==2.1.6',
         'uwsgi==2.0.31',
-        'werkzeug==3.1.8'
+        'werkzeug==3.1.9'
     ]
 )
