@@ -64,7 +64,9 @@ MISSING_OR_INVALID_LABEL = "Missing or invalid"
 COUNTRY_NAME_MAP = {
     "AD": "Andorra",
     "AL": "Albania",
+    "AR": "Argentina",
     "AT": "Austria",
+    "AU": "Australia",
     "BA": "Bosnia and Herzegovina",
     "BE": "Belgium",
     "BG": "Bulgaria",
@@ -105,6 +107,7 @@ COUNTRY_NAME_MAP = {
     "MT": "Malta",
     "MX": "Mexico",
     "NL": "Netherlands",
+    "NZ": "New Zealand",
     "NO": "Norway",
     "PL": "Poland",
     "PT": "Portugal",
