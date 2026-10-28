@@ -8,7 +8,7 @@ setup(
     install_requires=[
         'argon2-cffi==25.1.0',
         'beautifulsoup4==4.15.0',
-        'elasticsearch==7.17.13',
+        'elasticsearch==9.5.1',
         'flask==3.1.3',
         'flask-cors==6.0.5',
         'flask-jwt-extended==4.7.4',
