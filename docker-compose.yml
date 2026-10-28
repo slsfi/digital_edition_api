@@ -34,7 +34,7 @@ services:
             - ./sls_api/configs:/app/sls_api/configs
         restart: unless-stopped
     redis:
-        image: docker.io/valkey/valkey:8.1.9
+        image: docker.io/valkey/valkey:8.1.11
         volumes:
             - redis:/data
 volumes:
