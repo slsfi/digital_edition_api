@@ -1,5 +1,6 @@
 import io
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from saxonche import PySaxonApiError, PySaxonProcessor, PyXdmNode, PyXdmValue, PyXsltExecutable, PyXslt30Processor
@@ -375,13 +376,14 @@ class SaxonXMLDocument:
 
     def _save_to_file(self, output_filepath: str):
         """
-        Saves the document to the specified output file. The file is
-        guaranteed to end in a newline.
+        Saves the document to the specified output file, creating missing
+        parent directories. The file is guaranteed to end in a newline.
 
         Parameters:
         - output_filepath (str): The file path where the XML document will be
           saved.
         """
+        Path(output_filepath).parent.mkdir(parents=True, exist_ok=True)
         with open(output_filepath, "w", encoding="utf-8") as file:
             content = SaxonXMLDocument._ensure_trailing_newline(self.xml_doc_str)
             file.write(content)

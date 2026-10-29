@@ -3,6 +3,7 @@ from lxml import etree as ET
 import re
 import io
 from io import StringIO
+from pathlib import Path
 from bs4 import BeautifulSoup
 
 # Configuration
@@ -742,7 +743,7 @@ class CTeiDocument:
         return True
 
     # ------------------------------------------------
-    # Saves the xml document to a file
+    # Saves the xml document to a file, creating missing parent directories
     def Save(self, sFileName):
         # Serialize the XML tree to a UTF-8 bytes object with XML declaration
         xml_bytes = ET.tostring(
@@ -758,6 +759,7 @@ class CTeiDocument:
         # matching CRLF style if present
         xml_text = CTeiDocument._ensure_trailing_newline(xml_text)
 
+        Path(sFileName).parent.mkdir(parents=True, exist_ok=True)
         with open(sFileName, "w", encoding="utf-8") as f:
             f.write(xml_text)
 
